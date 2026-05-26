@@ -1,21 +1,18 @@
 import cv2
 import numpy as np
 
+from app.core.logger import get_logger
+
+
+logger = get_logger(__name__)
+
 
 def detect_and_crop_banknotes(image_bytes: bytes):
-    """
-    Detect and crop banknote regions safely.
-
-    Rules:
-    - Use Canny + morphology close to find large rectangular contours.
-    - Only crop a candidate if it is large enough and has a banknote-like ratio.
-    - If no reliable region is found, return the original image bytes.
-    """
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
     if img is None:
-        print("[Crop] Cannot decode image, using original image.")
+        logger.warning("Cannot decode image, using original image.")
         return [image_bytes]
 
     height, width = img.shape[:2]
@@ -23,7 +20,6 @@ def detect_and_crop_banknotes(image_bytes: bytes):
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-
     edges = cv2.Canny(blurred, 40, 150)
 
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
@@ -36,14 +32,11 @@ def detect_and_crop_banknotes(image_bytes: bytes):
     )
 
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
-
     cropped_images = []
 
-    # Only inspect the largest candidates. This avoids cropping coins/noise/text blocks.
     for contour in contours[:3]:
         area = cv2.contourArea(contour)
 
-        # Must occupy at least 12% of the full image.
         if area <= total_area * 0.12:
             continue
 
@@ -54,7 +47,6 @@ def detect_and_crop_banknotes(image_bytes: bytes):
 
         aspect_ratio = float(w) / float(h) if w >= h else float(h) / float(w)
 
-        # Banknotes are usually rectangular and wide. Keep this permissive for folded notes.
         if not (1.0 <= aspect_ratio <= 3.5):
             continue
 
@@ -75,8 +67,8 @@ def detect_and_crop_banknotes(image_bytes: bytes):
             cropped_images.append(buffer.tobytes())
 
     if not cropped_images:
-        print("[Crop] No reliable banknote contour found, using original image.")
+        logger.info("No reliable banknote contour found, using original image.")
         return [image_bytes]
 
-    print(f"[Crop] Detected {len(cropped_images)} banknote candidate(s).")
+    logger.info("Detected %s banknote candidate(s).", len(cropped_images))
     return cropped_images

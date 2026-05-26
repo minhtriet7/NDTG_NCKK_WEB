@@ -1,32 +1,31 @@
-import axios from 'axios';
-
-// Cấu hình URL mặc định
-const API_URL = 'http://localhost:8000/api/v1/auth';
+import api from "./api";
 
 export const authService = {
   login: async (email, password) => {
-    const response = await axios.post(`${API_URL}/login`, {
-      email: email,
-      password: password
-    }, {
-      headers: { 'Content-Type': 'application/json' }
+    return await api.post("/auth/login", {
+      email,
+      password,
     });
-    return response.data;
   },
 
   register: async (full_name, email, password) => {
-    const response = await axios.post(`${API_URL}/register`, {
-      full_name: full_name,
-      email: email,
-      password: password
-    }, {
-      headers: { 'Content-Type': 'application/json' }
+    return await api.post("/auth/register", {
+      full_name,
+      email,
+      password,
     });
-    return response.data;
   },
 
   forgotPassword: async (email) => {
-    const response = await axios.post(`${API_URL}/forgot-password`, { email });
-    return response.data;
-  }
+    return await api.post("/auth/forgot-password", { email });
+  },
+
+  getGoogleLoginUrl: () => {
+    const root =
+      import.meta.env.VITE_API_BASE_URL ||
+      import.meta.env.VITE_API_URL ||
+      "http://localhost:8000";
+
+    return `${root}/api/v1/auth/google/login`;
+  },
 };

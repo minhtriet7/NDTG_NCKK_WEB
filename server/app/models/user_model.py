@@ -3,19 +3,26 @@ from pydantic import EmailStr, Field
 from typing import Optional
 from datetime import datetime, timezone
 
+
 class User(Document):
     email: EmailStr
-    hashed_password: str
+    hashed_password: str = ""
     full_name: str
-    role: str = "user" # Có thể là 'user' hoặc 'admin'
+
+    role: str = "user"  # user, admin
+    provider: str = "local"  # local, google
+
     phone: Optional[str] = None
     country: str = "Vietnam"
-    # Quản lý Token (Mặc định tặng 5 token cho user mới)
-    token_balance: int = 5 
-    
+
+    token_balance: int = 5
+
     is_active: bool = True
     avatar_url: Optional[str] = None
+
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_login_at: Optional[datetime] = None
 
     class Settings:
-        name = "users" # Tên Collection trong MongoDB
+        name = "users"

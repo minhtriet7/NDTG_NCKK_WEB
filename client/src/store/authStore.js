@@ -1,6 +1,6 @@
-import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import axios from 'axios'; // 👈 Bổ sung axios để gọi API
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { getMe } from "../services/userService";
 
 export const useAuthStore = create(
   persist(
@@ -9,54 +9,77 @@ export const useAuthStore = create(
       token: null,
       isAuthenticated: false,
 
-      // Hàm đăng nhập
-      login: (userData, token) => set({ 
-          user: userData, 
-          token: token, 
-          isAuthenticated: true 
-      }),
+      login: (userData, token) =>
+        set({
+          user: userData,
+          token,
+          isAuthenticated: true,
+        }),
 
-      // Hàm đăng xuất
-      logout: () => set({ 
-          user: null, 
-          token: null, 
-          isAuthenticated: false 
-      }),
+      logout: () => {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("token");
 
-      // Cập nhật token balance (dùng khi vừa mua xong chưa kịp F5)
-      updateTokenBalance: (newBalance) => set((state) => ({
-          user: { ...state.user, token_balance: newBalance }
-      })),
+        set({
+          user: null,
+          token: null,
+          isAuthenticated: false,
+        });
+      },
 
-      // 🌟 HÀM MỚI: Đồng bộ thông tin User từ Database
+      updateTokenBalance: (newBalance) =>
+        set((state) => ({
+          user: state.user
+            ? {
+                ...state.user,
+                token_balance: newBalance,
+              }
+            : null,
+        })),
+
+      updateUser: (payload) =>
+        set((state) => ({
+          user: state.user
+            ? {
+                ...state.user,
+                ...payload,
+              }
+            : payload,
+        })),
+
       syncProfile: async () => {
         const { token } = get();
-        if (!token) return; // Nếu chưa đăng nhập thì không gọi
+
+        if (!token) return null;
 
         try {
-          // Gọi API /me đã có sẵn trong user_router.py của bạn
-          const res = await axios.get('http://localhost:8000/api/v1/users/me', {
-            headers: { Authorization: `Bearer ${token}` }
+          const profile = await getMe();
+
+          set({
+            user: profile,
+            isAuthenticated: true,
           });
-          
-          // Đè dữ liệu mới nhất (chứa token_balance thực tế từ DB) vào state
-          set({ 
-            user: res.data,
-            isAuthenticated: true 
-          });
+
+          return profile;
         } catch (error) {
           console.error("Lỗi đồng bộ Profile:", error);
-          
-          // (Tùy chọn) Nếu token hết hạn hoặc lỗi xác thực (401), tự động đăng xuất
-          if (error.response && error.response.status === 401) {
+
+          if (error?.response?.status === 401) {
             get().logout();
           }
+
+          return null;
         }
-      }
+      },
     }),
     {
-      name: 'auth-storage', // Tên key lưu trong trình duyệt
-      storage: createJSONStorage(() => localStorage), // Ép chuẩn định dạng lưu trữ
+      name: "auth-storage",
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        user: state.user,
+        token: state.token,
+        isAuthenticated: state.isAuthenticated,
+      }),
     }
   )
 );

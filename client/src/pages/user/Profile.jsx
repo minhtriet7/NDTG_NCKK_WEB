@@ -78,13 +78,11 @@ function isGoogleUser(profile) {
 function getHasPassword(profile) {
   if (typeof profile?.has_password === "boolean") return profile.has_password;
   if (typeof profile?.hasPassword === "boolean") return profile.hasPassword;
-
   return !isGoogleUser(profile);
 }
 
 function formatDate(value, lang = "EN") {
   if (!value) return "N/A";
-
   try {
     return new Intl.DateTimeFormat(lang === "VI" ? "vi-VN" : "en-US", {
       dateStyle: "medium",
@@ -101,6 +99,14 @@ function formatNumber(value, lang = "EN") {
   );
 }
 
+function normalizeList(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.results)) return data.results;
+  return [];
+}
+
 function normalizeProfile(raw) {
   return {
     id: raw?.id || raw?._id || raw?.user_id || "N/A",
@@ -109,8 +115,8 @@ function normalizeProfile(raw) {
     phone: raw?.phone || raw?.phone_number || "",
     country: raw?.country || "Vietnam",
     avatar_url: raw?.avatar_url || raw?.avatar || "",
-    role: raw?.role || "User",
-    status: raw?.status || "Active",
+    role: raw?.role || "user",
+    status: raw?.status || (raw?.is_active === false ? "Inactive" : "Active"),
     auth_provider: raw?.auth_provider || raw?.provider || "local",
     has_password:
       typeof raw?.has_password === "boolean"
@@ -131,7 +137,6 @@ function updateAuthStoreUser(updatedProfile) {
   try {
     const state = useAuthStore.getState?.();
     if (!state?.user) return;
-
     useAuthStore.setState({
       user: {
         ...state.user,
@@ -139,7 +144,7 @@ function updateAuthStoreUser(updatedProfile) {
       },
     });
   } catch {
-    // Do nothing if store shape is different.
+    // ignore
   }
 }
 
@@ -147,18 +152,11 @@ export default function Profile() {
   const navigate = useNavigate();
   const authStore = useAuthStore();
   const { lang, theme } = useAppStore();
-
   const isDark = theme === "dark";
 
-  const token =
-    authStore?.token ||
-    authStore?.accessToken ||
-    localStorage.getItem("token") ||
-    localStorage.getItem("access_token");
-
   const authUser = authStore?.user;
-
   const [profile, setProfile] = useState(null);
+
   const [form, setForm] = useState({
     full_name: "",
     email: "",
@@ -187,9 +185,6 @@ export default function Profile() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
-  const hasPassword = getHasPassword(profile);
-  const shouldSetPassword = profile && !hasPassword;
-
   const t = {
     EN: {
       title: "Personal Profile",
@@ -199,7 +194,7 @@ export default function Profile() {
       adminDashboard: "Admin Dashboard",
       errorApi: "Profile API Error",
       errorApiDesc:
-        "Displaying cached data. Some actions may not work until the API is fully restored.",
+        "Displaying cached data. Some actions may not work until the API is restored.",
       toastUpdateSuccess: "Profile updated successfully.",
       toastUpdateFail: "Unable to update profile.",
       toastSetPassSuccess:
@@ -214,6 +209,10 @@ export default function Profile() {
       valConfirmPass: "Password confirmation does not match.",
       loadingFailed: "Failed to load profile",
       btnRetry: "Try again",
+      sessionMgmt: "Session Management",
+      sessionDesc: "Sign out of this device and clear your local session.",
+      logout: "Log out",
+      loggingOut: "Logging out...",
     },
     VI: {
       title: "Hồ Sơ Cá Nhân",
@@ -237,14 +236,19 @@ export default function Profile() {
       valConfirmPass: "Xác nhận mật khẩu không khớp.",
       loadingFailed: "Không thể tải hồ sơ",
       btnRetry: "Thử lại",
+      sessionMgmt: "Quản lý phiên đăng nhập",
+      sessionDesc: "Đăng xuất khỏi thiết bị này và xóa phiên cục bộ.",
+      logout: "Đăng xuất",
+      loggingOut: "Đang đăng xuất...",
     },
   };
 
   const text = t[lang || "EN"] || t.EN;
+  const hasPassword = getHasPassword(profile);
+  const shouldSetPassword = profile && !hasPassword;
 
   const isDirty = useMemo(() => {
     if (!profile) return false;
-
     return (
       form.full_name !== (profile.full_name || "") ||
       form.phone !== (profile.phone || "") ||
@@ -257,12 +261,10 @@ export default function Profile() {
     setProfileError("");
 
     try {
-      if (!token) throw new Error("Invalid session. Please log in again.");
-
       const [meData, txData, statsData] = await Promise.all([
-        getMe(token),
-        getMyTransactions(token, 5),
-        getMyScanStats(token),
+        getMe(),
+        getMyTransactions(5),
+        getMyScanStats(),
       ]);
 
       const normalized = normalizeProfile(meData);
@@ -275,11 +277,17 @@ export default function Profile() {
         country: normalized.country || "Vietnam",
       });
 
-      setTransactions(Array.isArray(txData) ? txData : txData?.items || []);
+      setTransactions(normalizeList(txData));
       setScanStats(statsData);
       updateAuthStoreUser(normalized);
     } catch (error) {
-      setProfileError(error.message);
+      const message =
+        error?.response?.data?.detail ||
+        error?.response?.data?.message ||
+        error?.message ||
+        text.loadingFailed;
+
+      setProfileError(message);
 
       if (authUser) {
         const fallback = normalizeProfile(authUser);
@@ -350,7 +358,6 @@ export default function Profile() {
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();
-
     if (!validateProfileForm()) return;
 
     setSavingProfile(true);
@@ -362,8 +369,7 @@ export default function Profile() {
         country: form.country,
       };
 
-      const updated = await updateMe(token, payload);
-
+      const updated = await updateMe(payload);
       const normalized = normalizeProfile({
         ...profile,
         ...updated,
@@ -374,7 +380,12 @@ export default function Profile() {
       updateAuthStoreUser(normalized);
       toast.success(text.toastUpdateSuccess);
     } catch (error) {
-      toast.error(error.message || text.toastUpdateFail);
+      toast.error(
+        error?.response?.data?.detail ||
+          error?.response?.data?.message ||
+          error?.message ||
+          text.toastUpdateFail,
+      );
     } finally {
       setSavingProfile(false);
     }
@@ -382,25 +393,23 @@ export default function Profile() {
 
   const handleSavePassword = async (e) => {
     e.preventDefault();
-
     if (!validatePasswordForm()) return;
 
     setSavingPassword(true);
 
     try {
       if (shouldSetPassword) {
-        await setPassword(token, {
+        await setPassword({
           new_password: passwordForm.new_password,
           confirm_password: passwordForm.confirm_password,
         });
 
         const updatedProfile = { ...profile, has_password: true };
-
         setProfile(updatedProfile);
         updateAuthStoreUser(updatedProfile);
         toast.success(text.toastSetPassSuccess);
       } else {
-        await changePassword(token, {
+        await changePassword({
           current_password: passwordForm.current_password,
           new_password: passwordForm.new_password,
           confirm_password: passwordForm.confirm_password,
@@ -415,7 +424,12 @@ export default function Profile() {
         confirm_password: "",
       });
     } catch (error) {
-      toast.error(error.message || text.toastPassFail);
+      toast.error(
+        error?.response?.data?.detail ||
+          error?.response?.data?.message ||
+          error?.message ||
+          text.toastPassFail,
+      );
     } finally {
       setSavingPassword(false);
     }
@@ -425,7 +439,7 @@ export default function Profile() {
     setLoggingOut(true);
 
     try {
-      if (token) await logoutSession(token);
+      await logoutSession();
     } finally {
       if (typeof authStore?.logout === "function") {
         authStore.logout();
@@ -436,7 +450,6 @@ export default function Profile() {
           accessToken: null,
           isAuthenticated: false,
         });
-
         localStorage.removeItem("token");
         localStorage.removeItem("access_token");
       }
@@ -511,9 +524,7 @@ export default function Profile() {
             )}
 
             <button
-              onClick={() =>
-                navigate("/feedback", { state: { tab: "history" } })
-              }
+              onClick={() => navigate("/feedback", { state: { tab: "history" } })}
               className="w-fit inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-500/10 border border-teal-200 dark:border-teal-500/20 hover:bg-teal-100 dark:hover:bg-teal-500/20 shadow-sm transition-colors"
             >
               <MessageSquare size={16} />
@@ -542,18 +553,12 @@ export default function Profile() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-4 space-y-6">
-            <ProfileSummaryCard
-              profile={profile}
-              initial={initial}
-              lang={lang}
-            />
-
+            <ProfileSummaryCard profile={profile} initial={initial} lang={lang} />
             <TokenCard
               tokenBalance={profile?.token_balance}
               onBuy={() => navigate("/pricing")}
               lang={lang}
             />
-
             <AccountDetailsCard profile={profile} lang={lang} />
           </div>
 
@@ -584,13 +589,12 @@ export default function Profile() {
             <ScanSummaryCard
               stats={scanStats}
               onHistory={() => navigate("/history")}
-              onWorkspace={() => navigate("/workspace")}
+              onWorkspace={() => navigate("/recognize")}
               lang={lang}
             />
 
             <TokenActivityCard transactions={transactions} lang={lang} />
-
-            <SessionCard loggingOut={loggingOut} onLogout={handleLogout} t={t} />
+            <SessionCard loggingOut={loggingOut} onLogout={handleLogout} t={text} />
           </div>
         </div>
       </div>
@@ -677,7 +681,6 @@ function TokenCard({ tokenBalance, onBuy, lang }) {
           <h3 className="font-black text-slate-900 dark:text-slate-50">
             {isVI ? "Số dư Token" : "Token Balance"}
           </h3>
-
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             {isVI ? "Chi phí: 1 token / ảnh" : "Cost: 1 token / scan"}
           </p>
@@ -717,24 +720,9 @@ function AccountDetailsCard({ profile, lang }) {
       </h3>
 
       <div className="space-y-3">
-        <DetailRow
-          icon={<User size={17} />}
-          label="Account ID"
-          value={profile?.id}
-        />
-
-        <DetailRow
-          icon={<ShieldCheck size={17} />}
-          label={isVI ? "Vai trò" : "Role"}
-          value={profile?.role}
-        />
-
-        <DetailRow
-          icon={<BadgeCheck size={17} />}
-          label={isVI ? "Trạng thái" : "Status"}
-          value={profile?.status || "Active"}
-        />
-
+        <DetailRow icon={<User size={17} />} label="Account ID" value={profile?.id} />
+        <DetailRow icon={<ShieldCheck size={17} />} label={isVI ? "Vai trò" : "Role"} value={profile?.role} />
+        <DetailRow icon={<BadgeCheck size={17} />} label={isVI ? "Trạng thái" : "Status"} value={profile?.status || "Active"} />
         <DetailRow
           icon={<Lock size={17} />}
           label={isVI ? "Mật khẩu" : "Password"}
@@ -765,7 +753,6 @@ function PersonalInfoCard({ form, saving, isDirty, onChange, onSubmit, lang }) {
         <h2 className="text-xl font-black text-slate-900 dark:text-slate-50">
           {isVI ? "Thông tin cá nhân" : "Personal Information"}
         </h2>
-
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
           {isVI
             ? "Cập nhật tên, số điện thoại và quốc gia của bạn."
@@ -774,10 +761,7 @@ function PersonalInfoCard({ form, saving, isDirty, onChange, onSubmit, lang }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <FormField
-          label={isVI ? "Họ và tên" : "Full Name"}
-          icon={<User size={17} />}
-        >
+        <FormField label={isVI ? "Họ và tên" : "Full Name"} icon={<User size={17} />}>
           <input
             value={form.full_name}
             onChange={(e) => onChange("full_name", e.target.value)}
@@ -786,10 +770,7 @@ function PersonalInfoCard({ form, saving, isDirty, onChange, onSubmit, lang }) {
           />
         </FormField>
 
-        <FormField
-          label={isVI ? "Email (không thể đổi)" : "Email (cannot be changed)"}
-          icon={<Mail size={17} />}
-        >
+        <FormField label={isVI ? "Email (không thể đổi)" : "Email (cannot be changed)"} icon={<Mail size={17} />}>
           <input
             value={form.email}
             disabled
@@ -797,10 +778,7 @@ function PersonalInfoCard({ form, saving, isDirty, onChange, onSubmit, lang }) {
           />
         </FormField>
 
-        <FormField
-          label={isVI ? "Số điện thoại" : "Phone Number"}
-          icon={<Phone size={17} />}
-        >
+        <FormField label={isVI ? "Số điện thoại" : "Phone Number"} icon={<Phone size={17} />}>
           <input
             value={form.phone}
             onChange={(e) => onChange("phone", e.target.value)}
@@ -809,10 +787,7 @@ function PersonalInfoCard({ form, saving, isDirty, onChange, onSubmit, lang }) {
           />
         </FormField>
 
-        <FormField
-          label={isVI ? "Quốc gia" : "Country"}
-          icon={<Globe2 size={17} />}
-        >
+        <FormField label={isVI ? "Quốc gia" : "Country"} icon={<Globe2 size={17} />}>
           <select
             value={form.country}
             onChange={(e) => onChange("country", e.target.value)}
@@ -833,12 +808,7 @@ function PersonalInfoCard({ form, saving, isDirty, onChange, onSubmit, lang }) {
           disabled={saving || !isDirty}
           className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-teal-600 text-white font-bold hover:bg-teal-700 disabled:opacity-50 transition-colors"
         >
-          {saving ? (
-            <Loader2 size={18} className="animate-spin" />
-          ) : (
-            <Save size={18} />
-          )}
-
+          {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
           {saving
             ? isVI
               ? "Đang lưu..."
@@ -853,7 +823,6 @@ function PersonalInfoCard({ form, saving, isDirty, onChange, onSubmit, lang }) {
 }
 
 function PasswordCard({
-  profile,
   shouldSetPassword,
   form,
   showPassword,
@@ -885,15 +854,14 @@ function PasswordCard({
                 ? "Đổi mật khẩu"
                 : "Change Password"}
           </h2>
-
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             {shouldSetPassword
               ? isVI
-                ? "Tài khoản của bạn đang đăng nhập bằng Google. Bạn có thể đặt mật khẩu để đăng nhập trực tiếp bằng email."
-                : "You logged in via Google OAuth. Set a password to login manually next time."
+                ? "Tài khoản Google có thể đặt thêm mật khẩu để đăng nhập bằng email."
+                : "Google accounts can set a password for direct email login."
               : isVI
                 ? "Cập nhật mật khẩu đăng nhập email của bạn."
-                : "Update your email login password to secure your account."}
+                : "Update your email login password."}
           </p>
         </div>
       </div>
@@ -906,9 +874,7 @@ function PasswordCard({
             visible={showPassword.current}
             onToggle={() => onToggle("current")}
             onChange={(value) => onChange("current_password", value)}
-            placeholder={
-              isVI ? "Nhập mật khẩu hiện tại" : "Enter current password"
-            }
+            placeholder={isVI ? "Nhập mật khẩu hiện tại" : "Enter current password"}
           />
         )}
 
@@ -936,12 +902,7 @@ function PasswordCard({
             disabled={saving}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 transition-colors"
           >
-            {saving ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <KeyRound size={18} />
-            )}
-
+            {saving ? <Loader2 size={18} className="animate-spin" /> : <KeyRound size={18} />}
             {saving
               ? isVI
                 ? "Đang xử lý..."
@@ -971,7 +932,6 @@ function ScanSummaryCard({ stats, onHistory, onWorkspace, lang }) {
           <h2 className="text-xl font-black text-slate-900 dark:text-slate-50">
             {isVI ? "Tổng quan quét" : "Scan Overview"}
           </h2>
-
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             {isVI
               ? "Thống kê nhận diện tiền của tài khoản."
@@ -986,43 +946,26 @@ function ScanSummaryCard({ stats, onHistory, onWorkspace, lang }) {
 
       {hasStats ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatBox
-            label={isVI ? "Tổng lượt quét" : "Total Scans"}
-            value={stats.total_scans || 0}
-          />
-
-          <StatBox
-            label={isVI ? "Hoàn tất" : "Completed"}
-            value={stats.completed || 0}
-          />
-
-          <StatBox
-            label={isVI ? "Cần xem lại" : "Needs Review"}
-            value={stats.needs_review || 0}
-          />
-
-          <StatBox
-            label={isVI ? "Lần cuối" : "Last Scan"}
-            value={formatDate(stats.last_scan_at, lang)}
-          />
+          <StatBox label={isVI ? "Tổng lượt quét" : "Total Scans"} value={stats.total_scans || 0} />
+          <StatBox label={isVI ? "Hoàn tất" : "Completed"} value={stats.completed || 0} />
+          <StatBox label={isVI ? "Cần xem lại" : "Needs Review"} value={stats.needs_review || 0} />
+          <StatBox label={isVI ? "Lần cuối" : "Last Scan"} value={formatDate(stats.last_scan_at, lang)} />
         </div>
       ) : (
         <div className="bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-2xl p-6 text-center transition-colors">
           <p className="font-bold text-slate-900 dark:text-slate-100">
             {isVI ? "Chưa có thống kê quét" : "No Scan Data Yet"}
           </p>
-
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             {isVI
               ? "Khi bạn quét tiền, thống kê sẽ hiển thị tại đây."
               : "Your scan statistics will appear here."}
           </p>
-
           <button
             onClick={onWorkspace}
             className="mt-4 px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-teal-600 text-white font-bold hover:bg-slate-800 dark:hover:bg-teal-500 transition-colors"
           >
-            {isVI ? "Vào Workspace" : "Go to Workspace"}
+            {isVI ? "Vào trang nhận diện" : "Go to Scanner"}
           </button>
         </div>
       )}
@@ -1054,7 +997,6 @@ function TokenActivityCard({ transactions, lang }) {
           <h2 className="text-xl font-black text-slate-900 dark:text-slate-50">
             {isVI ? "Giao dịch token gần đây" : "Recent Token Transactions"}
           </h2>
-
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             {isVI
               ? "Lịch sử nạp và sử dụng token."
@@ -1065,15 +1007,10 @@ function TokenActivityCard({ transactions, lang }) {
 
       {!transactions || transactions.length === 0 ? (
         <div className="bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 rounded-2xl p-8 text-center transition-colors">
-          <Clock
-            className="mx-auto text-slate-300 dark:text-slate-600 mb-3"
-            size={36}
-          />
-
+          <Clock className="mx-auto text-slate-300 dark:text-slate-600 mb-3" size={36} />
           <p className="font-bold text-slate-900 dark:text-slate-100">
             {isVI ? "Chưa có giao dịch token" : "No Token Transactions Yet"}
           </p>
-
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             {isVI
               ? "Giao dịch nạp token sẽ hiển thị tại đây."
@@ -1098,18 +1035,13 @@ function TokenActivityCard({ transactions, lang }) {
                   key={item.id || item._id || index}
                   className="border-b border-slate-50 dark:border-slate-800/50"
                 >
-                  <td className="py-4 pr-4">
-                    {formatDate(item.created_at, lang)}
-                  </td>
-
+                  <td className="py-4 pr-4">{formatDate(item.created_at, lang)}</td>
                   <td className="py-4 pr-4 font-semibold text-slate-900 dark:text-slate-100 uppercase">
-                    {item.payment_gateway || "Recharge"}
+                    {item.payment_gateway || item.gateway || "Recharge"}
                   </td>
-
                   <td className="py-4 pr-4 font-bold text-teal-700 dark:text-teal-400">
                     +{item.tokens_added || item.tokens || 0}
                   </td>
-
                   <td className="py-4 pr-4">
                     <Badge tone="success">{item.status || "Paid"}</Badge>
                   </td>
@@ -1122,9 +1054,7 @@ function TokenActivityCard({ transactions, lang }) {
     </div>
   );
 }
-{/* ========================================= */}
-        {/* 🌟 KHU VỰC HEADER (SỬA Ở ĐÂY) */}
-        {/* ========================================= */}
+
 function SessionCard({ loggingOut, onLogout, t }) {
   return (
     <div className="bg-white dark:bg-slate-900 border border-rose-100 dark:border-rose-900/50 rounded-3xl p-6 md:p-7 shadow-sm transition-colors">
@@ -1143,12 +1073,7 @@ function SessionCard({ loggingOut, onLogout, t }) {
           disabled={loggingOut}
           className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-rose-50 dark:bg-rose-900/30 border border-rose-200 dark:border-rose-800/50 text-rose-600 dark:text-rose-400 font-bold hover:bg-rose-100 dark:hover:bg-rose-900/50 disabled:opacity-50 transition-colors"
         >
-          {loggingOut ? (
-            <Loader2 size={18} className="animate-spin" />
-          ) : (
-            <LogOut size={18} />
-          )}
-
+          {loggingOut ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
           {loggingOut ? t.loggingOut : t.logout}
         </button>
       </div>
@@ -1163,20 +1088,12 @@ function FormField({ label, icon, children }) {
         <span className="text-slate-400 dark:text-slate-500">{icon}</span>
         {label}
       </div>
-
       {children}
     </label>
   );
 }
 
-function PasswordInput({
-  label,
-  value,
-  visible,
-  onToggle,
-  onChange,
-  placeholder,
-}) {
+function PasswordInput({ label, value, visible, onToggle, onChange, placeholder }) {
   return (
     <label className="block">
       <span className="text-sm font-bold text-slate-700 dark:text-slate-300 transition-colors">
@@ -1207,7 +1124,6 @@ function PasswordInput({
 function Badge({ children, tone = "default" }) {
   const base =
     "px-2.5 py-1 rounded-lg border text-[11px] font-bold tracking-wider uppercase flex items-center gap-1 w-fit transition-colors";
-
   const tones = {
     default:
       "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
@@ -1216,7 +1132,7 @@ function Badge({ children, tone = "default" }) {
   };
 
   return (
-    <span className={`${base} ${tones[tone]}`}>
+    <span className={`${base} ${tones[tone] || tones.default}`}>
       {tone === "success" && <CheckCircle2 size={13} />}
       {children}
     </span>
@@ -1229,7 +1145,6 @@ function StatBox({ label, value }) {
       <p className="text-[11px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">
         {label}
       </p>
-
       <p className="text-lg font-black text-slate-900 dark:text-slate-100 mt-2">
         {value}
       </p>
@@ -1243,7 +1158,6 @@ function SmallDetail({ label, value }) {
       <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">
         {label}
       </p>
-
       <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">
         {value}
       </p>
@@ -1253,14 +1167,13 @@ function SmallDetail({ label, value }) {
 
 function DetailRow({ icon, label, value }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-slate-50 dark:border-slate-800/50 last:border-0 transition-colors">
+    <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800">
       <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
         {icon}
-        <span className="text-sm font-medium">{label}</span>
+        <span className="text-sm font-bold">{label}</span>
       </div>
-
-      <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
-        {value}
+      <span className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[180px]">
+        {value || "N/A"}
       </span>
     </div>
   );
@@ -1268,22 +1181,17 @@ function DetailRow({ icon, label, value }) {
 
 function ProfileSkeleton() {
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 md:p-8 transition-colors duration-300">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <div>
-          <div className="h-9 w-64 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse" />
-          <div className="h-5 w-96 bg-slate-200 dark:bg-slate-800 rounded-xl animate-pulse mt-3" />
-        </div>
-
+    <div className="min-h-screen p-4 md:p-8 bg-slate-50 dark:bg-slate-950">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <div className="h-24 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 animate-pulse" />
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-4 space-y-6">
-            <div className="h-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl animate-pulse" />
-            <div className="h-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl animate-pulse" />
+            <div className="h-80 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 animate-pulse" />
+            <div className="h-52 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 animate-pulse" />
           </div>
-
           <div className="lg:col-span-8 space-y-6">
-            <div className="h-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl animate-pulse" />
-            <div className="h-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl animate-pulse" />
+            <div className="h-96 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 animate-pulse" />
+            <div className="h-80 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 animate-pulse" />
           </div>
         </div>
       </div>

@@ -397,7 +397,7 @@ export default function Feedback() {
       const data = await getFeedbackHistory();
       setHistory(Array.isArray(data) ? data : data?.items || data?.data || []);
     } catch (error) {
-      toast.error(error?.message || t.errorLoad);
+      toast.error(error?.response?.data?.detail || error?.response?.data?.message || error?.message || t.errorLoad);
     } finally {
       setIsFetchingHistory(false);
     }
@@ -464,9 +464,13 @@ export default function Feedback() {
     try {
       const payload = {
         feedback_type: formData.feedback_type,
+        priority: formData.priority || "medium",
+        rating: formData.rating ? Number(formData.rating) : null,
+        subject: formData.subject,
         message: buildBackendMessage(),
         related_result_id: formData.related_result_id || null,
-        attached_image_url: null,
+        related_transaction_id: null,
+        attached_image_url: scanResult ? getScanImage(scanResult) || null : null,
       };
 
       await submitFeedback(payload);
@@ -485,7 +489,7 @@ export default function Feedback() {
         setActiveTab("history");
       }, 1200);
     } catch (error) {
-      toast.error(error?.message || t.errorSubmit);
+      toast.error(error?.response?.data?.detail || error?.response?.data?.message || error?.message || t.errorSubmit);
     } finally {
       setIsLoading(false);
     }

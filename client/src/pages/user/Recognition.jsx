@@ -1,6 +1,6 @@
 import React, { useState, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import axios from "axios";
+import { startRecognitionTask } from "../../services/recognitionService";
 import toast from "react-hot-toast";
 
 import { useAuthStore } from "../../store/authStore";
@@ -179,9 +179,18 @@ export default function Recognition() {
     clearScanSession();
   };
 
-  const handleFileSelect = (e) => {
-    processFile(e.target.files?.[0]);
-  };
+  const handleFileSelect = (file) => {
+  if (!file) return;
+
+  if (previewUrl && previewUrl.startsWith("blob:")) {
+    URL.revokeObjectURL(previewUrl);
+  }
+
+  const nextPreviewUrl = URL.createObjectURL(file);
+
+  setSelectedFile(file);
+  setPreviewUrl(nextPreviewUrl);
+};
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -214,75 +223,36 @@ export default function Recognition() {
     }
   };
 
-  const handleAnalyze = async () => {
-    if (hasExistingSession) {
-      navigate("/result", {
-        state: {
-          scanSession: currentScanSession,
-        },
-      });
-      return;
-    }
+const handleAnalyze = async () => {
+  if (!selectedFile) {
+    toast.error(t.errorSelect);
+    return;
+  }
 
-    if (!selectedFile) {
-      toast.error(t.errorSelect);
-      return;
-    }
+  if (!hasEnoughTokens) {
+    toast.error(t.errNoToken);
+    return;
+  }
 
-    if (!hasEnoughTokens) {
-      toast.error(t.errNoToken);
-      return;
-    }
+  if (selectedFile.size > 5 * 1024 * 1024) {
+    toast.error(t.errorSize);
+    return;
+  }
 
-    setIsAnalyzing(true);
+  setIsAnalyzing(true);
 
-    const formData = new FormData();
-    formData.append("file", selectedFile);
-
-    try {
-      const res = await axios.post(
-        "http://localhost:8000/api/v1/recognition/scan",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      const session = {
+  try {
+    navigate("/processing", {
+      state: {
+        imageFile: selectedFile,
         previewUrl,
-        fileName: selectedFileMeta?.name || selectedFile?.name,
-        result: res.data,
-      };
-
-      setScanSession(session);
-
-      if (user) {
-        useAuthStore.setState({
-          user: {
-            ...user,
-            token_balance: Math.max(0, Number(user.token_balance || 0) - 1),
-          },
-        });
-      }
-
-      toast.success("Analysis complete.");
-
-      navigate("/result", {
-        state: {
-          scanSession: session,
-        },
-      });
-    } catch (error) {
-      console.error("SCAN API ERROR:", error);
-      const errorMsg = error.response?.data?.detail || t.errorAPI;
-      toast.error(errorMsg);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
+        fileMeta: selectedFileMeta,
+      },
+    });
+  } finally {
+    setIsAnalyzing(false);
+  }
+};
 
   const canAnalyze =
     !isAnalyzing && ((selectedFile && hasEnoughTokens) || hasExistingSession);

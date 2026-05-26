@@ -1,375 +1,717 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import {
   ScanLine,
-  Zap,
-  Layers3,
-  ShieldCheck,
-  ChevronRight,
   Cpu,
   BotMessageSquare,
   SearchCheck,
   GitMerge,
-  DatabaseZap,
-  Activity,
-  CodeXml,
+  ChevronRight,
+  Layers3,
+  FileJson,
+  History,
+  Coins,
+  ArrowLeftRight,
+  BookOpen,
+  MessageSquareDiff,
+  Zap,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
-
-import Header from "../../components/layout/Header";
 import { useAppStore } from "../../store/appStore";
 import { useAuthStore } from "../../store/authStore";
 
-// ==========================================
-// COMPONENT: MÔ PHỎNG WORKSPACE
-// ==========================================
-const HeroVisualMockup = ({ isDark }) => (
-  <div
-    className={`relative border shadow-2xl rounded-3xl p-8 transition-transform hover:scale-[1.01] ${isDark ? "bg-slate-900 border-slate-800 shadow-slate-900/50" : "bg-white border-slate-200 shadow-slate-200/50"}`}
-  >
-    <div className="absolute -inset-10 bg-teal-400/10 blur-3xl rounded-full -z-10" />
-    <div
-      className={`flex items-center justify-between pb-6 border-b mb-6 ${isDark ? "border-slate-800" : "border-slate-100"}`}
-    >
-      <div className="flex items-center gap-x-3">
-        <Layers3 className="w-7 h-7 text-[#009688]" />
-        <div>
-          <h4
-            className={`text-lg font-bold ${isDark ? "text-white" : "text-slate-950"}`}
-          >
-            BanknoteAI Workspace
-          </h4>
-          <p className="text-xs text-slate-500 font-medium">
-            Multi-Agent Engine - LIVE
-          </p>
-        </div>
-      </div>
-      <span
-        className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-x-1.5 border ${isDark ? "bg-teal-900/30 border-teal-800 text-teal-400" : "bg-teal-50 border-teal-100 text-[#009688]"}`}
-      >
-        <Zap className="w-4 h-4 animate-pulse" /> Processing
-      </span>
-    </div>
+// ─── CONSTANTS ──────────────────────────────────────────────────────────────
+const SCAN_ROUTE = "/workspace";
 
-    <div className="grid md:grid-cols-3 gap-8">
-      {/* Khối Upload */}
-      <div
-        className={`md:col-span-1 flex flex-col gap-y-6 border p-6 rounded-xl ${isDark ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-100"}`}
-      >
-        <div
-          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${isDark ? "border-slate-600 text-slate-400 hover:border-[#009688] hover:text-[#009688]" : "border-slate-300 text-slate-600 hover:border-[#009688] hover:text-[#009688]"}`}
-        >
-          <ScanLine className="w-12 h-12 mx-auto mb-3" />
-          <span className="text-sm font-bold block">Upload Note</span>
-        </div>
-        <div className="space-y-3">
-          <h5
-            className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"}`}
-          >
-            Consensus Status
-          </h5>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></div>
-            <span className="text-xs text-slate-500">
-              Aggregating 3 outputs...
-            </span>
-          </div>
-        </div>
-      </div>
+// ─── BILINGUAL CONTENT ───────────────────────────────────────────────────────
+const CONTENT = {
+  EN: {
+    // Hero
+    heroBadge: "Multi-Agent Banknote Analysis",
+    heroTitle: "Identify Southeast Asian Banknotes with Multi-Agent Analysis",
+    heroSubtitle:
+      "Upload a banknote image and compare results from visual recognition, language reasoning, and visual search before generating a structured result.",
+    heroCta: "Start Scan",
+    heroCtaSub: "View Supported Banknotes",
+    heroTokenLabel: "Token Balance",
+    heroTokenUnit: "tokens",
+    heroPill1: "3-Agent Verification",
+    heroPill2: "JSON Output",
+    heroPill3: "Majority Voting",
+    mockTitle: "BanknoteAI Workspace",
+    mockSub: "Multi-Agent Engine",
+    mockUpload: "Upload Banknote Image",
+    mockUploadSub: "JPG, PNG, WEBP supported",
+    mockAgent1: "ML/DL Agent",
+    mockAgent2: "LLM Agent",
+    mockAgent3: "Visual Search",
+    mockAgg: "Aggregator Decision",
+    mockAggSub: "Majority vote in progress...",
+    mockJson: "Structured output",
+    mockPending: "Pending",
+    mockConsensus: "Consensus",
+    // Stats
+    statsTitle: "System Capabilities",
+    stats: [
+      { value: "SEA Focus", label: "Supported Region" },
+      { value: "3 Agents", label: "Analysis Pipeline" },
+      { value: "JSON", label: "Output Format" },
+      { value: "1 Token", label: "Cost per Scan" },
+    ],
+    // How it works
+    howTitle: "How It Works",
+    howSub:
+      "Four clear steps from image upload to a structured, consensus-based result.",
+    steps: [
+      {
+        num: "01",
+        title: "Upload banknote image",
+        desc: "Drag and drop or select a photo of any Southeast Asian banknote.",
+      },
+      {
+        num: "02",
+        title: "Agents analyze independently",
+        desc: "ML/DL model, LLM API, and Visual Search each produce their own result in parallel.",
+      },
+      {
+        num: "03",
+        title: "Aggregator compares results",
+        desc: "Majority voting determines the final answer; conflicts are flagged for review.",
+      },
+      {
+        num: "04",
+        title: "Review result and export JSON",
+        desc: "View denomination, country, material, consensus status, and download structured data.",
+      },
+    ],
+    // Agents
+    agentsTitle: "The Agent System",
+    agentsSub:
+      "Each agent operates independently. The aggregator decides the final result.",
+    agents: [
+      {
+        label: "Agent 1",
+        name: "ML / DL Model",
+        desc: "Detects visual patterns, denomination clues, and cropped banknote regions.",
+        accent: "teal",
+      },
+      {
+        label: "Agent 2",
+        name: "LLM API",
+        desc: "Reads visible text and reasons over country, currency, material, and description.",
+        accent: "violet",
+      },
+      {
+        label: "Agent 3",
+        name: "Visual Search",
+        desc: "Compares the uploaded image with external visual references when available.",
+        accent: "blue",
+      },
+      {
+        label: "Aggregator",
+        name: "Majority Voting",
+        desc: "Applies majority voting and marks conflicts when results do not agree.",
+        accent: "amber",
+      },
+    ],
+    // Result Preview
+    resultTitle: "Sample Output",
+    resultSub:
+      "The final result includes denomination, origin, material, consensus status, and a structured JSON export.",
+    resultNote: "Example preview only",
+    resultDenom: "Denomination",
+    resultCountry: "Country",
+    resultMaterial: "Material",
+    resultConsensus: "Consensus",
+    resultStatus: "Status",
+    resultCompleted: "Completed",
+    // Features
+    featTitle: "Everything You Need",
+    featSub: "Tools built around the recognition workflow.",
+    features: [
+      {
+        icon: History,
+        label: "Scan History",
+        desc: "Review all your past scans and re-export results.",
+        link: "/history",
+        linkLabel: "View History",
+      },
+      {
+        icon: FileJson,
+        label: "JSON Export",
+        desc: "Download structured results for integration or record-keeping.",
+        link: SCAN_ROUTE,
+        linkLabel: "Try a Scan",
+      },
+      {
+        icon: Coins,
+        label: "Token-Based Usage",
+        desc: "Each scan costs 1 token. Buy only what you need.",
+        link: "/pricing",
+        linkLabel: "See Pricing",
+      },
+      {
+        icon: ArrowLeftRight,
+        label: "Currency Exchange",
+        desc: "Convert detected denomination values using live rates.",
+        link: "/exchange",
+        linkLabel: "Open Exchange",
+      },
+      {
+        icon: BookOpen,
+        label: "Banknote Directory",
+        desc: "Browse the catalogue of supported Southeast Asian banknotes.",
+        link: "/directory",
+        linkLabel: "Browse Directory",
+      },
+      {
+        icon: MessageSquareDiff,
+        label: "Feedback & Reports",
+        desc: "Flag incorrect results or suggest improvements.",
+        link: "/feedback",
+        linkLabel: "Send Feedback",
+      },
+    ],
+    // SEA Section
+    seaTitle: "Southeast Asia Focus",
+    seaSub:
+      "Optimised for the currencies most commonly encountered across the region.",
+    currencies: [
+      "Vietnam · VND",
+      "Thailand · THB",
+      "Malaysia · MYR",
+      "Singapore · SGD",
+      "Indonesia · IDR",
+      "Philippines · PHP",
+      "Cambodia · KHR",
+      "Laos · LAK",
+      "Myanmar · MMK",
+      "Brunei · BND",
+    ],
+    // Final CTA
+    ctaTitle: "Ready to analyze a banknote?",
+    ctaSub:
+      "Upload an image and get a structured result in seconds — no setup required.",
+    ctaMain: "Start Scan",
+    ctaSecond: "Buy Tokens",
+  },
 
-      {/* Khối Kết quả (Mô phỏng kiến trúc mới) */}
-      <div className="md:col-span-2 grid grid-cols-2 gap-6">
-        <div
-          className={`p-5 rounded-xl border shadow-sm col-span-2 flex items-center gap-x-4 ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}
-        >
-          <div
-            className={`p-3 rounded-lg border flex flex-col items-center justify-center gap-1 w-20 ${isDark ? "bg-teal-900/30 border-teal-800 text-teal-400" : "bg-teal-50 border-teal-100 text-[#009688]"}`}
-          >
-            <span className="text-xs font-bold border-b border-teal-200/50 pb-1 w-full text-center">
-              ML/DL
-            </span>
-            <span className="text-xs font-bold border-b border-teal-200/50 pb-1 w-full text-center">
-              LLM
-            </span>
-            <span className="text-xs font-bold">Lens</span>
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">
-              Majority Consensus
-            </p>
-            <h3
-              className={`text-xl md:text-2xl font-black tracking-tight mt-1 ${isDark ? "text-teal-400" : "text-[#009688]"}`}
-            >
-              Consistent Results
-            </h3>
-            <p className="text-xs text-slate-500 mt-1 font-medium">
-              3/3 Agents agree on data.
-            </p>
-          </div>
-        </div>
+  VI: {
+    heroBadge: "Phân tích tiền giấy đa tác tử",
+    heroTitle: "Nhận diện tiền giấy Đông Nam Á bằng phân tích đa tác tử",
+    heroSubtitle:
+      "Tải ảnh tiền giấy lên để hệ thống đối chiếu kết quả từ nhận diện hình ảnh, phân tích ngôn ngữ và tìm kiếm trực quan trước khi tạo kết quả có cấu trúc.",
+    heroCta: "Bắt đầu quét",
+    heroCtaSub: "Xem danh mục tiền",
+    heroTokenLabel: "Số dư token",
+    heroTokenUnit: "token",
+    heroPill1: "Xác minh 3 tác tử",
+    heroPill2: "Kết quả JSON",
+    heroPill3: "Biểu quyết đa số",
+    mockTitle: "BanknoteAI Workspace",
+    mockSub: "Lõi đa tác tử",
+    mockUpload: "Tải ảnh tiền giấy",
+    mockUploadSub: "Hỗ trợ JPG, PNG, WEBP",
+    mockAgent1: "Tác tử ML/DL",
+    mockAgent2: "Tác tử LLM",
+    mockAgent3: "Tìm kiếm trực quan",
+    mockAgg: "Quyết định tổng hợp",
+    mockAggSub: "Đang biểu quyết đa số...",
+    mockJson: "Đầu ra có cấu trúc",
+    mockPending: "Chờ xử lý",
+    mockConsensus: "Đồng thuận",
+    statsTitle: "Năng lực hệ thống",
+    stats: [
+      { value: "Khu vực ĐNÁ", label: "Phạm vi hỗ trợ" },
+      { value: "3 tác tử", label: "Quy trình phân tích" },
+      { value: "JSON", label: "Định dạng đầu ra" },
+      { value: "1 token", label: "Chi phí mỗi lần quét" },
+    ],
+    howTitle: "Cách hoạt động",
+    howSub:
+      "Bốn bước rõ ràng từ tải ảnh đến kết quả có cấu trúc dựa trên đồng thuận.",
+    steps: [
+      {
+        num: "01",
+        title: "Tải ảnh tiền giấy",
+        desc: "Kéo thả hoặc chọn ảnh bất kỳ tờ tiền Đông Nam Á nào.",
+      },
+      {
+        num: "02",
+        title: "Các tác tử phân tích độc lập",
+        desc: "Mô hình ML/DL, LLM API và Tìm kiếm trực quan hoạt động song song, mỗi tác tử cho ra kết quả riêng.",
+      },
+      {
+        num: "03",
+        title: "Bộ tổng hợp so sánh kết quả",
+        desc: "Biểu quyết đa số xác định kết quả cuối; xung đột được gắn cờ để xem xét.",
+      },
+      {
+        num: "04",
+        title: "Xem kết quả và xuất JSON",
+        desc: "Xem mệnh giá, quốc gia, chất liệu, trạng thái đồng thuận và tải dữ liệu có cấu trúc.",
+      },
+    ],
+    agentsTitle: "Hệ thống tác tử",
+    agentsSub:
+      "Mỗi tác tử hoạt động độc lập. Bộ tổng hợp đưa ra kết quả cuối cùng.",
+    agents: [
+      {
+        label: "Tác tử 1",
+        name: "Mô hình ML/DL",
+        desc: "Phân tích đặc trưng hình ảnh, dấu hiệu mệnh giá và vùng tiền được cắt.",
+        accent: "teal",
+      },
+      {
+        label: "Tác tử 2",
+        name: "LLM API",
+        desc: "Đọc thông tin hiển thị và suy luận về quốc gia, tiền tệ, chất liệu, mô tả.",
+        accent: "violet",
+      },
+      {
+        label: "Tác tử 3",
+        name: "Tìm kiếm trực quan",
+        desc: "Đối chiếu ảnh tải lên với nguồn tham chiếu trực quan khi có dữ liệu.",
+        accent: "blue",
+      },
+      {
+        label: "Bộ tổng hợp",
+        name: "Biểu quyết đa số",
+        desc: "Áp dụng biểu quyết đa số và đánh dấu cần xem lại khi kết quả không thống nhất.",
+        accent: "amber",
+      },
+    ],
+    resultTitle: "Kết quả mẫu",
+    resultSub:
+      "Kết quả cuối bao gồm mệnh giá, xuất xứ, chất liệu, trạng thái đồng thuận và xuất JSON có cấu trúc.",
+    resultNote: "Ví dụ minh họa",
+    resultDenom: "Mệnh giá",
+    resultCountry: "Quốc gia",
+    resultMaterial: "Chất liệu",
+    resultConsensus: "Đồng thuận",
+    resultStatus: "Trạng thái",
+    resultCompleted: "Hoàn thành",
+    featTitle: "Mọi thứ bạn cần",
+    featSub: "Các công cụ được xây dựng xung quanh quy trình nhận diện.",
+    features: [
+      {
+        icon: History,
+        label: "Lịch sử quét",
+        desc: "Xem lại tất cả lần quét trước và xuất lại kết quả.",
+        link: "/history",
+        linkLabel: "Xem lịch sử",
+      },
+      {
+        icon: FileJson,
+        label: "Xuất JSON",
+        desc: "Tải kết quả có cấu trúc để tích hợp hoặc lưu trữ.",
+        link: SCAN_ROUTE,
+        linkLabel: "Thử quét",
+      },
+      {
+        icon: Coins,
+        label: "Dùng theo token",
+        desc: "Mỗi lần quét tốn 1 token. Mua đúng nhu cầu của bạn.",
+        link: "/pricing",
+        linkLabel: "Xem giá",
+      },
+      {
+        icon: ArrowLeftRight,
+        label: "Quy đổi tiền tệ",
+        desc: "Chuyển đổi mệnh giá nhận diện được theo tỷ giá thực tế.",
+        link: "/exchange",
+        linkLabel: "Mở quy đổi",
+      },
+      {
+        icon: BookOpen,
+        label: "Danh mục tiền",
+        desc: "Duyệt danh mục tiền giấy Đông Nam Á được hỗ trợ.",
+        link: "/directory",
+        linkLabel: "Xem danh mục",
+      },
+      {
+        icon: MessageSquareDiff,
+        label: "Phản hồi & Báo lỗi",
+        desc: "Gắn cờ kết quả sai hoặc gợi ý cải tiến.",
+        link: "/feedback",
+        linkLabel: "Gửi phản hồi",
+      },
+    ],
+    seaTitle: "Trọng tâm Đông Nam Á",
+    seaSub: "Tối ưu hoá cho các đồng tiền phổ biến nhất trong khu vực.",
+    currencies: [
+      "Việt Nam · VND",
+      "Thái Lan · THB",
+      "Malaysia · MYR",
+      "Singapore · SGD",
+      "Indonesia · IDR",
+      "Philippines · PHP",
+      "Campuchia · KHR",
+      "Lào · LAK",
+      "Myanmar · MMK",
+      "Brunei · BND",
+    ],
+    ctaTitle: "Sẵn sàng nhận diện một tờ tiền?",
+    ctaSub:
+      "Tải ảnh lên và nhận kết quả có cấu trúc trong vài giây — không cần cài đặt.",
+    ctaMain: "Bắt đầu quét",
+    ctaSecond: "Mua token",
+  },
+};
 
-        <div
-          className={`p-5 rounded-xl border shadow-sm flex flex-col gap-y-1.5 ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}
-        >
-          <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">
-            Detected Value
-          </p>
-          <span
-            className={`text-3xl lg:text-4xl font-black tracking-tighter ${isDark ? "text-white" : "text-slate-950"}`}
-          >
-            500k <span className="text-xl">VND</span>
-          </span>
-        </div>
-        <div
-          className={`p-5 rounded-xl border shadow-sm flex flex-col gap-y-1.5 ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}
-        >
-          <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">
-            Converted (USD)
-          </p>
-          <span
-            className={`text-3xl lg:text-4xl font-black tracking-tighter ${isDark ? "text-blue-400" : "text-blue-600"}`}
-          >
-            ~ $19.65
-          </span>
-        </div>
-      </div>
-    </div>
-  </div>
-);
+// ─── ACCENT COLOUR MAP ───────────────────────────────────────────────────────
+const ACCENT = {
+  teal: {
+    bg: "bg-teal-50 dark:bg-teal-900/20",
+    border: "border-teal-200 dark:border-teal-800",
+    text: "text-teal-600 dark:text-teal-400",
+    badge: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-400",
+    dot: "bg-teal-500",
+  },
+  violet: {
+    bg: "bg-violet-50 dark:bg-violet-900/20",
+    border: "border-violet-200 dark:border-violet-800",
+    text: "text-violet-600 dark:text-violet-400",
+    badge:
+      "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-400",
+    dot: "bg-violet-500",
+  },
+  blue: {
+    bg: "bg-blue-50 dark:bg-blue-900/20",
+    border: "border-blue-200 dark:border-blue-800",
+    text: "text-blue-600 dark:text-blue-400",
+    badge: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400",
+    dot: "bg-blue-500",
+  },
+  amber: {
+    bg: "bg-amber-50 dark:bg-amber-900/20",
+    border: "border-amber-200 dark:border-amber-800",
+    text: "text-amber-600 dark:text-amber-400",
+    badge:
+      "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
+    dot: "bg-amber-500",
+  },
+};
 
-// ==========================================
-// COMPONENT CHÍNH: TRANG CHỦ
-// ==========================================
-export default function Home() {
-  const { isAuthenticated } = useAuthStore();
-  const { lang, theme } = useAppStore();
-  const isDark = theme === "dark";
+// ─── MOCK WORKSPACE PREVIEW ──────────────────────────────────────────────────
+function HeroMockup({ t }) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((v) => (v + 1) % 4), 1400);
+    return () => clearInterval(id);
+  }, []);
 
-  // TỪ ĐIỂN DỊCH THUẬT (Không dùng từ mạnh, mô tả đúng kiến trúc)
-  const content = {
-    EN: {
-      badge: "MULTI-AGENT ENGINE V2.0",
-      h1_1: "Intelligent Analysis for",
-      h1_2: "Global Banknotes",
-      desc: "Upload an image of a banknote and let our Multi-Agent AI system analyze visual features, verify information across diverse models, and provide a comprehensive, consensus-based result.",
-      btn_launch: "Launch Workspace",
-      btn_arch: "System Architecture",
-      f_title: "Comprehensive Recognition Architecture",
-      f_desc:
-        "We utilize a robust workflow combining Machine Learning, Large Language Models, and Visual Search to cross-verify and aggregate accurate banknote information.",
-      api_title: "Reliable Integration API",
-      api_desc:
-        "Integrate our consensus-based banknote recognition engine into your applications, offering structured JSON results including denomination, origin, and descriptions.",
-      cta_title: "Experience intelligent banknote analysis today.",
-      cta_btn: "Create Free Account",
-    },
-    VI: {
-      badge: "LÕI PHÂN TÍCH ĐA TÁC TỬ V2.0",
-      h1_1: "Phân tích Thông minh",
-      h1_2: "Tiền giấy Toàn cầu",
-      desc: "Tải lên hình ảnh tờ tiền và để hệ thống AI Đa tác tử phân tích đặc điểm trực quan, đối chiếu thông tin qua nhiều mô hình độc lập, và trả về kết quả tổng hợp đáng tin cậy.",
-      btn_launch: "Mở Không gian quét",
-      btn_arch: "Kiến trúc Hệ thống",
-      f_title: "Kiến trúc Phân tích Đa chiều",
-      f_desc:
-        "Sử dụng quy trình kết hợp Học máy (ML/DL), Mô hình Ngôn ngữ Lớn (LLMs API), và Tìm kiếm Thị giác (Lens) để đối chiếu chéo và biểu quyết khách quan.",
-      api_title: "API Tích hợp Đáng tin cậy",
-      api_desc:
-        "Tích hợp lõi nhận diện tiền giấy vào hệ thống của bạn, nhận kết quả JSON cấu trúc tốt bao gồm thông tin, mệnh giá, xuất xứ và mô tả chi tiết.",
-      cta_title: "Trải nghiệm phân tích tiền giấy thông minh ngay hôm nay.",
-      cta_btn: "Tạo tài khoản Miễn phí",
-    },
-  };
-
-  const t = content[lang] || content["EN"]; // Fallback an toàn
-
-  const features = [
-    {
-      icon: Cpu,
-      title:
-        lang === "VI" ? "Tác tử Học máy (ML/DL)" : "Machine Learning Agent",
-      desc:
-        lang === "VI"
-          ? "Mô hình chuyên biệt phân tích các đặc trưng hình ảnh đặc thù của tiền giấy."
-          : "Specialized models analyze specific visual characteristics of banknotes.",
-      color: "text-teal-500",
-    },
-    {
-      icon: BotMessageSquare,
-      title: lang === "VI" ? "Tác tử Ngữ nghĩa (LLMs)" : "Semantic LLM Agent",
-      desc:
-        lang === "VI"
-          ? "Truy xuất và đối chiếu thông tin văn bản, bối cảnh lịch sử trên tờ tiền qua API."
-          : "Retrieves and cross-references text and contextual information via API.",
-      color: "text-violet-500",
-    },
-    {
-      icon: SearchCheck,
-      title: lang === "VI" ? "Tác tử Thị giác (Lens)" : "Visual Search Agent",
-      desc:
-        lang === "VI"
-          ? "Sử dụng dữ liệu tìm kiếm hình ảnh diện rộng để củng cố cơ sở dữ liệu nhận diện."
-          : "Leverages broad visual search data to reinforce recognition confidence.",
-      color: "text-blue-500",
-    },
-    {
-      icon: GitMerge,
-      title:
-        lang === "VI" ? "Cơ chế Đồng thuận (Voting)" : "Consensus Mechanism",
-      desc:
-        lang === "VI"
-          ? "Agent tổng hợp biểu quyết kết quả từ 3 nguồn. Chạy lại tiến trình nếu có xung đột."
-          : "Aggregator votes on results from 3 sources. Retries process upon conflicts.",
-      color: "text-amber-500",
-    },
-    {
-      icon: DatabaseZap,
-      title:
-        lang === "VI" ? "Cấu trúc JSON Trực quan" : "Structured JSON Output",
-      desc:
-        lang === "VI"
-          ? "Trả về định dạng rõ ràng: Thông tin, Mệnh giá, Xuất xứ, Mô tả, Quốc gia."
-          : "Returns clear format: Info, Denomination, Origin, Description, Country.",
-      color: "text-[#009688]",
-    },
-    {
-      icon: Activity,
-      title: lang === "VI" ? "Đồng bộ Tỷ giá" : "Exchange Sync",
-      desc:
-        lang === "VI"
-          ? "Hỗ trợ tính toán quy đổi giá trị mệnh giá nhận diện được theo thời gian thực."
-          : "Calculates and converts detected denomination values using real-time rates.",
-      color: "text-slate-500",
-    },
-  ];
-
-  const stats = [
-    {
-      value: "3",
-      label: lang === "VI" ? "Tác tử Độc lập" : "Independent Agents",
-    },
-    {
-      value: "JSON",
-      label: lang === "VI" ? "Đầu ra Cấu trúc" : "Structured Data",
-    },
-    {
-      value: "Voting",
-      label: lang === "VI" ? "Cơ chế Biểu quyết" : "Consensus Logic",
-    },
-    {
-      value: "API",
-      label: lang === "VI" ? "Sẵn sàng Tích hợp" : "Ready Integration",
-    },
+  const agentStates = [
+    { label: t.mockAgent1, icon: Cpu, accent: "teal" },
+    { label: t.mockAgent2, icon: BotMessageSquare, accent: "violet" },
+    { label: t.mockAgent3, icon: SearchCheck, accent: "blue" },
   ];
 
   return (
-    <div
-      className={`min-h-screen font-sans transition-colors duration-300 ${isDark ? "bg-slate-950 text-slate-200" : "bg-slate-50 text-slate-900"}`}
-    >
-      
+    <div className="relative">
+      {/* glow halo */}
+      <div className="absolute -inset-8 bg-teal-400/10 blur-3xl rounded-full pointer-events-none" />
 
-     
-      <section className="py-20 md:py-28 relative overflow-hidden">
-        <div
-          className={`absolute top-1/2 left-1/4 w-80 h-80 rounded-full blur-3xl -z-10 ${isDark ? "bg-teal-900/30" : "bg-teal-300/20"}`}
-        />
-        <div
-          className={`absolute top-0 right-10 w-96 h-96 rounded-full blur-3xl -z-10 ${isDark ? "bg-blue-900/20" : "bg-blue-300/20"}`}
-        />
-
-        <div className="max-w-7xl mx-auto px-5 flex flex-col lg:flex-row items-center gap-16">
-          <div className="flex-1 flex flex-col items-center lg:items-start text-center lg:text-left space-y-6 relative z-10">
-            <span
-              className={`inline-flex items-center gap-x-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm ${isDark ? "bg-slate-800 text-teal-400 border border-slate-700" : "bg-slate-950 text-white"}`}
-            >
-              <Layers3 className="w-4 h-4 text-[#009688]" /> {t.badge}
-            </span>
-
-            <h1
-              className={`text-5xl lg:text-6xl font-black tracking-tighter leading-[1.1] ${isDark ? "text-white" : "text-slate-950"}`}
-            >
-              {t.h1_1} <br className="hidden lg:block" />
-              <span className="text-transparent bg-clip-text bg-gradient-to-br from-[#009688] via-teal-500 to-blue-600">
-                {t.h1_2}
-              </span>
-            </h1>
-
-            <p
-              className={`text-lg max-w-2xl leading-relaxed font-medium ${isDark ? "text-slate-400" : "text-slate-600"}`}
-            >
-              {t.desc}
-            </p>
-
-            <div className="flex flex-col sm:flex-row gap-4 pt-4 w-full sm:w-auto">
-              <Link
-                to={isAuthenticated ? "/recognize" : "/auth/login"}
-                className="flex justify-center items-center gap-x-2 bg-gradient-to-r from-[#009688] to-blue-600 text-white px-8 py-4 rounded-xl text-lg font-bold hover:opacity-90 transition-all shadow-lg shadow-teal-900/20 group"
-              >
-                {t.btn_launch}{" "}
-                <ChevronRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
-              </Link>
-              <Link
-                to="/info"
-                className={`flex justify-center items-center gap-x-2 border-2 px-8 py-4 rounded-xl text-lg font-bold transition-all shadow-sm ${isDark ? "bg-slate-900 border-slate-700 text-white hover:bg-slate-800" : "bg-white border-slate-200 text-slate-900 hover:bg-slate-50"}`}
-              >
-                {t.btn_arch}
-              </Link>
+      <div className="relative bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl shadow-slate-200/60 dark:shadow-slate-950/60 overflow-hidden">
+        {/* window chrome */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+          <div className="flex items-center gap-2.5">
+            <div className="flex gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-400 opacity-80" />
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 opacity-80" />
+              <span className="w-2.5 h-2.5 rounded-full bg-teal-400 opacity-80" />
             </div>
+            <span className="text-xs font-semibold text-slate-400 ml-1">
+              {t.mockTitle}
+            </span>
+          </div>
+          <span className="flex items-center gap-1.5 text-[10px] font-bold text-teal-500 uppercase tracking-wider">
+            <Zap className="w-3 h-3 animate-pulse" /> {t.mockSub}
+          </span>
+        </div>
 
-            <div
-              className={`flex flex-wrap justify-center lg:justify-start gap-6 mt-8 pt-8 border-t w-full max-w-lg ${isDark ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`}
-            >
-              <span className="font-semibold text-sm">
-                ✓ Tri-Agent Verification
-              </span>
-              <span className="font-semibold text-sm">✓ JSON Output</span>
-              <span className="font-semibold text-sm">✓ Voting Consensus</span>
+        <div className="p-5 space-y-3">
+          {/* upload zone */}
+          <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-5 flex items-center gap-4 bg-slate-50 dark:bg-slate-800/40">
+            <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-900/30 border border-teal-100 dark:border-teal-800 flex items-center justify-center shrink-0">
+              <ScanLine className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                {t.mockUpload}
+              </p>
+              <p className="text-xs text-slate-400">{t.mockUploadSub}</p>
             </div>
           </div>
 
-          <div className="flex-1 relative w-full lg:max-w-xl">
-            <HeroVisualMockup isDark={isDark} />
+          {/* agents row */}
+          <div className="grid grid-cols-3 gap-2">
+            {agentStates.map((a, i) => {
+              const A = ACCENT[a.accent];
+              const done = i < tick;
+              return (
+                <div
+                  key={i}
+                  className={`p-3 rounded-xl border text-center space-y-1.5 transition-all duration-500 ${A.bg} ${A.border}`}
+                >
+                  <a.icon className={`w-4 h-4 mx-auto ${A.text}`} />
+                  <p
+                    className={`text-[10px] font-bold leading-tight ${A.text}`}
+                  >
+                    {a.label}
+                  </p>
+                  <span
+                    className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                      done
+                        ? "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300"
+                        : "bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-500"
+                    }`}
+                  >
+                    {done ? t.mockConsensus : t.mockPending}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* aggregator */}
+          <div className="bg-slate-900 dark:bg-slate-950 rounded-xl p-4 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0">
+              <GitMerge className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-white">{t.mockAgg}</p>
+              <p className="text-[10px] text-slate-400 truncate">
+                {t.mockAggSub}
+              </p>
+            </div>
+            <div className="flex gap-1 shrink-0">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className={`w-1.5 h-4 rounded-full transition-all duration-300 ${
+                    i <= tick % 4 ? "bg-teal-400" : "bg-slate-700"
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* json preview */}
+          <div className="bg-slate-950 rounded-xl px-4 py-3 font-mono border border-slate-800">
+            <p className="text-[10px] text-slate-500 font-sans font-semibold mb-1.5 uppercase tracking-wider">
+              {t.mockJson}
+            </p>
+            <p className="text-[11px] leading-relaxed text-teal-400">
+              <span className="text-slate-500">{"{"}</span>
+              <br />
+              <span className="text-slate-400 ml-2">"denomination":</span>{" "}
+              <span className="text-amber-400">"50000 VND"</span>
+              {","}
+              <br />
+              <span className="text-slate-400 ml-2">"status":</span>{" "}
+              <span className="text-teal-400">"Completed"</span>
+              <br />
+              <span className="text-slate-500">{"}"}</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
+export default function Home() {
+  const navigate = useNavigate();
+  const { lang, theme } = useAppStore();
+  const { isAuthenticated, user } = useAuthStore();
+  const isDark = theme === "dark";
+
+  const t = CONTENT[lang] || CONTENT["EN"];
+
+  const tokenBalance =
+    isAuthenticated && user?.token_balance != null ? user.token_balance : null;
+
+  // ── Shared class helpers ────────────────────────────────────────────────
+  const cardBase =
+    "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800";
+  const sectionBg = isDark ? "bg-slate-950" : "bg-slate-50";
+  const altSectionBg = isDark ? "bg-slate-900" : "bg-white";
+  const headingCls = "text-slate-900 dark:text-white";
+  const subCls = "text-slate-500 dark:text-slate-400";
+
+  return (
+    <div
+      className={`min-h-screen font-sans transition-colors duration-300 ${isDark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"}`}
+    >
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 1. HERO                                                           */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <section className="relative overflow-hidden py-20 md:py-28 lg:py-32">
+        {/* ambient blobs */}
+        <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-teal-400/10 dark:bg-teal-600/8 rounded-full blur-[120px] -translate-x-1/2 -translate-y-1/4 pointer-events-none" />
+        <div className="absolute bottom-0 right-0 w-[500px] h-[500px] bg-blue-400/10 dark:bg-blue-600/8 rounded-full blur-[100px] translate-x-1/4 translate-y-1/4 pointer-events-none" />
+
+        <div className="max-w-7xl mx-auto px-5 relative z-10">
+          <div className="flex flex-col lg:flex-row items-center gap-14 xl:gap-20">
+            {/* LEFT */}
+            <div className="flex-1 flex flex-col items-center lg:items-start text-center lg:text-left space-y-6">
+              {/* badge */}
+              <span
+                className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border ${isDark ? "bg-slate-800 border-slate-700 text-teal-400" : "bg-white border-slate-200 text-teal-700 shadow-sm"}`}
+              >
+                <Layers3 className="w-3.5 h-3.5 text-teal-500" />
+                {t.heroBadge}
+              </span>
+
+              {/* heading */}
+              <h1
+                className={`text-4xl md:text-5xl lg:text-[3.25rem] font-black tracking-tight leading-[1.1] max-w-xl lg:max-w-none ${headingCls}`}
+              >
+                {lang === "EN" && t.heroTitle.includes("Multi-Agent") ? (
+                  <>
+                    {t.heroTitle.split("Multi-Agent")[0]}
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-500 via-teal-400 to-blue-500">
+                      Multi-Agent
+                    </span>
+                    {t.heroTitle.split("Multi-Agent")[1]}
+                  </>
+                ) : (
+                  t.heroTitle
+                )}
+              </h1>
+
+              {/* subtitle */}
+              <p
+                className={`text-base md:text-lg leading-relaxed max-w-xl ${subCls}`}
+              >
+                {t.heroSubtitle}
+              </p>
+
+              {/* token balance — only when logged in */}
+              {isAuthenticated && tokenBalance !== null && (
+                <div
+                  className={`inline-flex items-center gap-3 px-5 py-3 rounded-2xl border shadow-sm ${cardBase}`}
+                >
+                  <Coins className="w-4 h-4 text-amber-500" />
+                  <span className={`text-sm font-medium ${subCls}`}>
+                    {t.heroTokenLabel}:
+                  </span>
+                  <span className="text-sm font-black text-slate-900 dark:text-white">
+                    {tokenBalance} {t.heroTokenUnit}
+                  </span>
+                </div>
+              )}
+
+              {/* CTAs */}
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto pt-1">
+                <button
+                  onClick={() =>
+                    navigate(isAuthenticated ? SCAN_ROUTE : "/auth/login")
+                  }
+                  className="flex items-center justify-center gap-2 bg-gradient-to-r from-teal-500 to-blue-600 hover:from-teal-400 hover:to-blue-500 text-white px-8 py-3.5 rounded-xl text-sm font-bold shadow-lg shadow-teal-500/20 transition-all group"
+                >
+                  {t.heroCta}
+                  <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+                <Link
+                  to="/directory"
+                  className={`flex items-center justify-center gap-2 px-8 py-3.5 rounded-xl text-sm font-bold border transition-all ${isDark ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm"}`}
+                >
+                  {t.heroCtaSub}
+                </Link>
+              </div>
+
+              {/* trust pills */}
+              <div
+                className={`flex flex-wrap justify-center lg:justify-start gap-4 pt-2 border-t w-full max-w-sm lg:max-w-none ${isDark ? "border-slate-800" : "border-slate-200"}`}
+              >
+                {[t.heroPill1, t.heroPill2, t.heroPill3].map((p) => (
+                  <span
+                    key={p}
+                    className={`text-xs font-semibold flex items-center gap-1.5 ${subCls}`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-teal-500" /> {p}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* RIGHT — mock workspace */}
+            <div className="flex-1 w-full lg:max-w-[520px]">
+              <HeroMockup t={t} />
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ⭐ ARCHITECTURE FEATURES GRID */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 2. QUICK STATS                                                    */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
       <section
-        className={`py-24 border-y ${isDark ? "bg-slate-900/50 border-slate-800" : "bg-white border-slate-100 shadow-inner"}`}
+        className={`py-14 border-y ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}
       >
         <div className="max-w-7xl mx-auto px-5">
-          <div className="text-center mb-16">
+          <p
+            className={`text-center text-xs font-bold uppercase tracking-widest mb-8 ${subCls}`}
+          >
+            {t.statsTitle}
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {t.stats.map((s, i) => (
+              <div
+                key={i}
+                className={`${cardBase} rounded-2xl p-6 text-center shadow-sm`}
+              >
+                <p className="text-2xl font-black text-teal-600 dark:text-teal-400 mb-1">
+                  {s.value}
+                </p>
+                <p className={`text-xs font-semibold ${subCls}`}>{s.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 3. HOW IT WORKS                                                   */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <section className={`py-24 ${sectionBg}`}>
+        <div className="max-w-7xl mx-auto px-5">
+          <div className="text-center mb-14">
             <h2
-              className={`text-3xl md:text-4xl font-black tracking-tight mb-4 ${isDark ? "text-white" : "text-slate-950"}`}
+              className={`text-3xl md:text-4xl font-black tracking-tight mb-3 ${headingCls}`}
             >
-              {t.f_title}
+              {t.howTitle}
             </h2>
-            <p
-              className={`text-lg max-w-2xl mx-auto ${isDark ? "text-slate-400" : "text-slate-600"}`}
-            >
-              {t.f_desc}
-            </p>
+            <p className={`max-w-xl mx-auto text-base ${subCls}`}>{t.howSub}</p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
-            {features.map((item, idx) => (
+          {/* horizontal flow */}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5 relative">
+            {/* connector line desktop */}
+            <div className="hidden lg:block absolute top-[2.6rem] left-[12.5%] right-[12.5%] h-px bg-gradient-to-r from-transparent via-teal-300 dark:via-teal-700 to-transparent pointer-events-none" />
+
+            {t.steps.map((step, i) => (
               <div
-                key={idx}
-                className={`p-8 rounded-2xl border shadow-sm transition-transform hover:-translate-y-1 ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 hover:shadow-md"}`}
+                key={i}
+                className={`${cardBase} rounded-2xl p-6 shadow-sm relative`}
               >
-                <div
-                  className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-6 shadow-inner ${isDark ? "bg-slate-800 border border-slate-700" : "bg-slate-50 border border-slate-100"}`}
-                >
-                  <item.icon className={`w-7 h-7 ${item.color}`} />
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="text-3xl font-black text-teal-500/30 dark:text-teal-600/40 leading-none font-mono">
+                    {step.num}
+                  </span>
+                  {i < t.steps.length - 1 && (
+                    <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-700 hidden lg:block absolute right-4 top-6" />
+                  )}
                 </div>
-                <h3
-                  className={`text-xl font-bold mb-3 ${isDark ? "text-white" : "text-slate-950"}`}
-                >
-                  {item.title}
+                <h3 className={`text-sm font-bold mb-2 ${headingCls}`}>
+                  {step.title}
                 </h3>
-                <p
-                  className={`text-sm leading-relaxed ${isDark ? "text-slate-400" : "text-slate-600"}`}
-                >
-                  {item.desc}
+                <p className={`text-xs leading-relaxed ${subCls}`}>
+                  {step.desc}
                 </p>
               </div>
             ))}
@@ -377,93 +719,267 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ⭐ STATS SECTION (Focus on System Capabilities) */}
-      <section className="bg-slate-950 py-20 relative overflow-hidden">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[300px] bg-blue-600/20 blur-[100px] rounded-full pointer-events-none" />
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 4. AGENT SYSTEM                                                   */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <section className={`py-24 ${altSectionBg}`}>
         <div className="max-w-7xl mx-auto px-5">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 relative z-10">
-            {stats.map((item, idx) => (
-              <div
-                key={idx}
-                className="bg-slate-900/80 backdrop-blur-md border border-slate-800 p-8 rounded-3xl shadow-lg flex flex-col items-center justify-center text-center"
-              >
-                <span className="text-3xl md:text-4xl font-black text-white tracking-tighter mb-3">
-                  {item.value}
-                </span>
-                <span className="text-xs font-bold text-teal-400 uppercase tracking-widest">
-                  {item.label}
-                </span>
-              </div>
-            ))}
+          <div className="text-center mb-14">
+            <h2
+              className={`text-3xl md:text-4xl font-black tracking-tight mb-3 ${headingCls}`}
+            >
+              {t.agentsTitle}
+            </h2>
+            <p className={`max-w-xl mx-auto text-base ${subCls}`}>
+              {t.agentsSub}
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {t.agents.map((agent, i) => {
+              const A = ACCENT[agent.accent];
+              const icons = [Cpu, BotMessageSquare, SearchCheck, GitMerge];
+              const Icon = icons[i];
+              return (
+                <div
+                  key={i}
+                  className={`${cardBase} rounded-2xl p-6 shadow-sm hover:-translate-y-0.5 transition-transform`}
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center ${A.bg} border ${A.border}`}
+                    >
+                      <Icon className={`w-5 h-5 ${A.text}`} />
+                    </div>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-1 rounded-full ${A.badge}`}
+                    >
+                      {agent.label}
+                    </span>
+                  </div>
+                  <h3 className={`text-sm font-bold mb-1.5 ${headingCls}`}>
+                    {agent.name}
+                  </h3>
+                  <p className={`text-xs leading-relaxed ${subCls}`}>
+                    {agent.desc}
+                  </p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {/* ⭐ API SECTION (Showcasing JSON Output) */}
-      <section className="py-24">
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 5. RESULT PREVIEW                                                 */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <section className={`py-24 ${sectionBg}`}>
         <div className="max-w-7xl mx-auto px-5">
-          <div
-            className={`rounded-[2.5rem] p-10 md:p-16 grid md:grid-cols-2 gap-12 items-center border shadow-2xl relative overflow-hidden ${isDark ? "bg-slate-900 border-slate-800 shadow-slate-950/50" : "bg-slate-900 border-slate-800 shadow-slate-400/20"}`}
-          >
-            <div className="space-y-6 z-10">
-              <div className="w-12 h-12 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center mb-6">
-                <CodeXml className="w-7 h-7 text-teal-400" />
+          <div className="text-center mb-14">
+            <h2
+              className={`text-3xl md:text-4xl font-black tracking-tight mb-3 ${headingCls}`}
+            >
+              {t.resultTitle}
+            </h2>
+            <p className={`max-w-xl mx-auto text-base ${subCls}`}>
+              {t.resultSub}
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            {/* Result card */}
+            <div className={`${cardBase} rounded-3xl p-8 shadow-sm`}>
+              <div className="flex items-center justify-between mb-6 pb-5 border-b border-slate-100 dark:border-slate-800">
+                <div>
+                  <p
+                    className={`text-xs font-bold uppercase tracking-widest mb-1 ${subCls}`}
+                  >
+                    {t.resultDenom}
+                  </p>
+                  <p className="text-3xl font-black text-slate-900 dark:text-white">
+                    50,000 <span className="text-xl text-teal-500">VND</span>
+                  </p>
+                </div>
+                <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 border border-teal-100 dark:border-teal-800">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {t.resultCompleted}
+                </span>
               </div>
-              <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight">
-                {t.api_title}
-              </h2>
-              <p className="text-base text-slate-300 leading-relaxed">
-                {t.api_desc}
-              </p>
-              <Link
-                to="/info"
-                className="inline-block bg-[#009688] text-white px-6 py-3 rounded-xl font-bold hover:bg-teal-700 transition-colors"
+
+              <div className="space-y-3">
+                {[
+                  { label: t.resultCountry, value: "Vietnam" },
+                  { label: t.resultMaterial, value: "Polymer" },
+                  { label: t.resultConsensus, value: "2 / 3 agents" },
+                  { label: t.resultStatus, value: t.resultCompleted },
+                ].map((row) => (
+                  <div
+                    key={row.label}
+                    className="flex items-center justify-between"
+                  >
+                    <span className={`text-xs font-medium ${subCls}`}>
+                      {row.label}
+                    </span>
+                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                      {row.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <p
+                className={`text-[10px] mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 ${subCls} flex items-center gap-1.5`}
               >
-                Read Documentation
-              </Link>
+                <AlertCircle className="w-3 h-3" /> {t.resultNote}
+              </p>
             </div>
 
-            <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 shadow-inner font-mono text-sm text-teal-400 overflow-x-auto z-10">
-              <pre>
+            {/* JSON card */}
+            <div className="bg-slate-950 rounded-3xl p-6 border border-slate-800 shadow-xl overflow-hidden">
+              <div className="flex items-center gap-2 mb-4">
+                <FileJson className="w-4 h-4 text-teal-400" />
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  JSON Output
+                </span>
+              </div>
+              <pre className="font-mono text-[11px] leading-[1.7] text-teal-400 overflow-x-auto">
                 {`{
-  "status": "success",
-  "consensus_reached": true,
-  "data": {
-    "info": "Banknote recognized via Tri-Agent",
-    "denomination": 500000,
-    "origin": "State Bank of Vietnam",
-    "description": "Polymer, Ho Chi Minh portrait",
-    "country": "Vietnam"
-  },
-  "agent_responses": {
-    "agent_1_ml": "500k VND",
-    "agent_2_llm": "500k VND",
-    "agent_3_lens": "500k VND"
+  "denomination": "50000 VND",
+  "country": "Vietnam",
+  "currency": "VND",
+  "material": "Polymer",
+  "description": "Ho Chi Minh portrait,
+    polymer series",
+  "consensus": {
+    "method": "majority_vote",
+    "matched_agents": 2,
+    "status": "Completed"
   }
 }`}
               </pre>
+              <p
+                className={`text-[10px] mt-4 pt-3 border-t border-slate-800 text-slate-500 flex items-center gap-1.5`}
+              >
+                <AlertCircle className="w-3 h-3" /> {t.resultNote}
+              </p>
             </div>
-            <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-teal-500/10 blur-[100px] rounded-full pointer-events-none" />
           </div>
         </div>
       </section>
 
-      {/* ⭐ FINAL CTA */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 6. FEATURES                                                       */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
       <section
-        className={`py-24 border-t ${isDark ? "bg-slate-950 border-slate-800" : "bg-slate-50 border-slate-200"}`}
+        className={`py-24 border-y ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-100"}`}
       >
-        <div className="max-w-4xl mx-auto px-5 text-center space-y-8">
-          <h2
-            className={`text-3xl md:text-4xl font-black tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}
-          >
-            {t.cta_title}
-          </h2>
-          <div className="flex justify-center gap-4">
-            <Link
-              to="/auth/register"
-              className="bg-gradient-to-r from-[#009688] to-blue-600 text-white px-10 py-4 rounded-xl text-lg font-bold hover:opacity-90 transition-all shadow-lg shadow-teal-900/20"
+        <div className="max-w-7xl mx-auto px-5">
+          <div className="text-center mb-14">
+            <h2
+              className={`text-3xl md:text-4xl font-black tracking-tight mb-3 ${headingCls}`}
             >
-              {t.cta_btn}
+              {t.featTitle}
+            </h2>
+            <p className={`max-w-xl mx-auto text-base ${subCls}`}>
+              {t.featSub}
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {t.features.map((feat, i) => {
+              const Icon = feat.icon;
+              return (
+                <div
+                  key={i}
+                  className={`${cardBase} rounded-2xl p-6 shadow-sm flex flex-col gap-4 hover:-translate-y-0.5 transition-transform`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-teal-50 dark:bg-teal-900/20 border border-teal-100 dark:border-teal-800 flex items-center justify-center">
+                      <Icon className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                    </div>
+                    <h3 className={`text-sm font-bold ${headingCls}`}>
+                      {feat.label}
+                    </h3>
+                  </div>
+                  <p className={`text-xs leading-relaxed flex-1 ${subCls}`}>
+                    {feat.desc}
+                  </p>
+                  <Link
+                    to={feat.link}
+                    className="flex items-center gap-1 text-xs font-bold text-teal-600 dark:text-teal-400 hover:text-teal-500 transition-colors"
+                  >
+                    {feat.linkLabel}
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 7. SOUTHEAST ASIA FOCUS                                           */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <section className={`py-24 ${sectionBg}`}>
+        <div className="max-w-4xl mx-auto px-5 text-center">
+          <h2
+            className={`text-3xl md:text-4xl font-black tracking-tight mb-3 ${headingCls}`}
+          >
+            {t.seaTitle}
+          </h2>
+          <p className={`max-w-xl mx-auto text-base mb-10 ${subCls}`}>
+            {t.seaSub}
+          </p>
+          <div className="flex flex-wrap justify-center gap-2.5">
+            {t.currencies.map((c) => (
+              <span
+                key={c}
+                className={`px-4 py-2 rounded-full text-xs font-bold border transition-colors ${isDark ? "bg-slate-800 border-slate-700 text-slate-200 hover:border-teal-700 hover:text-teal-400" : "bg-white border-slate-200 text-slate-700 shadow-sm hover:border-teal-300 hover:text-teal-700"}`}
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+          <p className={`text-xs mt-6 ${subCls}`}>
+            {lang === "VI"
+              ? "Phạm vi hỗ trợ tiếp tục được mở rộng."
+              : "Coverage continues to expand."}
+          </p>
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* 8. FINAL CTA                                                      */}
+      {/* ══════════════════════════════════════════════════════════════════ */}
+      <section className="relative py-24 overflow-hidden bg-slate-950">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[300px] bg-teal-600/15 blur-[100px] rounded-full" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[200px] bg-blue-600/10 blur-[80px] rounded-full" />
+        </div>
+
+        <div className="relative max-w-3xl mx-auto px-5 text-center space-y-6 z-10">
+          <h2 className="text-3xl md:text-4xl font-black tracking-tight text-white">
+            {t.ctaTitle}
+          </h2>
+          <p className="text-slate-400 text-base max-w-xl mx-auto">
+            {t.ctaSub}
+          </p>
+          <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
+            <button
+              onClick={() =>
+                navigate(isAuthenticated ? SCAN_ROUTE : "/auth/login")
+              }
+              className="flex items-center justify-center gap-2 bg-gradient-to-r from-teal-500 to-blue-600 hover:from-teal-400 hover:to-blue-500 text-white px-8 py-3.5 rounded-xl text-sm font-bold shadow-lg shadow-teal-500/25 transition-all group"
+            >
+              {t.ctaMain}
+              <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+            <Link
+              to="/pricing"
+              className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white px-8 py-3.5 rounded-xl text-sm font-bold transition-all"
+            >
+              {t.ctaSecond}
             </Link>
           </div>
         </div>

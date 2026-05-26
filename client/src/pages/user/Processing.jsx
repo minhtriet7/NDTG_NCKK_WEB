@@ -1,123 +1,378 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Brain, ScanLine, Globe, Cpu, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { recognitionService } from '../../services/recognitionService';
-import { useAuthStore } from '../../store/authStore';
+import React, { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import {
+  Brain,
+  ScanLine,
+  Globe,
+  Cpu,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
+import {
+  startRecognitionTask,
+  getRecognitionTaskStatus,
+  saveActiveRecognitionTask,
+  clearActiveRecognitionTask,
+} from "../../services/recognitionService";
+import { useAuthStore } from "../../store/authStore";
+import { useRecognitionStore } from "../../store/recognitionStore";
 
 export default function Processing() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { updateTokenBalance, user } = useAuthStore();
-  
+
+  const { updateTokenBalance, user, syncProfile } = useAuthStore();
+  const { setScanSession, setActiveTaskId, clearActiveTaskId } =
+    useRecognitionStore();
+
   const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState("queued");
   const [error, setError] = useState(null);
+
   const [agentsStatus, setAgentsStatus] = useState({
-    yolo: 'scanning', llm: 'scanning', lens: 'scanning', aggregator: 'waiting'
+    yolo: "scanning",
+    llm: "scanning",
+    lens: "scanning",
+    aggregator: "waiting",
   });
 
-  // Lấy file ảnh được truyền từ trang Recognition sang
   const imageFile = location.state?.imageFile;
+  const previewUrl = location.state?.previewUrl;
 
   useEffect(() => {
     if (!imageFile) {
-      navigate('/recognize'); // Nếu không có file, đá về lại trang upload
+      navigate("/recognize");
       return;
     }
 
     let isMounted = true;
+    let pollTimer = null;
 
-    // 1. Chạy thanh tiến trình ảo cho đẹp mắt trong lúc chờ API
-    const progressInterval = setInterval(() => {
-      setProgress(prev => (prev < 90 ? prev + 1 : prev));
-    }, 100);
+    const setVisualStage = (nextStage, nextProgress) => {
+      if (!isMounted) return;
 
-    // 2. Gọi API THẬT gửi ảnh lên Server
-    const processBanknote = async () => {
+      setStage(nextStage || "processing");
+      setProgress(Number(nextProgress || 0));
+
+      const value = String(nextStage || "").toLowerCase();
+
+      if (value.includes("queued") || value.includes("preprocess")) {
+        setAgentsStatus({
+          yolo: "scanning",
+          llm: "waiting",
+          lens: "waiting",
+          aggregator: "waiting",
+        });
+      } else if (value.includes("agent") || value.includes("running")) {
+        setAgentsStatus({
+          yolo: "scanning",
+          llm: "scanning",
+          lens: "scanning",
+          aggregator: "waiting",
+        });
+      } else if (value.includes("aggregat")) {
+        setAgentsStatus({
+          yolo: "done",
+          llm: "done",
+          lens: "done",
+          aggregator: "scanning",
+        });
+      } else if (value.includes("done")) {
+        setAgentsStatus({
+          yolo: "done",
+          llm: "done",
+          lens: "done",
+          aggregator: "done",
+        });
+      }
+    };
+    const AgentCard = ({ icon: Icon, name, status, desc }) => (
+      <div
+        className={`p-5 rounded-2xl border transition-all duration-500 ${
+          status === "done"
+            ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+            : status === "scanning"
+              ? "bg-white border-teal-200 text-slate-900 shadow-sm"
+              : "bg-slate-50 border-slate-200 text-slate-400"
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+              status === "done"
+                ? "bg-emerald-100"
+                : status === "scanning"
+                  ? "bg-teal-50"
+                  : "bg-slate-100"
+            }`}
+          >
+            {status === "done" ? (
+              <CheckCircle2 className="w-5 h-5" />
+            ) : status === "scanning" ? (
+              <Loader2 className="w-5 h-5 animate-spin text-teal-600" />
+            ) : (
+              <Icon className="w-5 h-5" />
+            )}
+          </div>
+
+          <div>
+            <h3 className="font-bold">{name}</h3>
+            <p className="text-xs opacity-70">{desc}</p>
+          </div>
+        </div>
+      </div>
+    );
+    const pollTask = async (taskId) => {
       try {
-        const result = await recognitionService.scan(imageFile);
-        
-        if (isMounted) {
-          // Thành công: Đẩy thanh tiến trình lên 100%
-          clearInterval(progressInterval);
-          setProgress(100);
-          setAgentsStatus({ yolo: 'done', llm: 'done', lens: 'done', aggregator: 'done' });
-          
-          // Trừ đi 1 token ở Frontend cho đồng bộ với Backend
-          if (user) updateTokenBalance(user.token_balance - 1);
+        const task = await getRecognitionTaskStatus(taskId);
 
-          // Chờ 1 giây cho user xem full 100% rồi đẩy sang trang Kết quả (Result)
+        if (!isMounted) return;
+
+        setVisualStage(task.stage, task.progress);
+
+        if (task.status === "done") {
+          if (pollTimer) clearInterval(pollTimer);
+
+          setVisualStage("done", 100);
+          clearActiveRecognitionTask();
+          clearActiveTaskId();
+
+          if (task.result) {
+            setScanSession(previewUrl, task.result, taskId);
+          }
+
+          try {
+            const latestProfile = await syncProfile?.();
+
+            if (!latestProfile && user) {
+              updateTokenBalance(
+                Math.max(Number(user.token_balance || 0) - 1, 0),
+              );
+            }
+          } catch {
+            if (user) {
+              updateTokenBalance(
+                Math.max(Number(user.token_balance || 0) - 1, 0),
+              );
+            }
+          }
+
           setTimeout(() => {
-            navigate('/result', { state: { scanResult: result } });
-          }, 1000);
+            navigate("/result", {
+              state: {
+                scanResult: task.result,
+                taskId,
+                previewUrl,
+              },
+            });
+          }, 700);
+
+          return;
+        }
+
+        if (task.status === "failed") {
+          if (pollTimer) clearInterval(pollTimer);
+
+          setError(task.error_message || "Quá trình phân tích thất bại.");
+          clearActiveRecognitionTask();
+          clearActiveTaskId();
         }
       } catch (err) {
-        if (isMounted) {
-          clearInterval(progressInterval);
-          setError(err.response?.data?.detail || 'Quá trình phân tích thất bại.');
-        }
+        if (!isMounted) return;
+
+        if (pollTimer) clearInterval(pollTimer);
+
+        setError(
+          err?.response?.data?.detail ||
+            err?.response?.data?.message ||
+            err?.message ||
+            "Không thể kiểm tra trạng thái xử lý.",
+        );
       }
     };
 
-    processBanknote();
+    const start = async () => {
+      try {
+        setVisualStage("uploading", 10);
+
+        const task = await startRecognitionTask(imageFile);
+        const taskId = task.task_id || task.id;
+
+        if (!taskId) {
+          throw new Error("Backend không trả về task_id.");
+        }
+
+        saveActiveRecognitionTask(taskId, {
+          filename: imageFile.name,
+          size: imageFile.size,
+          type: imageFile.type,
+        });
+
+        setActiveTaskId(taskId);
+        setVisualStage(task.stage || "queued", task.progress || 5);
+
+        pollTimer = setInterval(() => {
+          pollTask(taskId);
+        }, 2000);
+
+        await pollTask(taskId);
+      } catch (err) {
+        if (!isMounted) return;
+
+        setError(
+          err?.response?.data?.detail ||
+            err?.response?.data?.message ||
+            err?.message ||
+            "Quá trình phân tích thất bại.",
+        );
+      }
+    };
+
+    start();
 
     return () => {
       isMounted = false;
-      clearInterval(progressInterval);
+      if (pollTimer) clearInterval(pollTimer);
     };
-  }, [imageFile, navigate, updateTokenBalance, user]);
+  }, [
+    imageFile,
+    navigate,
+    previewUrl,
+    setScanSession,
+    setActiveTaskId,
+    clearActiveTaskId,
+    updateTokenBalance,
+    user,
+    syncProfile,
+  ]);
 
-  const AgentCard = ({ icon: Icon, name, status, desc }) => (
-    <div className={`p-5 rounded-2xl border transition-all duration-500 ${status === 'done' ? 'bg-teal-50 border-teal-200' : 'bg-white border-slate-200 shadow-sm'}`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${status === 'done' ? 'bg-teal-100 text-teal-600' : 'bg-slate-100 text-slate-500'}`}>
-          <Icon className="w-5 h-5" />
-        </div>
-        {status === 'scanning' ? <Loader2 className="w-5 h-5 text-teal-500 animate-spin" /> : status === 'done' ? <CheckCircle2 className="w-5 h-5 text-teal-500" /> : <div className="w-5 h-5 rounded-full border-2 border-slate-200"></div>}
-      </div>
-      <h4 className="font-bold text-slate-900">{name}</h4>
-      <p className="text-xs text-slate-500 mt-1">{desc}</p>
-    </div>
-  );
+  
 
   if (error) {
     return (
-      <div className="max-w-2xl mx-auto py-20 text-center">
-        <div className="w-20 h-20 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-6">
-          <AlertCircle className="w-10 h-10" />
+      <div className="max-w-3xl mx-auto font-sans py-12">
+        <div className="bg-red-50 border border-red-100 rounded-3xl p-8 text-center">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-red-700 mb-2">
+            Analysis failed
+          </h2>
+          <p className="text-red-600 text-sm mb-6">{error}</p>
+          <button
+            onClick={() => navigate("/recognize")}
+            className="px-5 py-2.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700"
+          >
+            Try again
+          </button>
         </div>
-        <h2 className="text-3xl font-bold text-slate-900 mb-4">Analysis Failed</h2>
-        <p className="text-slate-500 mb-8">{error}</p>
-        <button onClick={() => navigate('/recognize')} className="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-semibold">Try Again</button>
       </div>
     );
   }
+  const AgentCard = ({ icon: Icon, name, status, desc }) => (
+    <div
+      className={`p-5 rounded-2xl border transition-all duration-500 ${
+        status === "done"
+          ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+          : status === "scanning"
+            ? "bg-white border-teal-200 text-slate-900 shadow-sm"
+            : "bg-slate-50 border-slate-200 text-slate-400"
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        <div
+          className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+            status === "done"
+              ? "bg-emerald-100"
+              : status === "scanning"
+                ? "bg-teal-50"
+                : "bg-slate-100"
+          }`}
+        >
+          {status === "done" ? (
+            <CheckCircle2 className="w-5 h-5" />
+          ) : status === "scanning" ? (
+            <Loader2 className="w-5 h-5 animate-spin text-teal-600" />
+          ) : (
+            <Icon className="w-5 h-5" />
+          )}
+        </div>
 
+        <div>
+          <h3 className="font-bold">{name}</h3>
+          <p className="text-xs opacity-70">{desc}</p>
+        </div>
+      </div>
+    </div>
+  );
   return (
-    <div className="max-w-3xl mx-auto py-12">
-      <div className="text-center mb-12">
-        <div className="w-20 h-20 bg-teal-50 text-teal-600 rounded-full flex items-center justify-center mx-auto mb-6 relative">
-          <Cpu className="w-10 h-10 animate-pulse" />
-          <div className="absolute inset-0 border-4 border-teal-200 rounded-full animate-ping opacity-20"></div>
+    <div className="max-w-4xl mx-auto font-sans py-10 space-y-8">
+      <div className="text-center">
+        <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <Cpu className="w-8 h-8" />
         </div>
-        <h2 className="text-3xl font-extrabold text-slate-900 mb-2">Analyzing Banknote</h2>
-        <p className="text-slate-500">Connecting to AI Models...</p>
+
+        <h2 className="text-3xl font-extrabold text-slate-900">
+          Processing Banknote
+        </h2>
+
+        <p className="text-slate-500 mt-2">
+          Multi-agent analysis is running. Please keep this page open.
+        </p>
       </div>
 
-      <div className="mb-10">
-        <div className="flex justify-between text-sm font-semibold text-slate-600 mb-2">
-          <span>Overall Progress</span>
-          <span>{progress}%</span>
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+        <div className="flex justify-between text-sm font-semibold text-slate-500 mb-2">
+          <span>{stage}</span>
+          <span>{Math.round(progress)}%</span>
         </div>
-        <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden">
-          <div className="h-full bg-teal-500 transition-all duration-300 ease-out rounded-full" style={{ width: `${progress}%` }}></div>
+
+        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+          <div
+            className="h-full bg-teal-600 rounded-full transition-all duration-500"
+            style={{ width: `${Math.min(Math.max(progress, 0), 100)}%` }}
+          />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <AgentCard icon={ScanLine} name="Agent 1: YOLO" status={progress === 100 ? 'done' : 'scanning'} desc="Detecting shapes and patterns" />
-        <AgentCard icon={Brain} name="Agent 2: Gemini" status={progress === 100 ? 'done' : 'scanning'} desc="Analyzing visual context" />
-        <AgentCard icon={Globe} name="Agent 3: Lens" status={progress === 100 ? 'done' : 'scanning'} desc="Fetching global database" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <AgentCard
+          icon={ScanLine}
+          name="YOLO / ML Agent"
+          status={agentsStatus.yolo}
+          desc="Visual detection and denomination clues"
+        />
+        <AgentCard
+          icon={Brain}
+          name="LLM Agent"
+          status={agentsStatus.llm}
+          desc="Text reading and contextual reasoning"
+        />
+        <AgentCard
+          icon={Globe}
+          name="Visual Search"
+          status={agentsStatus.lens}
+          desc="External visual reference checking"
+        />
+        <AgentCard
+          icon={Cpu}
+          name="Aggregator"
+          status={agentsStatus.aggregator}
+          desc="Consensus and final decision"
+        />
       </div>
+
+      {previewUrl && (
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+          <p className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">
+            Uploaded image
+          </p>
+          <img
+            src={previewUrl}
+            alt="Uploaded banknote"
+            className="w-full max-h-[320px] object-contain rounded-2xl bg-slate-50"
+          />
+        </div>
+      )}
     </div>
   );
 }

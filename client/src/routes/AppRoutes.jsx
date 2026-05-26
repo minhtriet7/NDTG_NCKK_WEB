@@ -6,7 +6,7 @@ import MainLayout from "../layouts/MainLayout.jsx";
 import AuthLayout from "../layouts/AuthLayout.jsx";
 import AdminLayout from "../layouts/AdminLayout.jsx";
 
-// Middleware Phân Quyền
+// Middleware phân quyền
 import { UserRoute, AdminRoute } from "./PrivateRoutes.jsx";
 
 // Pages - Auth
@@ -14,7 +14,7 @@ import Login from "../pages/auth/Login.jsx";
 import Register from "../pages/auth/Register.jsx";
 import ForgotPassword from "../pages/auth/ForgotPassword.jsx";
 import AdminLogin from "../pages/auth/AdminLogin.jsx";
-import GoogleSuccess from "../pages/auth/GoogleSuccess.jsx"; // 👈 ĐÃ BỔ SUNG IMPORT
+import GoogleSuccess from "../pages/auth/GoogleSuccess.jsx";
 
 // Pages - User
 import Home from "../pages/user/Home.jsx";
@@ -32,6 +32,8 @@ import Feedback from "../pages/user/Feedback.jsx";
 import UserGuide from "../pages/user/UserGuide.jsx";
 import Info from "../pages/user/Info.jsx";
 import SepayCheckout from "../pages/user/SepayCheckout.jsx";
+import Checkout from "../pages/user/Checkout.jsx";
+
 // Pages - Admin
 import Dashboard from "../pages/admin/Dashboard.jsx";
 import UsersManager from "../pages/admin/UsersManager.jsx";
@@ -49,31 +51,41 @@ import SystemLogs from "../pages/admin/SystemLogs.jsx";
 import TokenPackagesManager from "../pages/admin/TokenPackagesManager.jsx";
 import TransactionsManager from "../pages/admin/TransactionsManager.jsx";
 import Settings from "../pages/admin/Settings.jsx";
-import Checkout from "../pages/user/Checkout";
+
 // Error Components
 import NotFound404 from "../errors/NotFound404.jsx";
 
 export default function AppRoutes() {
   return (
     <Routes>
-      {/* ========================================== */}
-      {/* 1. KHU VỰC PUBLIC (GIAO DIỆN USER CHUNG)     */}
-      {/* ========================================== */}
+      {/* ===================================================== */}
+      {/* PUBLIC + USER APP LAYOUT */}
+      {/* ===================================================== */}
       <Route element={<MainLayout />}>
+        {/* Public */}
         <Route path="/" element={<Home />} />
         <Route path="/directory" element={<BanknoteDirectory />} />
+
+        {/* Alias tỷ giá */}
         <Route path="/currency-converter" element={<CurrencyConverter />} />
+        <Route path="/exchange" element={<CurrencyConverter />} />
+
         <Route path="/guide" element={<UserGuide />} />
         <Route path="/info" element={<Info />} />
 
-        {/* ========================================== */}
-        {/* 2. KHU VỰC BẮT BUỘC ĐĂNG NHẬP (USER PRIVATE)*/}
-        {/* ========================================== */}
+        {/* Private user */}
         <Route element={<UserRoute />}>
+          {/* Alias workspace */}
           <Route path="/recognize" element={<Recognition />} />
+          <Route path="/workspace" element={<Recognition />} />
+
           <Route path="/processing" element={<Processing />} />
           <Route path="/result" element={<Result />} />
+
+          {/* Alias agent detail */}
           <Route path="/result/detail" element={<AgentResultDetail />} />
+          <Route path="/agent-result-detail" element={<AgentResultDetail />} />
+
           <Route path="/history" element={<History />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/transactions" element={<Transactions />} />
@@ -84,63 +96,78 @@ export default function AppRoutes() {
         </Route>
       </Route>
 
-      {/* ========================================== */}
-      {/* 3. KHU VỰC XÁC THỰC (AUTH HOÀN CHỈNH)        */}
-      {/* ========================================== */}
+      {/* ===================================================== */}
+      {/* AUTH LAYOUT */}
+      {/* ===================================================== */}
       <Route path="/auth" element={<AuthLayout />}>
+        <Route index element={<Navigate to="/auth/login" replace />} />
+
         <Route path="login" element={<Login />} />
         <Route path="register" element={<Register />} />
         <Route path="forgot-password" element={<ForgotPassword />} />
+
+        {/* Admin login */}
         <Route path="admin-login" element={<AdminLogin />} />
+        <Route path="admin" element={<Navigate to="/auth/admin-login" replace />} />
+
+        {/* Google OAuth success */}
         <Route path="google/success" element={<GoogleSuccess />} />
       </Route>
 
-      {/* ========================================== */}
-      {/* 4. KHU VỰC QUẢN TRỊ VIÊN (ADMIN PANEL)        */}
-      {/* ========================================== */}
+      {/* ===================================================== */}
+      {/* ADMIN PANEL */}
+      {/* ===================================================== */}
       <Route element={<AdminRoute />}>
         <Route element={<AdminLayout />}>
-          {/* Tự động chuyển /admin sang /admin/dashboard cho chuyên nghiệp */}
           <Route
             path="/admin"
             element={<Navigate to="/admin/dashboard" replace />}
           />
 
-          {/* ĐÂY CHÍNH LÀ CHỖ CẦN SỬA ĐỂ KHỚP VỚI NÚT BẤM */}
+          {/* Overview & System */}
           <Route path="/admin/dashboard" element={<Dashboard />} />
-          <Route path="/admin/users" element={<UsersManager />} />
-          <Route path="/admin/banknotes" element={<BanknotesManager />} />
-          <Route path="/admin/results" element={<ResultsManager />} />
-          <Route path="/admin/agents-config" element={<AgentsConfig />} />
-          <Route path="/admin/agents-manager" element={<AgentsManager />} />
-          <Route
-            path="/admin/aggregator-config"
-            element={<AggregatorConfig />}
-          />
-          <Route path="/admin/aimodel-config" element={<AiModelConfig />} />
-          <Route
-            path="/admin/currency-rates"
-            element={<CurrencyRatesManager />}
-          />
-          <Route path="/admin/feedbacks" element={<FeedbacksManager />} />
-          <Route
-            path="/admin/googlelens-config"
-            element={<GoogleLensConfig />}
-          />
-          <Route path="/admin/llm-config" element={<LlmConfig />} />
           <Route path="/admin/logs" element={<SystemLogs />} />
+          <Route path="/admin/settings" element={<Settings />} />
+
+          {/* User & Payments */}
+          <Route path="/admin/users" element={<UsersManager />} />
           <Route
             path="/admin/token-packages"
             element={<TokenPackagesManager />}
           />
-          <Route path="/admin/transactions" element={<TransactionsManager />} />
-          <Route path="/admin/settings" element={<Settings />} />
+          <Route
+            path="/admin/transactions"
+            element={<TransactionsManager />}
+          />
+          <Route path="/admin/feedbacks" element={<FeedbacksManager />} />
+
+          {/* Recognition Data */}
+          <Route path="/admin/results" element={<ResultsManager />} />
+          <Route path="/admin/banknotes" element={<BanknotesManager />} />
+          <Route
+            path="/admin/currency-rates"
+            element={<CurrencyRatesManager />}
+          />
+
+          {/* AI Agents */}
+          <Route path="/admin/agents" element={<AgentsManager />} />
+          <Route path="/admin/agents/config" element={<AgentsConfig />} />
+          <Route path="/admin/agents/ai-model" element={<AiModelConfig />} />
+          <Route path="/admin/agents/llm" element={<LlmConfig />} />
+          <Route
+            path="/admin/agents/google-lens"
+            element={<GoogleLensConfig />}
+          />
+          <Route
+            path="/admin/agents/aggregator"
+            element={<AggregatorConfig />}
+          />
         </Route>
       </Route>
 
-      {/* ========================================== */}
-      {/* 5. XỬ LÝ LỖI TRANG KHÔNG TỒN TẠI (404)        */}
-      {/* ========================================== */}
+      {/* ===================================================== */}
+      {/* 404 */}
+      {/* ===================================================== */}
       <Route path="/404" element={<NotFound404 />} />
       <Route path="*" element={<Navigate to="/404" replace />} />
     </Routes>

@@ -1,87 +1,278 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useAppStore } from "../../store/appStore";
-import {
-  getLlmConfig,
-  updateLlmConfig,
-  testLlmConfig,
-} from "../../services/adminConfigService";
-import { BotMessageSquare, Save, RotateCcw } from "lucide-react";
+import { getLlmConfig, updateLlmConfig } from "../../services/adminService";
+import { Brain, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function LlmConfig() {
   const { lang, theme } = useAppStore();
   const isDark = theme === "dark";
-  const [config, setConfig] = useState({ provider: "gemini", model_name: "", temperature: 0, max_tokens: 0, system_prompt: "" });
+
+  const [form, setForm] = useState({
+    enabled: true,
+    api_key_configured: false,
+    main_model: "gemini-2.5-flash",
+    fallback_models: ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
+    max_attempts_per_model: 2,
+    temperature: 0.1,
+    response_mime_type: "application/json",
+    quota_fallback_enabled: true,
+    prompt_template: "",
+  });
+
+  const [fallbackText, setFallbackText] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
+  const t = {
+    EN: {
+      title: "LLM Config",
+      subtitle: "Configure Agent 2 Gemini model, fallback behavior, and structured JSON response settings.",
+      refresh: "Refresh",
+      save: "Save Changes",
+      saving: "Saving...",
+      model: "Model settings",
+      safety: "Fallback and format",
+      enabled: "Enable Agent 2 Gemini LLM",
+      apiKey: "Google API Key",
+      configured: "Configured",
+      missing: "Missing",
+      mainModel: "Main model",
+      fallbackModels: "Fallback models",
+      attempts: "Max attempts per model",
+      temperature: "Temperature",
+      mime: "Response MIME type",
+      quotaFallback: "Switch model when quota is exceeded",
+      prompt: "Prompt template override",
+      saved: "LLM configuration saved.",
+      failedLoad: "Failed to load LLM config.",
+      failedSave: "Failed to save LLM config.",
+    },
+    VI: {
+      title: "Cấu hình LLM",
+      subtitle: "Cấu hình Agent 2 Gemini, model dự phòng và định dạng JSON có cấu trúc.",
+      refresh: "Tải lại",
+      save: "Lưu thay đổi",
+      saving: "Đang lưu...",
+      model: "Thiết lập model",
+      safety: "Dự phòng và định dạng",
+      enabled: "Bật Agent 2 Gemini LLM",
+      apiKey: "Google API Key",
+      configured: "Đã cấu hình",
+      missing: "Thiếu",
+      mainModel: "Model chính",
+      fallbackModels: "Model dự phòng",
+      attempts: "Số lần thử mỗi model",
+      temperature: "Temperature",
+      mime: "Response MIME type",
+      quotaFallback: "Đổi model khi hết quota",
+      prompt: "Prompt template ghi đè",
+      saved: "Đã lưu cấu hình LLM.",
+      failedLoad: "Không thể tải cấu hình LLM.",
+      failedSave: "Không thể lưu cấu hình LLM.",
+    },
+  }[lang || "EN"];
+
+  const cardClass = isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200";
+  const inputClass = isDark
+    ? "bg-slate-950 border-slate-800 text-white"
+    : "bg-slate-50 border-slate-200 text-slate-900";
+
+  const normalizeConfig = (data) => {
+    const cfg = data?.config || data?.settings || data?.data || data || {};
+    return {
+      ...cfg,
+      fallback_models: Array.isArray(cfg.fallback_models)
+        ? cfg.fallback_models
+        : String(cfg.fallback_models || "")
+            .split(/[\n,]/)
+            .map((item) => item.trim())
+            .filter(Boolean),
+    };
+  };
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const data = await getLlmConfig();
+      const next = { ...form, ...normalizeConfig(data) };
+      setForm(next);
+      setFallbackText(Array.isArray(next.fallback_models) ? next.fallback_models.join("\n") : "");
+    } catch (error) {
+      console.error(error);
+      toast.error(t.failedLoad);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    getLlmConfig().then(data => setConfig(data));
-  }, []);
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
 
   const handleSave = async (e) => {
     e.preventDefault();
+
+    const fallbackModels = fallbackText
+      .split("\n")
+      .map((x) => x.trim())
+      .filter(Boolean);
+
     setIsSaving(true);
     try {
-      await updateLlmConfig(config);
-      toast.success(lang === "VI" ? "Đã lưu cấu hình LLM" : "LLM Configuration saved");
-    } catch (err) { toast.error("Failed to save"); }
-    finally { setIsSaving(false); }
+      await updateLlmConfig({
+        ...form,
+        fallback_models: fallbackModels,
+        max_attempts_per_model: Number(form.max_attempts_per_model),
+        temperature: Number(form.temperature),
+        enabled: Boolean(form.enabled),
+        quota_fallback_enabled: Boolean(form.quota_fallback_enabled),
+      });
+      toast.success(t.saved);
+      await loadData();
+    } catch (error) {
+      console.error(error);
+      toast.error(error?.response?.data?.detail || error?.response?.data?.message || t.failedSave);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
+  const toggle = (field) => setForm((prev) => ({ ...prev, [field]: !prev[field] }));
+
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-6 animate-[fadeInUp_0.4s_ease-out]">
-      <div className="border-b border-slate-200 dark:border-slate-800 pb-4">
-        <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
-          <BotMessageSquare className="text-violet-500" size={32}/> 
-          {lang === "VI" ? "Cấu hình Ngôn ngữ (LLM)" : "LLM Agent Configuration"}
-        </h1>
-        <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">Fine-tune semantic analysis parameters and system prompts.</p>
+    <form onSubmit={handleSave} className="w-full max-w-[1200px] mx-auto space-y-6 animate-[fadeInUp_0.4s_ease-out]">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-5 border-b border-slate-200 dark:border-slate-800 pb-5">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400 mb-2">
+            Agent 2 Gemini
+          </p>
+          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
+          <p className="text-sm md:text-base text-slate-500 dark:text-slate-400 mt-2 max-w-2xl">{t.subtitle}</p>
+        </div>
+
+        <div className="flex gap-3">
+          <button type="button" onClick={loadData} disabled={isLoading} className={`h-11 px-4 rounded-xl border font-bold text-sm flex items-center gap-2 ${cardClass} text-slate-700 dark:text-slate-300 disabled:opacity-60`}>
+            <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
+            {t.refresh}
+          </button>
+          <button type="submit" disabled={isSaving} className="h-11 px-5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-black text-sm flex items-center gap-2 disabled:opacity-60">
+            {isSaving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+            {isSaving ? t.saving : t.save}
+          </button>
+        </div>
       </div>
 
-      <form onSubmit={handleSave} className={`p-6 md:p-8 rounded-3xl border shadow-sm space-y-6 ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <label className="block">
-            <span className="text-xs font-bold text-slate-500 uppercase mb-2 block">AI Provider</span>
-            <select value={config.provider} onChange={e=>setConfig({...config, provider: e.target.value})} className={`w-full px-4 py-3 rounded-xl border text-sm font-semibold focus:outline-none focus:border-violet-500 ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200 text-slate-900"}`}>
-              <option value="gemini">Google Gemini API</option>
-              <option value="openai">OpenAI (ChatGPT)</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-xs font-bold text-slate-500 uppercase mb-2 block">Model Name</span>
-            <input type="text" value={config.model_name} onChange={e=>setConfig({...config, model_name: e.target.value})} className={`w-full px-4 py-3 rounded-xl border text-sm focus:outline-none focus:border-violet-500 ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200 text-slate-900"}`}/>
-          </label>
-        </div>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div className={`rounded-3xl border shadow-sm p-6 space-y-5 ${cardClass}`}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-violet-50 dark:bg-violet-900/30 flex items-center justify-center text-violet-600 dark:text-violet-400">
+              <Brain size={18} />
+            </div>
+            <h2 className="text-xl font-black text-slate-900 dark:text-white">{t.model}</h2>
+          </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-5 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-          <label className="block">
-            <span className="text-xs font-bold text-slate-500 uppercase mb-2 flex justify-between">
-              Temperature (Creativity) <span className="text-violet-500">{config.temperature}</span>
-            </span>
-            <input type="range" min="0" max="1" step="0.1" value={config.temperature} onChange={e=>setConfig({...config, temperature: parseFloat(e.target.value)})} className="w-full accent-violet-500"/>
-            <p className="text-[10px] text-slate-400 mt-1">Lower value = More deterministic. Higher = More creative.</p>
-          </label>
-          <label className="block">
-            <span className="text-xs font-bold text-slate-500 uppercase mb-2 block">Max Output Tokens</span>
-            <input type="number" value={config.max_tokens} onChange={e=>setConfig({...config, max_tokens: parseInt(e.target.value)})} className={`w-full px-4 py-2.5 rounded-xl border text-sm font-mono focus:outline-none focus:border-violet-500 ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200 text-slate-900"}`}/>
-          </label>
-        </div>
-
-        <label className="block">
-          <span className="text-xs font-bold text-slate-500 uppercase mb-2 block">System Prompt (Crucial)</span>
-          <textarea rows="8" value={config.system_prompt} onChange={e=>setConfig({...config, system_prompt: e.target.value})} className={`w-full px-4 py-3 rounded-xl border text-sm font-mono leading-relaxed focus:outline-none focus:border-violet-500 resize-y ${isDark ? "bg-[#0F172A] border-slate-800 text-violet-300" : "bg-slate-50 border-slate-200 text-violet-700"}`}/>
-        </label>
-
-        <div className="flex gap-4 pt-4">
-          <button type="button" className={`px-6 py-3 rounded-xl font-bold text-sm border flex items-center gap-2 transition ${isDark ? "border-slate-700 hover:bg-slate-800 text-slate-300" : "border-slate-200 hover:bg-slate-50 text-slate-700"}`}>
-            <RotateCcw size={16}/> Reset Defaults
+          <button
+            type="button"
+            onClick={() => toggle("enabled")}
+            className={`w-full p-4 rounded-2xl border flex justify-between items-center ${form.enabled ? "border-teal-300 bg-teal-50/50 dark:bg-teal-900/20" : "border-slate-200 dark:border-slate-800"}`}
+          >
+            <span className="font-black text-slate-900 dark:text-white">{t.enabled}</span>
+            <div className={`w-11 h-6 rounded-full p-1 ${form.enabled ? "bg-teal-600" : "bg-slate-300 dark:bg-slate-700"}`}>
+              <div className={`w-4 h-4 bg-white rounded-full transition-transform ${form.enabled ? "translate-x-5" : ""}`} />
+            </div>
           </button>
-          <button type="submit" disabled={isSaving} className="px-6 py-3 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-bold text-sm shadow-md transition disabled:opacity-50 flex items-center gap-2">
-            <Save size={16}/> {isSaving ? "Saving..." : "Save Configuration"}
-          </button>
+
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black text-slate-900 dark:text-white">{t.apiKey}</div>
+              <div className="text-xs text-slate-500 mt-1">{form.api_key_configured ? t.configured : t.missing}</div>
+            </div>
+            <ShieldCheck className={form.api_key_configured ? "text-emerald-500" : "text-rose-500"} size={22} />
+          </div>
+
+          <div>
+            <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">{t.mainModel}</label>
+            <input
+              value={form.main_model}
+              onChange={(e) => setForm({ ...form, main_model: e.target.value })}
+              className={`w-full h-12 px-4 rounded-2xl border outline-none text-sm font-semibold ${inputClass}`}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">{t.fallbackModels}</label>
+            <textarea
+              value={fallbackText}
+              onChange={(e) => setFallbackText(e.target.value)}
+              rows={4}
+              className={`w-full px-4 py-3 rounded-2xl border outline-none text-sm font-mono ${inputClass}`}
+            />
+          </div>
         </div>
-      </form>
-    </div>
+
+        <div className={`rounded-3xl border shadow-sm p-6 space-y-5 ${cardClass}`}>
+          <h2 className="text-xl font-black text-slate-900 dark:text-white">{t.safety}</h2>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">{t.attempts}</label>
+              <input
+                type="number"
+                min="1"
+                value={form.max_attempts_per_model}
+                onChange={(e) => setForm({ ...form, max_attempts_per_model: Number(e.target.value) })}
+                className={`w-full h-12 px-4 rounded-2xl border outline-none font-mono font-bold ${inputClass}`}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">{t.temperature}</label>
+              <input
+                type="number"
+                min="0"
+                max="1"
+                step="0.01"
+                value={form.temperature}
+                onChange={(e) => setForm({ ...form, temperature: Number(e.target.value) })}
+                className={`w-full h-12 px-4 rounded-2xl border outline-none font-mono font-bold ${inputClass}`}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">{t.mime}</label>
+            <input
+              value={form.response_mime_type}
+              onChange={(e) => setForm({ ...form, response_mime_type: e.target.value })}
+              className={`w-full h-12 px-4 rounded-2xl border outline-none text-sm font-semibold ${inputClass}`}
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => toggle("quota_fallback_enabled")}
+            className={`w-full p-4 rounded-2xl border flex justify-between items-center ${form.quota_fallback_enabled ? "border-teal-300 bg-teal-50/50 dark:bg-teal-900/20" : "border-slate-200 dark:border-slate-800"}`}
+          >
+            <span className="font-black text-slate-900 dark:text-white">{t.quotaFallback}</span>
+            <div className={`w-11 h-6 rounded-full p-1 ${form.quota_fallback_enabled ? "bg-teal-600" : "bg-slate-300 dark:bg-slate-700"}`}>
+              <div className={`w-4 h-4 bg-white rounded-full transition-transform ${form.quota_fallback_enabled ? "translate-x-5" : ""}`} />
+            </div>
+          </button>
+
+          <div>
+            <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">{t.prompt}</label>
+            <textarea
+              value={form.prompt_template || ""}
+              onChange={(e) => setForm({ ...form, prompt_template: e.target.value })}
+              rows={8}
+              placeholder="Optional. Leave empty to use backend default prompt."
+              className={`w-full px-4 py-3 rounded-2xl border outline-none text-sm ${inputClass}`}
+            />
+          </div>
+        </div>
+      </div>
+    </form>
   );
 }

@@ -24,16 +24,33 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 
+
+function normalizeUser(user = {}) {
+  return {
+    id: user.id || user._id,
+    _id: user._id,
+    full_name: user.full_name || user.name || user.username || user.email?.split("@")[0] || "N/A",
+    email: user.email || "",
+    avatar_url: user.avatar_url || user.picture || user.avatar || "",
+    role: user.role || (user.is_admin ? "admin" : "user"),
+    is_active: user.is_active !== false && user.status !== "blocked" && user.status !== "banned",
+    token_balance: user.token_balance ?? user.tokens ?? user.balance ?? 0,
+    auth_provider: user.auth_provider || user.provider || "local",
+    created_at: user.created_at || user.joined_at || user.createdAt,
+    raw: user,
+  };
+}
+
 function normalizeUsersResponse(data) {
   if (Array.isArray(data)) {
     return {
-      items: data,
+      items: data.map(normalizeUser),
       total: data.length,
     };
   }
 
   return {
-    items: data?.items || data?.data || data?.results || [],
+    items: (data?.items || data?.data || data?.results || []).map(normalizeUser),
     total: data?.total || data?.count || data?.items?.length || 0,
   };
 }
@@ -196,7 +213,7 @@ export default function UsersManager() {
       setUsers(normalized.items);
       setTotalUsers(normalized.total);
     } catch (error) {
-      toast.error(error?.message || t.errLoad);
+      toast.error(error?.response?.data?.detail || error?.response?.data?.message || error?.message || t.errLoad);
       setUsers([]);
       setTotalUsers(0);
     } finally {
@@ -276,7 +293,7 @@ export default function UsersManager() {
       });
       loadData();
     } catch (error) {
-      toast.error(error?.message || "Update failed");
+      toast.error(error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Update failed");
     } finally {
       setIsProcessing(false);
     }
@@ -294,7 +311,7 @@ export default function UsersManager() {
       setDeleteModal({ open: false, user: null });
       loadData();
     } catch (error) {
-      toast.error(error?.message || "Delete failed");
+      toast.error(error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Delete failed");
     } finally {
       setIsProcessing(false);
     }

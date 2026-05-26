@@ -1,0 +1,52 @@
+[
+  {
+    "package_key": "starter",
+    "name": "Starter Pack",
+    "price_usd": 2,
+    "price_vnd": 50000,
+    "tokens_included": 50,
+    "description": "Phù hợp cho người dùng thỉnh thoảng quét tiền.",
+    "features": [
+      "Multi-agent result",
+      "JSON export",
+      "Scan history"
+    ],
+    "badge": "",
+    "sort_order": 1,
+    "is_active": true
+  },
+  {
+    "package_key": "pro",
+    "name": "Pro Pack",
+    "price_usd": 6,
+    "price_vnd": 150000,
+    "tokens_included": 200,
+    "description": "Gói phù hợp nhất cho người dùng thường xuyên.",
+    "features": [
+      "Advanced cross-checking analysis",
+      "Full JSON schema export",
+      "Lifetime history retention",
+      "High queue priority"
+    ],
+    "badge": "Best Value",
+    "sort_order": 2,
+    "is_active": true
+  },
+  {
+    "package_key": "enterprise",
+    "name": "Enterprise Pack",
+    "price_usd": 20,
+    "price_vnd": 500000,
+    "tokens_included": 1000,
+    "description": "Dành cho nhu cầu quét số lượng lớn.",
+    "features": [
+      "Bulk upload processing support",
+      "Integrated API access",
+      "Custom agent fine-tuning",
+      "Priority technical support"
+    ],
+    "badge": "",
+    "sort_order": 3,
+    "is_active": true
+  }
+]

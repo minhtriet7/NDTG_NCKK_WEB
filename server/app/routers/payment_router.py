@@ -1,146 +1,68 @@
-import uuid
-from fastapi import APIRouter, Depends, Request, HTTPException, status
-from pydantic import BaseModel
-from typing import Optional
-from app.models.user_model import User
-from app.models.transaction_model import Transaction  # 🌟 IMPORT ĐỂ LƯU LỊCH SỬ GIAO DỊCH
+from fastapi import APIRouter, Depends, Request
+
+from app.controllers.payment_controller import PaymentController
 from app.core.dependencies import get_current_user
+from app.models.token_package_model import TokenPackage
+from app.models.user_model import User
+from app.schemas.payment_schema import CreateTransactionRequest
+
 
 router = APIRouter()
 
-# Cơ chế Fallback giữ nguyên giúp giao diện luôn mượt mà
-PACKAGES = [
-    { "id": "pkg_1", "name": "Starter Pack", "tokens": 50, "price_vnd": 50000, "price_usd": 2, "description": "Gói cơ bản" },
-    { "id": "pkg_2", "name": "Pro Pack", "tokens": 200, "price_vnd": 150000, "price_usd": 6, "description": "Gói chuyên nghiệp" },
-    { "id": "pkg_3", "name": "Enterprise Pack", "tokens": 1000, "price_vnd": 500000, "price_usd": 20, "description": "Gói doanh nghiệp" }
-]
 
-class CreateTransactionRequestLocal(BaseModel):
-    package_id: str
-    gateway: Optional[str] = "sepay" 
+def serialize_token_package(pkg: TokenPackage) -> dict:
+    return {
+        "id": str(pkg.id),
+        "package_key": getattr(pkg, "package_key", None),
+        "name": pkg.name,
+        "description": getattr(pkg, "description", ""),
+        "tokens": getattr(pkg, "tokens_included", 0),
+        "tokens_included": getattr(pkg, "tokens_included", 0),
+        "price_vnd": getattr(pkg, "price_vnd", 0),
+        "price_usd": getattr(pkg, "price_usd", 0),
+        "features": getattr(pkg, "features", []) or [],
+        "badge": getattr(pkg, "badge", ""),
+        "sort_order": getattr(pkg, "sort_order", 0),
+        "is_active": getattr(pkg, "is_active", True),
+    }
+
 
 @router.get("/token-packages")
 async def get_all_active_packages():
-    return PACKAGES
+    packages = (
+        await TokenPackage.find(TokenPackage.is_active == True)
+        .sort("sort_order")
+        .to_list()
+    )
+
+    return [serialize_token_package(pkg) for pkg in packages]
+
 
 @router.post("/buy")
 async def buy_tokens(
-    data: CreateTransactionRequestLocal, 
-    current_user: User = Depends(get_current_user)
+    data: CreateTransactionRequest,
+    current_user: User = Depends(get_current_user),
 ):
-    # Tìm thông tin gói trong bộ nhớ tạm thời
-    pkg = next((p for p in PACKAGES if p["id"] == data.package_id), None)
-    if not pkg:
-        raise HTTPException(status_code=404, detail="Gói token không tồn tại trên hệ thống.")
+    return await PaymentController.buy_tokens(current_user, data)
 
-    # 🌟 SỬA LỖI 400: Đồng bộ cổng "bank_transfer" từ FE về chung cụm xử lý với "sepay"
-    gateway_type = data.gateway
-    if gateway_type == "bank_transfer":
-        gateway_type = "sepay"
 
-    # -------------------------------------------------------------
-    # THẾ TRẬN 1: LUỒNG THANH TOÁN THẬT QUA SEPAY (VIETQR AUTOMATIC)
-    # -------------------------------------------------------------
-    if gateway_type == "sepay":
-        unique_memo = f"NAPTOKEN{str(current_user.id)[-4:]}{str(uuid.uuid4()).upper()[:4]}"
-        
-        bank_id = "VCB"
-        account_number = "1031506356"
-        account_name = "HUYNH NGUYEN MINH TRIET"
-        amount = pkg["price_vnd"]
-        
-        qr_url = f"https://img.vietqr.io/image/{bank_id}-{account_number}-compact2.jpg?amount={amount}&addInfo={unique_memo}&accountName={account_name}"
-        
-        # 🌟 ĐỒNG BỘ SERVER: Khởi tạo hóa đơn ở trạng thái "pending" (Chờ duyệt) vào MongoDB
-        transaction = Transaction(
-            user_id=str(current_user.id),
-            package_id=pkg["id"],
-            amount=amount,
-            tokens_added=pkg["tokens"],
-            status="pending",
-            payment_gateway="sepay",
-            transaction_code=unique_memo
-        )
-        await transaction.insert() # Lưu vào bộ nhớ DB
-        
-        return {
-            "id": str(transaction.id), # Trả thêm ID hóa đơn về cho FE quản lý
-            "qr_url": qr_url,
-            "bank_name": "Vietcombank (VCB)",
-            "bank_account": account_number,
-            "account_name": account_name,
-            "amount": amount,
-            "transaction_code": unique_memo,
-            "tokens_added": pkg["tokens"],
-            "is_mock": False
-        }
+@router.get("/status/{transaction_id}")
+async def get_payment_status(
+    transaction_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    return await PaymentController.get_payment_status(current_user, transaction_id)
 
-    # -------------------------------------------------------------
-    # THẾ TRẬN 2: LUỒNG THANH TOÁN GIẢ LẬP (MOCK) ĐỂ TEST NHANH
-    # -------------------------------------------------------------
-    elif gateway_type == "mock":
-        current_user.token_balance += pkg["tokens"]
-        await current_user.save()
-        
-        # 🌟 ĐỒNG BỘ SERVER: Lưu lịch sử nạp giả lập thành công ("success") vào DB luôn
-        transaction = Transaction(
-            user_id=str(current_user.id),
-            package_id=pkg["id"],
-            amount=pkg["price_vnd"],
-            tokens_added=pkg["tokens"],
-            status="success",
-            payment_gateway="mock",
-            transaction_code=f"MOCK_{str(uuid.uuid4()).upper()[:6]}"
-        )
-        await transaction.insert()
-        
-        return {
-            "id": str(transaction.id),
-            "qr_url": "",
-            "bank_name": "Hệ Thống Giả Lập",
-            "bank_account": "0000000000",
-            "account_name": "MOCK PAYMENT SYSTEM",
-            "amount": 0,
-            "transaction_code": transaction.transaction_code,
-            "tokens_added": pkg["tokens"],
-            "is_mock": True
-        }
 
-    raise HTTPException(status_code=400, detail="Cổng thanh toán không được hỗ trợ.")
+@router.get("/transactions")
+async def get_my_transactions(
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+):
+    return await PaymentController.get_my_transactions(current_user, limit)
 
-# 3. API xử lý Webhook tự động khi ngân hàng chuyển tiền thật về
+
 @router.post("/webhook/sepay")
 async def payment_sepay_webhook(request: Request):
-    try:
-        webhook_payload = await request.json()
-        print("📩 [SePay Webhook] Nhận dữ liệu giao dịch thật từ ngân hàng:", webhook_payload)
-        
-        transaction_content = webhook_payload.get("transactionContent", "").upper()
-        transfer_amount = int(webhook_payload.get("transferAmount", 0))
-        
-        if "NAPTOKEN" in transaction_content:
-            all_users = await User.find_all().to_list()
-            for user in all_users:
-                user_suffix = str(user.id)[-4:]
-                if f"NAPTOKEN{user_suffix}" in transaction_content:
-                    matched_pkg = next((p for p in PACKAGES if transfer_amount >= p["price_vnd"]), None)
-                    if matched_pkg:
-                        # Cộng token cho người dùng
-                        user.token_balance += matched_pkg["tokens"]
-                        await user.save()
-                        
-                        # 🌟 ĐỒNG BỘ SERVER: Cập nhật trạng thái hóa đơn Chờ (pending) thành Thành công (success)
-                        # Tìm hóa đơn theo mã code chuyển khoản xuất hiện trong nội dung
-                        db_tx = await Transaction.find_one(Transaction.transaction_code == transaction_content)
-                        if db_tx:
-                            db_tx.status = "success"
-                            await db_tx.save()
-
-                        print(f"✅ SePay: Nạp tiền thật thành công! Đã cộng {matched_pkg['tokens']} token cho {user.full_name}")
-                        return {"status": "success", "message": "Nạp tiền thành công"}
-                        
-            print("⚠️ Không tìm thấy người dùng có mã khớp với nội dung chuyển khoản.")
-        return {"status": "ignored", "message": "Nội dung chuyển tiền không hợp lệ."}
-    except Exception as e:
-        print("❌ Lỗi xử lý Webhook SePay:", str(e))
-        return {"status": "error", "message": str(e)}
+    payload = await request.json()
+    return await PaymentController.handle_webhook_payload(payload)

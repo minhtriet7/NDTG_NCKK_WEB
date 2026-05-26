@@ -1,147 +1,33 @@
-import axios from "axios";
-
-const ROOT_API_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  import.meta.env.VITE_API_URL ||
-  "http://localhost:8000";
-
-const API_BASE_URL = `${ROOT_API_URL}/api/v1/admin`;
-
-function safeParseJSON(value) {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
-
-export const getAdminToken = () => {
-  const authStorage = safeParseJSON(localStorage.getItem("auth-storage"));
-  const tokenFromStore = authStorage?.state?.token;
-
-  return (
-    tokenFromStore ||
-    localStorage.getItem("access_token") ||
-    localStorage.getItem("token") ||
-    ""
-  );
-};
-
-export const getAuthHeaders = () => {
-  const token = getAdminToken();
-
-  const headers = {
-    "Content-Type": "application/json",
-  };
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  return headers;
-};
-
-function normalizeApiError(error, fallbackMessage = "Admin API error.") {
-  return (
-    error?.response?.data?.detail ||
-    error?.response?.data?.message ||
-    error?.message ||
-    fallbackMessage
-  );
-}
-
-function normalizeList(data) {
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.items)) return data.items;
-  if (Array.isArray(data?.data)) return data.data;
-  if (Array.isArray(data?.results)) return data.results;
-  return [];
-}
-
-async function adminGet(path, params = {}) {
-  try {
-    const res = await axios.get(`${API_BASE_URL}${path}`, {
-      headers: getAuthHeaders(),
-      params,
-    });
-
-    return res.data;
-  } catch (error) {
-    throw new Error(normalizeApiError(error));
-  }
-}
-
-async function adminPost(path, payload = {}) {
-  try {
-    const res = await axios.post(`${API_BASE_URL}${path}`, payload, {
-      headers: getAuthHeaders(),
-    });
-
-    return res.data;
-  } catch (error) {
-    throw new Error(normalizeApiError(error));
-  }
-}
-
-async function adminPut(path, payload = {}) {
-  try {
-    const res = await axios.put(`${API_BASE_URL}${path}`, payload, {
-      headers: getAuthHeaders(),
-    });
-
-    return res.data;
-  } catch (error) {
-    throw new Error(normalizeApiError(error));
-  }
-}
-
-async function adminPatch(path, payload = {}) {
-  try {
-    const res = await axios.patch(`${API_BASE_URL}${path}`, payload, {
-      headers: getAuthHeaders(),
-    });
-
-    return res.data;
-  } catch (error) {
-    throw new Error(normalizeApiError(error));
-  }
-}
-
-async function adminDelete(path) {
-  try {
-    const res = await axios.delete(`${API_BASE_URL}${path}`, {
-      headers: getAuthHeaders(),
-    });
-
-    return res.data;
-  } catch (error) {
-    throw new Error(normalizeApiError(error));
-  }
-}
+import api, { normalizeList } from "./api";
 
 /* =========================================================
-   DASHBOARD - backend hiện đã có trong admin_router.py
+   DASHBOARD
 ========================================================= */
 
 export const getDashboardSummary = async () => {
-  return adminGet("/dashboard/summary");
+  return await api.get("/admin/dashboard/summary");
 };
 
 export const getSystemHealth = async () => {
-  return adminGet("/system/health");
+  return await api.get("/admin/system/health");
 };
 
 export const getAgentPerformance = async () => {
-  return adminGet("/agents/performance");
+  return await api.get("/admin/agents/performance");
 };
 
 export const getRecentScans = async (limit = 10) => {
-  return adminGet("/recognition/recent", { limit });
+  return await api.get("/admin/recognition/recent", {
+    params: { limit },
+  });
 };
 
 export const getPendingFeedback = async (limit = 5) => {
   try {
-    const data = await adminGet("/feedbacks/pending", { limit });
+    const data = await api.get("/admin/feedbacks/pending", {
+      params: { limit },
+    });
+
     return normalizeList(data);
   } catch {
     return [];
@@ -168,23 +54,21 @@ export const getAdminBanknoteOverview = async () => {
 ========================================================= */
 
 export const getUsers = async (page = 1, limit = 50, params = {}) => {
-  return adminGet("/users", {
-    page,
-    limit,
-    ...params,
+  return await api.get("/admin/users", {
+    params: { page, limit, ...params },
   });
 };
 
 export const getAdminUsers = async (params = {}) => {
-  return adminGet("/users", params);
+  return await api.get("/admin/users", { params });
 };
 
 export const getAdminUserDetail = async (userId) => {
-  return adminGet(`/users/${userId}`);
+  return await api.get(`/admin/users/${userId}`);
 };
 
 export const updateAdminUser = async (userId, payload) => {
-  return adminPut(`/users/${userId}`, payload);
+  return await api.put(`/admin/users/${userId}`, payload);
 };
 
 export const updateUserStatus = async (userId, statusOrIsActive) => {
@@ -193,237 +77,307 @@ export const updateUserStatus = async (userId, statusOrIsActive) => {
       ? { is_active: statusOrIsActive }
       : { status: statusOrIsActive };
 
-  return adminPut(`/users/${userId}/status`, payload);
+  return await api.put(`/admin/users/${userId}/status`, payload);
 };
 
 export const updateUserRole = async (userId, role) => {
-  return adminPut(`/users/${userId}/role`, { role });
+  return await api.put(`/admin/users/${userId}/role`, { role });
 };
 
 export const updateUserTokens = async (userId, tokenBalance) => {
-  return adminPut(`/users/${userId}`, {
+  return await api.put(`/admin/users/${userId}`, {
     token_balance: tokenBalance,
   });
 };
 
 export const deleteUser = async (userId) => {
-  return adminDelete(`/users/${userId}`);
-};
-
-/* =========================================================
-   BANKNOTES
-   Chú ý: cần backend route /api/v1/admin/banknotes.
-========================================================= */
-
-export const getAdminBanknotes = async (params = {}) => {
-  return adminGet("/banknotes", params);
-};
-
-export const getBanknotes = async (params = {}) => {
-  return getAdminBanknotes(params);
-};
-
-export const createBanknote = async (payload) => {
-  return adminPost("/banknotes", payload);
-};
-
-export const updateBanknote = async (banknoteId, payload) => {
-  return adminPut(`/banknotes/${banknoteId}`, payload);
-};
-
-export const deleteBanknote = async (banknoteId) => {
-  return adminDelete(`/banknotes/${banknoteId}`);
-};
-
-export const uploadBanknoteImage = async (banknoteId, file) => {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  try {
-    const res = await axios.post(
-      `${API_BASE_URL}/banknotes/${banknoteId}/upload-image`,
-      formData,
-      {
-        headers: {
-          Authorization: `Bearer ${getAdminToken()}`,
-          "Content-Type": "multipart/form-data",
-        },
-      }
-    );
-
-    return res.data;
-  } catch (error) {
-    throw new Error(normalizeApiError(error, "Không thể tải ảnh tiền giấy."));
-  }
-};
-
-/* =========================================================
-   CURRENCY RATES
-   Chú ý: cần backend route /api/v1/admin/currency-rates.
-========================================================= */
-
-export const getAdminCurrencyRates = async (params = {}) => {
-  return adminGet("/currency-rates", params);
-};
-
-export const getCurrencyRates = async (params = {}) => {
-  return getAdminCurrencyRates(params);
-};
-
-export const createCurrencyRate = async (payload) => {
-  return adminPost("/currency-rates", payload);
-};
-
-export const updateCurrencyRate = async (rateId, payload) => {
-  return adminPut(`/currency-rates/${rateId}`, payload);
-};
-
-export const deleteCurrencyRate = async (rateId) => {
-  return adminDelete(`/currency-rates/${rateId}`);
-};
-
-export const syncCurrencyRates = async () => {
-  return adminPost("/currency-rates/sync");
-};
-
-/* =========================================================
-   TOKEN PACKAGES
-   Chú ý: cần backend route /api/v1/admin/token-packages.
-========================================================= */
-
-export const getAdminTokenPackages = async (params = {}) => {
-  return adminGet("/token-packages", params);
-};
-
-export const getTokenPackagesAdmin = async (params = {}) => {
-  return getAdminTokenPackages(params);
-};
-
-export const createTokenPackage = async (payload) => {
-  return adminPost("/token-packages", payload);
-};
-
-export const updateTokenPackage = async (packageId, payload) => {
-  return adminPut(`/token-packages/${packageId}`, payload);
-};
-
-export const toggleTokenPackage = async (packageId) => {
-  return adminPut(`/token-packages/${packageId}/toggle`);
-};
-
-export const deleteTokenPackage = async (packageId) => {
-  return adminDelete(`/token-packages/${packageId}`);
+  return await api.delete(`/admin/users/${userId}`);
 };
 
 /* =========================================================
    TRANSACTIONS
-   Chú ý: cần backend route /api/v1/admin/transactions.
 ========================================================= */
 
 export const getAdminTransactions = async (params = {}) => {
-  return adminGet("/transactions", params);
+  return await api.get("/admin/transactions", { params });
 };
 
-export const getAdminTransactionDetail = async (transactionId) => {
-  return adminGet(`/transactions/${transactionId}`);
+export const getAdminTransactionDetail = async (id) => {
+  return await api.get(`/admin/transactions/${id}`);
 };
 
-export const markTransactionPaid = async (transactionId) => {
-  return adminPut(`/transactions/${transactionId}/mark-paid`);
+export const updateTransactionStatus = async (id, status) => {
+  return await api.put(`/admin/transactions/${id}/status`, { status });
 };
 
-export const cancelTransaction = async (transactionId) => {
-  return adminPut(`/transactions/${transactionId}/cancel`);
+export const markTransactionPaid = async (id) => {
+  return await api.put(`/admin/transactions/${id}/mark-paid`);
 };
 
-export const exportTransactions = async (params = {}) => {
-  return adminGet("/transactions/export", params);
+export const cancelTransaction = async (id) => {
+  return await api.put(`/admin/transactions/${id}/cancel`);
 };
-export const updateTransactionStatus = async (transactionId, status) => {
-  return adminPut(`/transactions/${transactionId}/status`, { status });
+
+export const deleteTransaction = async (id) => {
+  return await api.delete(`/admin/transactions/${id}`);
 };
+
 /* =========================================================
    FEEDBACKS
-   Chú ý: backend bạn hiện mới có /feedbacks/pending.
-   Các route quản trị feedback dưới đây cần bổ sung nếu chưa có.
 ========================================================= */
 
 export const getAdminFeedbacks = async (params = {}) => {
-  return adminGet("/feedbacks", params);
+  return await api.get("/admin/feedbacks", { params });
 };
 
-export const getAdminFeedbackDetail = async (feedbackId) => {
-  return adminGet(`/feedbacks/${feedbackId}`);
+export const getAdminFeedbackDetail = async (id) => {
+  return await api.get(`/admin/feedbacks/${id}`);
 };
 
-export const updateFeedbackStatus = async (feedbackId, status) => {
-  return adminPut(`/feedbacks/${feedbackId}/status`, { status });
+export const updateFeedbackStatus = async (id, status) => {
+  return await api.put(`/admin/feedbacks/${id}/status`, { status });
 };
 
-export const replyFeedback = async (feedbackId, message) => {
-  return adminPost(`/feedbacks/${feedbackId}/reply`, { message });
+export const updateFeedbackPriority = async (id, priority) => {
+  return await api.put(`/admin/feedbacks/${id}/priority`, { priority });
 };
 
-export const deleteFeedback = async (feedbackId) => {
-  return adminDelete(`/feedbacks/${feedbackId}`);
+export const replyFeedback = async (id, payload) => {
+  return await api.post(`/admin/feedbacks/${id}/reply`, payload);
 };
 
-/* =========================================================
-   RECOGNITION RESULTS
-   Chú ý: backend bạn hiện mới có /recognition/recent.
-========================================================= */
-
-export const getAdminResults = async (params = {}) => {
-  return adminGet("/results", params);
-};
-
-export const getAdminResultDetail = async (resultId) => {
-  return adminGet(`/results/${resultId}`);
-};
-
-export const rerunRecognition = async (resultId) => {
-  return adminPost(`/results/${resultId}/rerun`);
-};
-
-export const markResultReviewed = async (resultId) => {
-  return adminPut(`/results/${resultId}/review`);
-};
-
-export const deleteResult = async (resultId) => {
-  return adminDelete(`/results/${resultId}`);
-};
-
-/* =========================================================
-   AGENTS
-========================================================= */
-
-export const getAgentsStatus = async () => {
-  return adminGet("/agents/status");
-};
-
-export const testAgent = async (agentKey) => {
-  return adminPost(`/agents/${agentKey}/test`);
+export const deleteFeedback = async (id) => {
+  return await api.delete(`/admin/feedbacks/${id}`);
 };
 
 /* =========================================================
    SYSTEM LOGS
-   Chú ý: cần backend route /api/v1/admin/logs.
 ========================================================= */
 
 export const getSystemLogs = async (params = {}) => {
-  return adminGet("/logs", params);
+  return await api.get("/admin/logs", { params });
 };
 
 export const getSystemLogDetail = async (logId) => {
-  return adminGet(`/logs/${logId}`);
+  return await api.get(`/admin/logs/${logId}`);
 };
 
 export const clearSystemLogs = async () => {
-  return adminDelete("/logs/clear");
+  return await api.delete("/admin/logs/clear");
 };
 
 export const exportSystemLogs = async (params = {}) => {
-  return adminGet("/logs/export", params);
+  return await api.get("/admin/logs/export", { params });
+};
+
+/* =========================================================
+   TOKEN PACKAGES
+========================================================= */
+
+export const getAdminTokenPackages = async (params = {}) => {
+  return await api.get("/admin/token-packages", { params });
+};
+
+export const getTokenPackagesAdmin = async (params = {}) => {
+  return await getAdminTokenPackages(params);
+};
+
+export const createTokenPackage = async (payload) => {
+  return await api.post("/admin/token-packages", payload);
+};
+
+export const updateTokenPackage = async (packageId, payload) => {
+  return await api.put(`/admin/token-packages/${packageId}`, payload);
+};
+
+export const toggleTokenPackage = async (packageId) => {
+  return await api.patch(`/admin/token-packages/${packageId}/toggle`);
+};
+
+export const deleteTokenPackage = async (packageId) => {
+  return await api.delete(`/admin/token-packages/${packageId}`);
+};
+
+/* =========================================================
+   RESULTS MANAGER
+========================================================= */
+
+export const getAdminResults = async (params = {}) => {
+  const data = await api.get("/admin/results", { params });
+  return normalizeList(data);
+};
+
+export const getAdminResultDetail = async (id) => {
+  return await api.get(`/admin/results/${id}`);
+};
+
+export const updateAdminResultStatus = async (id, status) => {
+  return await api.put(`/admin/results/${id}/status`, { status });
+};
+
+export const markResultReviewed = async (id) => {
+  return await api.put(`/admin/results/${id}/review`);
+};
+
+export const rerunRecognition = async (id) => {
+  return await api.post(`/admin/results/${id}/rerun`);
+};
+
+export const deleteResult = async (id) => {
+  return await api.delete(`/admin/results/${id}`);
+};
+
+/* =========================================================
+   BANKNOTES MANAGER
+========================================================= */
+
+export const getAdminBanknotes = async (params = {}) => {
+  const data = await api.get("/admin/banknotes", { params });
+  return normalizeList(data);
+};
+
+export const getAdminBanknoteDetail = async (id) => {
+  return await api.get(`/admin/banknotes/${id}`);
+};
+
+export const createBanknote = async (payload) => {
+  return await api.post("/admin/banknotes", payload);
+};
+
+export const updateBanknote = async (id, payload) => {
+  return await api.put(`/admin/banknotes/${id}`, payload);
+};
+
+export const deleteBanknote = async (id) => {
+  return await api.delete(`/admin/banknotes/${id}`);
+};
+
+/*
+  Route upload ảnh banknote chưa có trong backend router hiện tại.
+  Chỉ dùng hàm này nếu sau này bạn bổ sung endpoint:
+  POST /api/v1/admin/banknotes/{id}/upload-image
+*/
+export const uploadBanknoteImage = async (banknoteId, file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return await api.post(`/admin/banknotes/${banknoteId}/upload-image`, formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+};
+
+/* =========================================================
+   CURRENCY RATES MANAGER
+========================================================= */
+
+export const getAdminCurrencyRates = async (params = {}) => {
+  const cleanParams = {};
+
+  if (params.search && String(params.search).trim()) {
+    cleanParams.search = String(params.search).trim();
+  }
+
+  if (params.source && params.source !== "all") {
+    cleanParams.source = params.source;
+  }
+
+  const res = await api.get("/admin/currency-rates", {
+    params: cleanParams,
+  });
+
+  return res.data;
+};
+
+export const createCurrencyRate = async (payload) => {
+  return await api.post("/admin/currency-rates", payload);
+};
+
+export const updateCurrencyRate = async (id, payload) => {
+  return await api.put(`/admin/currency-rates/${id}`, payload);
+};
+
+export const deleteCurrencyRate = async (id) => {
+  return await api.delete(`/admin/currency-rates/${id}`);
+};
+
+export const syncCurrencyRates = async () => {
+  return await api.post("/admin/currency-rates/sync");
+};
+
+export const getCurrencySyncLogs = async () => {
+  return await api.get("/admin/currency-rates/sync-logs");
+};
+
+/* =========================================================
+   AGENTS MANAGER
+========================================================= */
+
+export const getAgentsOverview = async (params = {}) => {
+  return await api.get("/admin/agents/overview", { params });
+};
+
+export const getAgentsStatus = async () => {
+  return await api.get("/admin/agents/status");
+};
+
+export const testAgent = async (agentKey) => {
+  return await api.post(`/admin/agents/test/${agentKey}`);
+};
+
+export const getAgentStatus = getAgentsStatus;
+
+/* =========================================================
+   CONFIGS
+========================================================= */
+
+export const getAgentsConfig = async () => {
+  return await api.get("/admin/config/agents");
+};
+
+export const updateAgentsConfig = async (payload) => {
+  return await api.put("/admin/config/agents", payload);
+};
+
+export const getAggregatorConfig = async () => {
+  return await api.get("/admin/config/aggregator");
+};
+
+export const updateAggregatorConfig = async (payload) => {
+  return await api.put("/admin/config/aggregator", payload);
+};
+
+export const getAiModelConfig = async () => {
+  return await api.get("/admin/config/ai-model");
+};
+
+export const updateAiModelConfig = async (payload) => {
+  return await api.put("/admin/config/ai-model", payload);
+};
+
+export const getLlmConfig = async () => {
+  return await api.get("/admin/config/llm");
+};
+
+export const updateLlmConfig = async (payload) => {
+  return await api.put("/admin/config/llm", payload);
+};
+
+export const getLensConfig = async () => {
+  return await api.get("/admin/config/google-lens");
+};
+
+export const updateLensConfig = async (payload) => {
+  return await api.put("/admin/config/google-lens", payload);
+};
+
+export const getSystemSettings = async () => {
+  return await api.get("/admin/settings");
+};
+
+export const updateSystemSettings = async (payload) => {
+  return await api.put("/admin/settings", payload);
 };
 
 /* =========================================================

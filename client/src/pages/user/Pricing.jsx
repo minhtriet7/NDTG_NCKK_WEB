@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../../store/authStore";
 import { useAppStore } from "../../store/appStore";
@@ -17,6 +17,7 @@ import {
   QrCode,
   Landmark,
   TerminalSquare,
+  RefreshCw,
 } from "lucide-react";
 
 import {
@@ -24,26 +25,42 @@ import {
   createCheckoutSession,
 } from "../../services/paymentService";
 
+function getPackageId(pkg) {
+  return pkg?.id || pkg?._id || pkg?.package_key;
+}
+
+function getTokens(pkg) {
+  return Number(pkg?.tokens_included ?? pkg?.tokens ?? 0);
+}
+
+function normalizeList(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.results)) return data.results;
+  return [];
+}
+
 export default function Pricing() {
   const navigate = useNavigate();
-
   const { lang } = useAppStore();
+  const { user, token, syncProfile } = useAuthStore();
 
   const [packages, setPackages] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [selectedGateway, setSelectedGateway] = useState("sepay");
   const [transactions, setTransactions] = useState([]);
-  const { user, token } = useAuthStore();
+
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
 
-  // --- TỪ ĐIỂN SONG NGỮ (i18n) ---
   const t = {
     EN: {
       title: "Recharge Tokens",
       subtitle:
         "Buy tokens to run banknote scans, review agent results, and export JSON reports. 1 successful scan uses 1 token.",
       currBalance: "Current Balance",
+      tokenUnit: "tokens",
       toWorkspace: "Go to Scanner",
       selectPkg: "Select a package",
       bestValue: "Best Value",
@@ -53,12 +70,12 @@ export default function Pricing() {
       sepay: "VietQR / SePay",
       sepayDesc: "Scan bank QR code",
       bankTx: "Bank Transfer",
-      bankTxDesc: "Manual bank transfer",
+      bankTxDesc: "Transfer by invoice content",
       vnpay: "VNPay",
       vnpayDesc: "Pay via VNPay gateway",
-      mock: "Sandbox (Mock)",
-      mockDesc: "Instant test payment (Saves to DB)",
-      comingSoon: "Coming Soon",
+      mock: "Sandbox",
+      mockDesc: "Test payment, still saved to DB",
+      comingSoon: "Soon",
       summary: "Order Summary",
       pkg: "Package",
       tokensInc: "Tokens included",
@@ -66,20 +83,24 @@ export default function Pricing() {
       total: "Total Due",
       selectFirst: "Select a package to continue",
       btnPay: "Continue to Payment",
-      btnMock: "Process Mock Payment",
+      btnMock: "Process Sandbox Payment",
       loading: "Processing...",
       howItWorks: "How Tokens Work",
       step1Title: "Choose a package",
-      step1Desc: "Select the token bundle that fits your needs.",
+      step1Desc: "Select a token package created by the administrator.",
       step2Title: "Complete payment",
-      step2Desc: "Pay securely via VietQR, Bank Transfer or Sandbox.",
-      step3Title: "Receive Tokens",
-      step3Desc: "Tokens are automatically added to your balance.",
+      step2Desc: "Pay via VietQR, bank transfer, or sandbox mode.",
+      step3Title: "Receive tokens",
+      step3Desc: "Tokens are added after payment is confirmed.",
       step4Title: "Start scanning",
-      step4Desc: "Return to the Scanner and analyze banknotes.",
+      step4Desc: "Return to the scanner and analyze banknotes.",
       history: "Recent Token Activity",
       noHistory: "No token activity yet",
       noHistoryDesc: "Your transaction history will appear here.",
+      noPackages: "No token packages available",
+      noPackagesDesc:
+        "There are no active token packages. Please contact the administrator.",
+      reload: "Reload",
       thDate: "Date",
       thType: "Transaction Type",
       thTokens: "Tokens",
@@ -87,28 +108,34 @@ export default function Pricing() {
       thStatus: "Status",
       errSelect: "Please select a token package.",
       errPay: "Unable to process payment. Please try again.",
-      successInit: "Invoice generated successfully!",
-      successMock: "Sandbox payment successful! Tokens added.",
+      errLoad: "Unable to load token packages.",
+      successInit: "Invoice generated successfully.",
+      successMock: "Sandbox payment successful. Tokens added.",
+      successBank: "Bank transfer invoice generated.",
+      fallbackFeature1: "Multi-agent recognition result",
+      fallbackFeature2: "Structured JSON output",
+      fallbackFeature3: "Scan history saved",
     },
     VI: {
       title: "Nạp Token",
       subtitle:
         "Mua token để quét tiền, xem kết quả phân tích và xuất báo cáo JSON. 1 lần quét thành công sử dụng 1 token.",
       currBalance: "Số dư hiện tại",
-      toWorkspace: "Vào Quét ảnh (Recognize)",
+      tokenUnit: "tokens",
+      toWorkspace: "Vào trang nhận diện",
       selectPkg: "Chọn gói token",
-      bestValue: "Khuyên Dùng",
+      bestValue: "Gợi ý",
       selected: "Đã chọn",
       choose: "Chọn",
       payMethod: "Phương thức thanh toán",
       sepay: "VietQR / SePay",
       sepayDesc: "Quét mã QR ngân hàng",
       bankTx: "Chuyển khoản",
-      bankTxDesc: "Chuyển khoản theo hóa đơn",
+      bankTxDesc: "Chuyển khoản theo nội dung hóa đơn",
       vnpay: "VNPay",
       vnpayDesc: "Thanh toán qua cổng VNPay",
-      mock: "Sandbox (Giả lập)",
-      mockDesc: "Thanh toán test (Lưu vào DB)",
+      mock: "Sandbox",
+      mockDesc: "Thanh toán test, vẫn lưu vào DB",
       comingSoon: "Sắp có",
       summary: "Tóm tắt đơn hàng",
       pkg: "Gói",
@@ -121,17 +148,21 @@ export default function Pricing() {
       loading: "Đang tạo hóa đơn...",
       howItWorks: "Hướng dẫn mua và sử dụng Token",
       step1Title: "Chọn gói token",
-      step1Desc: "Lựa chọn gói phù hợp với nhu cầu của bạn.",
+      step1Desc: "Chọn gói token được quản trị viên tạo trong hệ thống.",
       step2Title: "Thanh toán",
-      step2Desc: "Thanh toán an toàn qua mã VietQR hoặc chuyển khoản.",
+      step2Desc: "Thanh toán qua VietQR, chuyển khoản hoặc chế độ Sandbox.",
       step3Title: "Nhận Token",
-      step3Desc: "Token được cộng tự động sau khi hệ thống xác nhận.",
+      step3Desc: "Token được cộng sau khi hệ thống xác nhận thanh toán.",
       step4Title: "Sử dụng",
-      step4Desc: "Quay lại trang Quét ảnh tải ảnh lên và bắt đầu phân tích.",
+      step4Desc: "Quay lại trang nhận diện và bắt đầu phân tích tiền giấy.",
       history: "Lịch sử giao dịch gần đây",
       noHistory: "Chưa có giao dịch token",
       noHistoryDesc:
         "Lịch sử nạp và sử dụng token của bạn sẽ hiển thị tại đây.",
+      noPackages: "Chưa có gói token khả dụng",
+      noPackagesDesc:
+        "Hiện chưa có gói token đang mở bán. Vui lòng liên hệ quản trị viên.",
+      reload: "Tải lại",
       thDate: "Ngày",
       thType: "Loại giao dịch",
       thTokens: "Số lượng Token",
@@ -139,144 +170,201 @@ export default function Pricing() {
       thStatus: "Trạng thái",
       errSelect: "Vui lòng chọn một gói token.",
       errPay: "Không thể xử lý thanh toán. Vui lòng thử lại.",
-      successInit: "Khởi tạo hóa đơn thành công!",
-      successMock: "Thanh toán giả lập thành công! Đã cộng token.",
+      errLoad: "Không thể tải gói token.",
+      successInit: "Khởi tạo hóa đơn thành công.",
+      successMock: "Thanh toán giả lập thành công. Đã cộng token.",
+      successBank: "Khởi tạo hóa đơn chuyển khoản thành công.",
+      fallbackFeature1: "Kết quả nhận diện đa tác tử",
+      fallbackFeature2: "Xuất dữ liệu JSON có cấu trúc",
+      fallbackFeature3: "Lưu lịch sử quét",
     },
+  }[lang || "EN"];
+
+  const fallbackFeatures = useMemo(
+    () => [t.fallbackFeature1, t.fallbackFeature2, t.fallbackFeature3],
+    [t.fallbackFeature1, t.fallbackFeature2, t.fallbackFeature3],
+  );
+
+  const normalizePackage = (pkg) => {
+    const tokens = getTokens(pkg);
+
+    return {
+      id: getPackageId(pkg),
+      package_key: pkg?.package_key || pkg?.key || "",
+      name: pkg?.name || "Token Package",
+      description: pkg?.description || "",
+      tokens,
+      tokens_included: tokens,
+      price_vnd: Number(pkg?.price_vnd || 0),
+      price_usd: Number(pkg?.price_usd || 0),
+      features:
+        Array.isArray(pkg?.features) && pkg.features.length > 0
+          ? pkg.features
+          : fallbackFeatures,
+      badge: pkg?.badge || "",
+      sort_order: Number(pkg?.sort_order || 0),
+      is_active: pkg?.is_active !== false,
+    };
   };
 
-  const text = t[lang || "EN"];
+  const normalizePackages = (data) => {
+    return normalizeList(data)
+      .map(normalizePackage)
+      .filter((pkg) => pkg.is_active)
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+  };
 
-  // Dữ liệu gói tĩnh (Fallback nâng cao)
-  const enhancedFeatures = {
-    pkg_1:
-      lang === "VI"
-        ? [
-            "Phân tích đa tác tử cơ bản",
-            "Xuất dữ liệu JSON tiêu chuẩn",
-            "Lưu trữ lịch sử 30 ngày",
-          ]
-        : [
-            "Basic multi-agent analysis",
-            "Standard JSON export",
-            "30-day history retention",
-          ],
-    pkg_2:
-      lang === "VI"
-        ? [
-            "Phân tích đối chiếu chéo chuyên sâu",
-            "Xuất toàn bộ lược đồ JSON",
-            "Lưu trữ lịch sử vĩnh viễn",
-            "Độ ưu tiên hàng đợi cao",
-          ]
-        : [
-            "Advanced cross-checking analysis",
-            "Full JSON schema export",
-            "Lifetime history retention",
-            "High queue priority",
-          ],
-    pkg_3:
-      lang === "VI"
-        ? [
-            "Hỗ trợ xử lý tải lên hàng loạt",
-            "Quyền truy cập API tích hợp",
-            "Tinh chỉnh Agent tùy chỉnh",
-            "Hỗ trợ kỹ thuật ưu tiên 24/7",
-          ]
-        : [
-            "Bulk upload processing support",
-            "Integrated API access",
-            "Custom agent fine-tuning",
-            "24/7 priority technical support",
-          ],
+  const loadData = async () => {
+    setIsLoading(true);
+
+    try {
+      const pkgs = await getTokenPackages();
+      const normalizedPkgs = normalizePackages(pkgs);
+
+      setPackages(normalizedPkgs);
+
+      const suggestedPackage =
+        normalizedPkgs.find((pkg) =>
+          String(pkg.badge || "")
+            .toLowerCase()
+            .includes("best"),
+        ) ||
+        normalizedPkgs.find((pkg) =>
+          String(pkg.badge || "")
+            .toLowerCase()
+            .includes("gợi"),
+        ) ||
+        normalizedPkgs.find((pkg) =>
+          String(pkg.package_key || "")
+            .toLowerCase()
+            .includes("pro"),
+        ) ||
+        normalizedPkgs[1] ||
+        normalizedPkgs[0] ||
+        null;
+
+      setSelectedPackage(suggestedPackage);
+
+      if (token) {
+        const txs = await getMyTransactions(5);
+        setTransactions(normalizeList(txs));
+      }
+    } catch (error) {
+      console.error("Load pricing error:", error);
+      toast.error(t.errLoad);
+      setPackages([]);
+      setSelectedPackage(null);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      try {
-        // Lấy danh sách gói
-        const pkgs = await getTokenPackages();
-        if (pkgs && pkgs.length > 0) {
-          const enrichedPkgs = pkgs.map((p) => ({
-            ...p,
-            features: enhancedFeatures[p.id] || enhancedFeatures["pkg_1"],
-          }));
-          setPackages(enrichedPkgs);
-          setSelectedPackage(enrichedPkgs[1] || enrichedPkgs[0]);
-        }
-
-        // Lấy danh sách giao dịch
-        if (token) {
-          const txs = await getMyTransactions(token, 5);
-          setTransactions(txs);
-        }
-      } catch (error) {
-        toast.error("Network error while loading packages.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchData();
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, token]);
 
   const handleCheckout = async () => {
-    if (!selectedPackage) return toast.error(text.errSelect);
+    if (!selectedPackage) {
+      toast.error(t.errSelect);
+      return;
+    }
+
+    const packageId = getPackageId(selectedPackage);
+
+    if (!packageId) {
+      toast.error(t.errSelect);
+      return;
+    }
+
     setIsCheckoutLoading(true);
 
     try {
-      // Gọi API Backend
-      const invoiceData = await createCheckoutSession({
-        package_id: selectedPackage.id,
+      const checkoutData = await createCheckoutSession({
+        package_id: packageId,
         gateway: selectedGateway,
       });
 
-      // XỬ LÝ ĐIỀU HƯỚNG TÁCH BẠCH
-      if (selectedGateway === "mock") {
-        toast.success(text.successMock);
+      const invoiceData = checkoutData?.invoice || checkoutData;
 
-        // Cập nhật state token
-        if (user) {
-          useAuthStore.setState({
-            user: {
-              ...user,
-              token_balance:
-                user.token_balance +
-                (selectedPackage.tokens_included || selectedPackage.tokens),
-            },
-          });
+      if (selectedGateway === "mock") {
+        toast.success(t.successMock);
+
+        try {
+          await syncProfile?.();
+        } catch {
+          if (user) {
+            const currentBalance = Number(user?.token_balance || 0);
+            const addedTokens = Number(
+              invoiceData?.tokens_added ||
+                selectedPackage.tokens_included ||
+                selectedPackage.tokens ||
+                0,
+            );
+
+            useAuthStore.setState({
+              user: {
+                ...user,
+                token_balance: currentBalance + addedTokens,
+              },
+            });
+          }
         }
 
         navigate("/recognize");
       } else if (selectedGateway === "sepay") {
         navigate("/sepay-checkout", { state: { invoice: invoiceData } });
-        toast.success(text.successInit);
+        toast.success(t.successInit);
       } else if (selectedGateway === "bank_transfer") {
         navigate("/checkout", { state: { invoice: invoiceData } });
-        toast.success("Khởi tạo hóa đơn thủ công thành công!");
+        toast.success(t.successBank);
       }
     } catch (error) {
-      toast.error(text.errPay);
       console.error("Checkout Error:", error);
+      toast.error(
+        error?.response?.data?.detail ||
+          error?.response?.data?.message ||
+          t.errPay,
+      );
     } finally {
       setIsCheckoutLoading(false);
     }
   };
 
   const formatPrice = (amount) => {
-    return new Intl.NumberFormat("vi-VN").format(amount) + " đ";
+    return new Intl.NumberFormat("vi-VN").format(Number(amount || 0)) + " đ";
+  };
+
+  const formatDate = (value) => {
+    if (!value) return "N/A";
+
+    try {
+      return new Intl.DateTimeFormat(lang === "VI" ? "vi-VN" : "en-US", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(value));
+    } catch {
+      return "N/A";
+    }
+  };
+
+  const getGatewayLabel = () => {
+    if (selectedGateway === "sepay") return t.sepay;
+    if (selectedGateway === "bank_transfer") return t.bankTx;
+    if (selectedGateway === "mock") return t.mock;
+    return selectedGateway;
   };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-24 font-sans text-slate-900 dark:text-slate-100 animate-[fadeInUp_0.4s_ease-out] transition-colors duration-300">
-      {/* HEADER SECTION */}
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 pt-10 pb-10 mb-8 transition-colors">
         <div className="max-w-7xl mx-auto px-4 md:px-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div className="max-w-2xl">
             <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-2 transition-colors">
-              {text.title}
+              {t.title}
             </h1>
             <p className="text-slate-500 dark:text-slate-400 text-lg leading-relaxed transition-colors">
-              {text.subtitle}
+              {t.subtitle}
             </p>
           </div>
 
@@ -284,23 +372,25 @@ export default function Pricing() {
             <div className="w-12 h-12 bg-teal-100 dark:bg-teal-900/50 rounded-full flex items-center justify-center text-teal-600 dark:text-teal-400 transition-colors">
               <Coins size={24} />
             </div>
+
             <div>
               <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider transition-colors">
-                {text.currBalance}
+                {t.currBalance}
               </p>
               <p className="text-2xl font-bold text-slate-900 dark:text-white transition-colors">
                 {user?.token_balance || 0}{" "}
                 <span className="text-lg text-slate-500 dark:text-slate-400 font-medium transition-colors">
-                  tokens
+                  {t.tokenUnit}
                 </span>
               </p>
             </div>
+
             <div className="ml-auto md:ml-4 border-l border-slate-200 dark:border-slate-700 pl-5 transition-colors">
               <button
                 onClick={() => navigate("/recognize")}
                 className="text-sm font-semibold text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 transition-colors whitespace-nowrap"
               >
-                {text.toWorkspace} &rarr;
+                {t.toWorkspace} &rarr;
               </button>
             </div>
           </div>
@@ -308,37 +398,74 @@ export default function Pricing() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 md:px-8 grid grid-cols-1 xl:grid-cols-3 gap-8">
-        {/* LEFT COLUMN */}
         <div className="xl:col-span-2 space-y-8">
-          {/* Pricing Cards */}
           <div>
-            <h2 className="text-xl font-bold mb-4 text-slate-900 dark:text-white transition-colors">{text.selectPkg}</h2>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white transition-colors">
+                {t.selectPkg}
+              </h2>
+
+              <button
+                onClick={loadData}
+                disabled={isLoading}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-900 transition-colors disabled:opacity-60"
+              >
+                <RefreshCw
+                  size={15}
+                  className={isLoading ? "animate-spin" : ""}
+                />
+                {t.reload}
+              </button>
+            </div>
+
             {isLoading ? (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {[1, 2, 3].map((i) => (
                   <div
                     key={i}
                     className="h-80 bg-slate-100 dark:bg-slate-800 rounded-3xl animate-pulse transition-colors"
-                  ></div>
+                  />
                 ))}
+              </div>
+            ) : packages.length === 0 ? (
+              <div className="bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-800 rounded-3xl p-12 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4">
+                  <Coins className="text-slate-400" size={26} />
+                </div>
+                <h3 className="font-bold text-slate-900 dark:text-white">
+                  {t.noPackages}
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                  {t.noPackagesDesc}
+                </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {packages.map((pkg, idx) => {
-                  const isSelected = selectedPackage?.id === pkg.id;
-                  const isPro = pkg.id === "pkg_2" || idx === 1;
+                  const packageId = getPackageId(pkg);
+                  const selectedId = getPackageId(selectedPackage);
+                  const isSelected = selectedId === packageId;
+
+                  const isHighlighted =
+                    Boolean(String(pkg.badge || "").trim()) ||
+                    String(pkg.package_key || "")
+                      .toLowerCase()
+                      .includes("pro") ||
+                    idx === 1;
 
                   return (
                     <div
-                      key={pkg.id}
+                      key={packageId || idx}
                       onClick={() => setSelectedPackage(pkg)}
-                      className={`relative cursor-pointer transition-all duration-200 rounded-3xl p-6 bg-white dark:bg-slate-900 flex flex-col
-                        ${isSelected ? "ring-2 ring-teal-500 dark:ring-teal-400 border-transparent shadow-md scale-[1.02] z-10" : "border border-slate-200 dark:border-slate-800 shadow-sm hover:border-teal-300 dark:hover:border-teal-700"}
-                      `}
+                      className={`relative cursor-pointer transition-all duration-200 rounded-3xl p-6 bg-white dark:bg-slate-900 flex flex-col ${
+                        isSelected
+                          ? "ring-2 ring-teal-500 dark:ring-teal-400 border-transparent shadow-md scale-[1.02] z-10"
+                          : "border border-slate-200 dark:border-slate-800 shadow-sm hover:border-teal-300 dark:hover:border-teal-700"
+                      }`}
                     >
-                      {isPro && (
+                      {isHighlighted && (
                         <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-teal-500 text-white text-[10px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-full shadow-sm whitespace-nowrap">
-                          {text.bestValue}
+                          {pkg.badge || t.bestValue}
                         </div>
                       )}
 
@@ -347,15 +474,21 @@ export default function Pricing() {
                           {pkg.name}
                         </h3>
                         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 transition-colors">
-                          {pkg.tokens_included || pkg.tokens} tokens
+                          {getTokens(pkg)} {t.tokenUnit}
                         </p>
                       </div>
 
-                      <div className="mb-6">
+                      <div className="mb-3">
                         <span className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight transition-colors">
                           {formatPrice(pkg.price_vnd)}
                         </span>
                       </div>
+
+                      {pkg.description && (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-5">
+                          {pkg.description}
+                        </p>
+                      )}
 
                       <ul className="space-y-3 mb-8 text-sm text-slate-600 dark:text-slate-300 flex-1 transition-colors">
                         {(pkg.features || []).map((feature, i) => (
@@ -373,11 +506,13 @@ export default function Pricing() {
                       </ul>
 
                       <div
-                        className={`w-full py-3 rounded-xl text-center font-bold text-sm transition-colors
-                        ${isSelected ? "bg-teal-600 dark:bg-teal-500 text-white shadow-sm" : "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"}
-                      `}
+                        className={`w-full py-3 rounded-xl text-center font-bold text-sm transition-colors ${
+                          isSelected
+                            ? "bg-teal-600 dark:bg-teal-500 text-white shadow-sm"
+                            : "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"
+                        }`}
                       >
-                        {isSelected ? text.selected : text.choose}
+                        {isSelected ? t.selected : t.choose}
                       </div>
                     </div>
                   );
@@ -386,11 +521,12 @@ export default function Pricing() {
             )}
           </div>
 
-          {/* Payment Methods */}
           <div>
-            <h2 className="text-xl font-bold mb-4 text-slate-900 dark:text-white transition-colors">{text.payMethod}</h2>
+            <h2 className="text-xl font-bold mb-4 text-slate-900 dark:text-white transition-colors">
+              {t.payMethod}
+            </h2>
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {/* VietQR / SePay */}
               <button
                 onClick={() => setSelectedGateway("sepay")}
                 className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
@@ -400,13 +536,16 @@ export default function Pricing() {
                 }`}
               >
                 <div className="w-10 h-10 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
-                  <QrCode className="text-blue-600 dark:text-blue-400 transition-colors" size={20} />
+                  <QrCode
+                    className="text-blue-600 dark:text-blue-400 transition-colors"
+                    size={20}
+                  />
                 </div>
                 <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
-                  {text.sepay}
+                  {t.sepay}
                 </span>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
-                  {text.sepayDesc}
+                  {t.sepayDesc}
                 </span>
                 {selectedGateway === "sepay" && (
                   <CheckCircle2
@@ -416,7 +555,6 @@ export default function Pricing() {
                 )}
               </button>
 
-              {/* Chuyển khoản */}
               <button
                 onClick={() => setSelectedGateway("bank_transfer")}
                 className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
@@ -426,13 +564,16 @@ export default function Pricing() {
                 }`}
               >
                 <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
-                  <Landmark className="text-emerald-600 dark:text-emerald-400 transition-colors" size={20} />
+                  <Landmark
+                    className="text-emerald-600 dark:text-emerald-400 transition-colors"
+                    size={20}
+                  />
                 </div>
                 <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
-                  {text.bankTx}
+                  {t.bankTx}
                 </span>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
-                  {text.bankTxDesc}
+                  {t.bankTxDesc}
                 </span>
                 {selectedGateway === "bank_transfer" && (
                   <CheckCircle2
@@ -442,26 +583,27 @@ export default function Pricing() {
                 )}
               </button>
 
-              {/* VNPay */}
               <button
                 disabled
                 className="relative flex flex-col items-center justify-center p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 opacity-60 cursor-not-allowed text-center transition-colors"
               >
                 <div className="absolute top-0 right-0 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold px-2.5 py-1 rounded-bl-lg rounded-tr-xl transition-colors">
-                  {text.comingSoon}
+                  {t.comingSoon}
                 </div>
                 <div className="w-10 h-10 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center mb-3 transition-colors">
-                  <CreditCard className="text-slate-500 dark:text-slate-400 transition-colors" size={20} />
+                  <CreditCard
+                    className="text-slate-500 dark:text-slate-400 transition-colors"
+                    size={20}
+                  />
                 </div>
                 <span className="text-sm font-bold text-slate-600 dark:text-slate-300 mb-1 transition-colors">
-                  {text.vnpay}
+                  {t.vnpay}
                 </span>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
-                  {text.vnpayDesc}
+                  {t.vnpayDesc}
                 </span>
               </button>
 
-              {/* Sandbox (Mock Payment) */}
               <button
                 onClick={() => setSelectedGateway("mock")}
                 className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
@@ -471,13 +613,16 @@ export default function Pricing() {
                 }`}
               >
                 <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
-                  <TerminalSquare className="text-amber-600 dark:text-amber-400 transition-colors" size={20} />
+                  <TerminalSquare
+                    className="text-amber-600 dark:text-amber-400 transition-colors"
+                    size={20}
+                  />
                 </div>
                 <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
-                  {text.mock}
+                  {t.mock}
                 </span>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
-                  {text.mockDesc}
+                  {t.mockDesc}
                 </span>
                 {selectedGateway === "mock" && (
                   <CheckCircle2
@@ -490,12 +635,11 @@ export default function Pricing() {
           </div>
         </div>
 
-        {/* RIGHT COLUMN: ORDER SUMMARY */}
         <div className="xl:col-span-1">
           <div className="sticky top-6 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 md:p-8 transition-colors">
             <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2 transition-colors">
               <Receipt size={20} className="text-teal-600 dark:text-teal-400" />
-              {text.summary}
+              {t.summary}
             </h2>
 
             {!selectedPackage ? (
@@ -504,52 +648,51 @@ export default function Pricing() {
                   size={32}
                   className="opacity-20 mb-3 text-slate-400 dark:text-slate-500 transition-colors"
                 />
-                <p className="font-medium">{text.selectFirst}</p>
+                <p className="font-medium">{t.selectFirst}</p>
               </div>
             ) : (
               <>
                 <div className="space-y-5 mb-6">
-                  <div className="flex justify-between items-center text-sm">
+                  <div className="flex justify-between items-center text-sm gap-4">
                     <span className="text-slate-500 dark:text-slate-400 font-medium transition-colors">
-                      {text.pkg}
+                      {t.pkg}
                     </span>
-                    <span className="font-bold text-slate-900 dark:text-white transition-colors">
+                    <span className="font-bold text-slate-900 dark:text-white transition-colors text-right">
                       {selectedPackage.name}
                     </span>
                   </div>
+
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-slate-500 dark:text-slate-400 font-medium transition-colors">
-                      {text.tokensInc}
+                      {t.tokensInc}
                     </span>
                     <span className="font-bold text-slate-900 dark:text-white transition-colors">
-                      {selectedPackage.tokens_included ||
-                        selectedPackage.tokens}
+                      {getTokens(selectedPackage)}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center text-sm">
+
+                  <div className="flex justify-between items-center text-sm gap-4">
                     <span className="text-slate-500 dark:text-slate-400 font-medium transition-colors">
-                      {text.gateway}
+                      {t.gateway}
                     </span>
                     <span
-                      className={`font-bold uppercase transition-colors ${selectedGateway === "mock" ? "text-amber-600 dark:text-amber-400" : "text-slate-900 dark:text-white"}`}
+                      className={`font-bold uppercase transition-colors text-right ${
+                        selectedGateway === "mock"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-slate-900 dark:text-white"
+                      }`}
                     >
-                      {selectedGateway === "sepay"
-                        ? text.sepay
-                        : selectedGateway === "bank_transfer"
-                          ? text.bankTx
-                          : selectedGateway === "mock"
-                            ? text.mock
-                            : selectedGateway}
+                      {getGatewayLabel()}
                     </span>
                   </div>
                 </div>
 
                 <div className="border-t border-slate-100 dark:border-slate-800 pt-5 mb-8 transition-colors">
-                  <div className="flex justify-between items-end">
+                  <div className="flex justify-between items-end gap-4">
                     <span className="text-slate-900 dark:text-white font-bold transition-colors">
-                      {text.total}
+                      {t.total}
                     </span>
-                    <span className="text-3xl font-black text-teal-600 dark:text-teal-400 tracking-tight transition-colors">
+                    <span className="text-3xl font-black text-teal-600 dark:text-teal-400 tracking-tight transition-colors text-right">
                       {formatPrice(selectedPackage.price_vnd)}
                     </span>
                   </div>
@@ -570,10 +713,10 @@ export default function Pricing() {
                     <Lock size={18} />
                   )}
                   {isCheckoutLoading
-                    ? text.loading
+                    ? t.loading
                     : selectedGateway === "mock"
-                      ? text.btnMock
-                      : text.btnPay}
+                      ? t.btnMock
+                      : t.btnPay}
                 </button>
               </>
             )}
@@ -581,26 +724,28 @@ export default function Pricing() {
         </div>
       </div>
 
-      {/* HOW TOKENS WORK */}
       <div className="max-w-7xl mx-auto px-4 md:px-8 mt-24">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-8 text-center transition-colors">
-          {text.howItWorks}
+          {t.howItWorks}
         </h2>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
           {[
-            { step: "1", title: text.step1Title, desc: text.step1Desc },
-            { step: "2", title: text.step2Title, desc: text.step2Desc },
-            { step: "3", title: text.step3Title, desc: text.step3Desc },
-            { step: "4", title: text.step4Title, desc: text.step4Desc },
-          ].map((item, idx) => (
+            { step: "1", title: t.step1Title, desc: t.step1Desc },
+            { step: "2", title: t.step2Title, desc: t.step2Desc },
+            { step: "3", title: t.step3Title, desc: t.step3Desc },
+            { step: "4", title: t.step4Title, desc: t.step4Desc },
+          ].map((item) => (
             <div
-              key={idx}
+              key={item.step}
               className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center text-center transition-colors"
             >
               <div className="w-10 h-10 bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 font-black rounded-full flex items-center justify-center mb-4 border border-teal-100 dark:border-teal-800/50 transition-colors">
                 {item.step}
               </div>
-              <h3 className="font-bold text-slate-900 dark:text-white mb-2 transition-colors">{item.title}</h3>
+              <h3 className="font-bold text-slate-900 dark:text-white mb-2 transition-colors">
+                {item.title}
+              </h3>
               <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed font-medium transition-colors">
                 {item.desc}
               </p>
@@ -609,21 +754,24 @@ export default function Pricing() {
         </div>
       </div>
 
-      {/* TRANS HISTORY */}
       <div className="max-w-7xl mx-auto px-4 md:px-8 mt-20">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2 transition-colors">
           <History size={24} className="text-slate-400 dark:text-slate-500" />
-          {text.history}
+          {t.history}
         </h2>
+
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
           {transactions.length === 0 ? (
             <div className="p-16 text-center flex flex-col items-center justify-center bg-slate-50/50 dark:bg-slate-800/50 transition-colors">
-              <Clock size={48} className="text-slate-300 dark:text-slate-600 mb-4 transition-colors" />
+              <Clock
+                size={48}
+                className="text-slate-300 dark:text-slate-600 mb-4 transition-colors"
+              />
               <h3 className="text-slate-900 dark:text-white font-bold text-lg transition-colors">
-                {text.noHistory}
+                {t.noHistory}
               </h3>
               <p className="text-slate-500 dark:text-slate-400 text-sm mt-1 font-medium transition-colors">
-                {text.noHistoryDesc}
+                {t.noHistoryDesc}
               </p>
             </div>
           ) : (
@@ -631,33 +779,34 @@ export default function Pricing() {
               <table className="w-full text-left text-sm whitespace-nowrap">
                 <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 font-semibold border-b border-slate-200 dark:border-slate-700 transition-colors">
                   <tr>
-                    <th className="px-6 py-4">{text.thDate}</th>
-                    <th className="px-6 py-4">{text.thType}</th>
-                    <th className="px-6 py-4">{text.thTokens}</th>
-                    <th className="px-6 py-4">{text.thAmount}</th>
-                    <th className="px-6 py-4">{text.thStatus}</th>
+                    <th className="px-6 py-4">{t.thDate}</th>
+                    <th className="px-6 py-4">{t.thType}</th>
+                    <th className="px-6 py-4">{t.thTokens}</th>
+                    <th className="px-6 py-4">{t.thAmount}</th>
+                    <th className="px-6 py-4">{t.thStatus}</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300 font-medium transition-colors">
                   {transactions.map((tx, idx) => (
                     <tr
-                      key={idx}
+                      key={tx.id || idx}
                       className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors"
                     >
-                      <td className="px-6 py-4">
-                        {new Date(tx.created_at).toLocaleDateString("vi-VN")}
-                      </td>
+                      <td className="px-6 py-4">{formatDate(tx.created_at)}</td>
                       <td className="px-6 py-4 text-slate-900 dark:text-slate-100 transition-colors">
-                        {tx.package_name || "Nạp token"}
+                        {tx.package_name ||
+                          tx.payment_gateway ||
+                          (lang === "VI" ? "Nạp token" : "Token recharge")}
                       </td>
                       <td className="px-6 py-4 text-teal-600 dark:text-teal-400 font-bold transition-colors">
-                        +{tx.tokens_added}
+                        +{tx.tokens_added || 0}
                       </td>
                       <td className="px-6 py-4">{formatPrice(tx.amount)}</td>
                       <td className="px-6 py-4">
                         <span
                           className={`px-2.5 py-1 rounded-lg border text-xs font-bold uppercase tracking-wider transition-colors ${
-                            tx.status === "success"
+                            tx.status === "success" || tx.status === "paid"
                               ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50"
                               : tx.status === "pending"
                                 ? "bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800/50"

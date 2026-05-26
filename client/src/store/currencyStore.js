@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import { getRates, getBanknotes } from '../services/currencyService'; // Import service bạn vừa viết
+import { create } from "zustand";
+import { getRates, getBanknotes } from "../services/currencyService";
 
 export const useCurrencyStore = create((set) => ({
   ratesData: null,
@@ -8,25 +8,58 @@ export const useCurrencyStore = create((set) => ({
   isLoadingBanknotes: false,
   error: null,
 
-  // Action gọi API lấy tỷ giá
   fetchRates: async () => {
     set({ isLoadingRates: true, error: null });
+
     try {
       const data = await getRates();
-      set({ ratesData: data, isLoadingRates: false });
+      set({
+        ratesData: data,
+        isLoadingRates: false,
+      });
+
+      return data;
     } catch (err) {
-      set({ error: "Lỗi khi lấy tỷ giá", isLoadingRates: false });
+      const message =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "Lỗi khi lấy tỷ giá";
+
+      set({
+        error: message,
+        isLoadingRates: false,
+      });
+
+      throw err;
     }
   },
 
-  // Action gọi API lấy danh sách tiền
-  fetchBanknotes: async (params) => {
+  fetchBanknotes: async (params = {}) => {
     set({ isLoadingBanknotes: true, error: null });
+
     try {
       const data = await getBanknotes(params);
-      set({ banknotes: data, isLoadingBanknotes: false });
+
+      set({
+        banknotes: data,
+        isLoadingBanknotes: false,
+      });
+
+      return data;
     } catch (err) {
-      set({ error: "Lỗi khi lấy danh sách tiền", isLoadingBanknotes: false });
+      const message =
+        err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        err?.message ||
+        "Lỗi khi lấy danh sách tiền";
+
+      set({
+        error: message,
+        isLoadingBanknotes: false,
+      });
+
+      throw err;
     }
-  }
+  },
 }));

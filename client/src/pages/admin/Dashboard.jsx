@@ -33,6 +33,87 @@ import {
 } from "../../services/adminService";
 import toast from "react-hot-toast";
 
+
+function asArray(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.results)) return data.results;
+  return [];
+}
+
+function unwrap(data) {
+  return data?.data && !Array.isArray(data.data) ? data.data : data;
+}
+
+function normalizeSummary(data) {
+  const raw = unwrap(data) || {};
+  const kpis = raw.kpis || raw.summary || raw;
+
+  return {
+    ...raw,
+    kpis: {
+      total_users: Number(kpis.total_users ?? kpis.users_count ?? kpis.users ?? 0),
+      active_users: Number(kpis.active_users ?? kpis.active_users_count ?? 0),
+      total_scans: Number(kpis.total_scans ?? kpis.scans_count ?? kpis.recognition_count ?? 0),
+      completed_scans: Number(kpis.completed_scans ?? kpis.success_scans ?? 0),
+      total_revenue_vnd: Number(kpis.total_revenue_vnd ?? kpis.revenue_vnd ?? kpis.revenue ?? 0),
+      pending_feedback: Number(kpis.pending_feedback ?? kpis.pending_feedback_count ?? 0),
+      tokens_sold: Number(kpis.tokens_sold ?? 0),
+      ...(raw.kpis || {}),
+    },
+    payments: raw.payments || {},
+    users_breakdown: raw.users_breakdown || raw.user_breakdown || {},
+    banknotes_breakdown: raw.banknotes_breakdown || raw.banknote_breakdown || {},
+    last_updated: raw.last_updated || raw.updated_at || new Date().toISOString(),
+  };
+}
+
+function normalizeHealth(data) {
+  const raw = unwrap(data) || {};
+  return {
+    api_server: raw.api_server || raw.api || raw.backend || raw.status || "online",
+    database: raw.database || raw.db || "online",
+    ml_dl_agent: raw.ml_dl_agent || raw.yolo || raw.agent_1 || "online",
+    llm_agent: raw.llm_agent || raw.llm || raw.agent_2 || "online",
+    google_lens_agent: raw.google_lens_agent || raw.lens || raw.agent_3 || "online",
+    aggregator: raw.aggregator || raw.agent_aggregator || "online",
+    ...raw,
+  };
+}
+
+function normalizePerformance(data) {
+  const raw = unwrap(data) || {};
+  return {
+    ml_dl_success_rate: Number(raw.ml_dl_success_rate ?? raw.yolo_success_rate ?? raw.agent_1_success_rate ?? 0),
+    llm_success_rate: Number(raw.llm_success_rate ?? raw.agent_2_success_rate ?? 0),
+    lens_success_rate: Number(raw.lens_success_rate ?? raw.google_lens_success_rate ?? raw.agent_3_success_rate ?? 0),
+    consensus_rate: Number(raw.consensus_rate ?? raw.aggregator_success_rate ?? 0),
+    conflict_rate: Number(raw.conflict_rate ?? 0),
+    average_scan_time_sec: raw.average_scan_time_sec ?? raw.avg_scan_time_sec ?? raw.average_processing_time_sec ?? "0.0",
+    ...raw,
+  };
+}
+
+function getScanImage(scan) {
+  return scan?.uploaded_image_url || scan?.image_url || scan?.data?.image_url || scan?.result?.uploaded_image_url || "";
+}
+
+function getScanDenomination(scan) {
+  const final = scan?.final_result || scan?.result?.final_result || scan?.data || {};
+  return final.final_denomination || final.menh_gia || final.denomination || scan?.denomination || "N/A";
+}
+
+function getScanCountry(scan) {
+  const final = scan?.final_result || scan?.result?.final_result || scan?.data || {};
+  return final.quoc_gia || final.country || scan?.country || "N/A";
+}
+
+function getScanConsensus(scan) {
+  const final = scan?.final_result || scan?.result?.final_result || {};
+  return Number(final.matched_agents || final.so_luong_dong_thuan || scan?.matched_agents || scan?.consensus?.matched_agents || 0);
+}
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { lang, theme } = useAppStore();
@@ -122,13 +203,19 @@ export default function AdminDashboard() {
         getRecentScans(8),
         getPendingFeedback(5),
       ]);
-      setSummary(rSum);
-      setHealth(rHealth);
-      setPerformance(rPerf);
-      setRecentScans(rScans || []);
-      setPendingFeedback(rFeed || []);
-    } catch (e) {
-      toast.error("Failed to load dashboard data.");
+
+      setSummary(normalizeSummary(rSum));
+      setHealth(normalizeHealth(rHealth));
+      setPerformance(normalizePerformance(rPerf));
+      setRecentScans(asArray(rScans));
+      setPendingFeedback(asArray(rFeed));
+    } catch (error) {
+      console.error("Failed to load dashboard data:", error);
+      toast.error(
+        error?.response?.data?.detail ||
+          error?.response?.data?.message ||
+          "Failed to load dashboard data.",
+      );
     } finally {
       setIsLoading(false);
     }
@@ -380,20 +467,20 @@ export default function AdminDashboard() {
                 ) : (
                   recentScans.map((s) => (
                     <tr
-                      key={s.id}
+                      key={s.id || s._id}
                       className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
                     >
                       <td className="py-2 pr-3 font-mono text-slate-500">
-                        {new Date(s.created_at).toLocaleTimeString()}
+                        {s.created_at ? new Date(s.created_at).toLocaleTimeString() : "N/A"}
                       </td>
                       <td className="py-2 pr-3 font-semibold text-slate-700 dark:text-slate-300">
                         ...{s.user_id?.slice(-4) || "Gues"}
                       </td>
                       <td className="py-2 pr-3">
                         <div className="w-8 h-5 bg-slate-200 dark:bg-slate-700 rounded overflow-hidden">
-                          {s.uploaded_image_url && (
+                          {getScanImage(s) && (
                             <img
-                              src={s.uploaded_image_url}
+                              src={getScanImage(s)}
                               alt="img"
                               className="w-full h-full object-cover"
                             />
@@ -401,13 +488,13 @@ export default function AdminDashboard() {
                         </div>
                       </td>
                       <td className="py-2 pr-3 font-bold text-teal-600 dark:text-teal-400">
-                        {s.final_result?.menh_gia || "N/A"}
+                        {getScanDenomination(s)}
                       </td>
                       <td className="py-2 pr-3 text-slate-600 dark:text-slate-400">
-                        {s.final_result?.quoc_gia || "N/A"}
+                        {getScanCountry(s)}
                       </td>
                       <td className="py-2 pr-3 font-mono font-semibold">
-                        {s.consensus?.matched_agents || 0}/3
+                        {getScanConsensus(s)}/3
                       </td>
                       <td className="py-2 text-right">
                         <button
@@ -440,12 +527,12 @@ export default function AdminDashboard() {
             ) : (
               pendingFeedback.map((f) => (
                 <div
-                  key={f.id}
+                  key={f.id || f._id}
                   className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex justify-between items-center gap-3"
                 >
                   <div className="overflow-hidden">
                     <span className="text-[10px] font-bold uppercase text-amber-500">
-                      {f.type || "General"}
+                      {f.feedback_type || f.type || "General"}
                     </span>
                     <p className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate mt-0.5">
                       {f.message || "No message"}

@@ -1,5 +1,5 @@
-import random
 import os
+import random
 from typing import List, Optional
 
 from selenium import webdriver
@@ -7,95 +7,96 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
+from app.core.logger import get_logger
+from app.core.config import settings
+
+
+logger = get_logger(__name__)
+
 
 class ChromeDriver:
     """
     ChromeDriver dùng cho Agent 3 Google Lens.
 
     Hỗ trợ proxy.data dạng:
-      1.2.3.4:8000
-      HTTP|1.2.3.4:8000
-      http://1.2.3.4:8000
-      https://1.2.3.4:8000
-      socks5://1.2.3.4:1080
+    - 1.2.3.4:8000
+    - HTTP|1.2.3.4:8000
+    - http://1.2.3.4:8000
+    - https://1.2.3.4:8000
+    - socks5://1.2.3.4:1080
 
-    Lưu ý:
-    - Nếu proxy có username/password dạng:
-        http://user:pass@host:port
-      Chrome có thể không auth ổn chỉ bằng --proxy-server.
-      Nên dùng proxy whitelist IP hoặc selenium-wire nếu cần proxy auth.
+    Proxy có username/password dạng user:pass@host:port có thể không ổn định
+    với Chrome option --proxy-server. Nên dùng proxy whitelist IP nếu có thể.
     """
 
-    def __init__(self):
-        # Tự động tìm file proxy.data ở thư mục gốc project
-        self.proxy_file_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "proxy.data"
+    def __init__(self, proxy_file_path: Optional[str] = None):
+        self.project_root = self._get_project_root()
+        self.proxy_file_path = proxy_file_path or os.path.join(
+            self.project_root,
+            "proxy.data",
         )
         self.proxies = self._load_proxies()
 
+    def _get_project_root(self) -> str:
+        """
+        File này thường nằm ở:
+        server/app/utils/chrome_driver.py
+
+        Đi ngược 3 cấp sẽ về thư mục server/.
+        """
+        return os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        )
+
     def _load_proxies(self) -> List[str]:
-        """
-        Đọc file proxy.data.
-        Chấp nhận:
-          HTTP|ip:port
-          ip:port
-          http://ip:port
-          socks5://ip:port
-        """
-        loaded_proxies = []
+        loaded_proxies: List[str] = []
 
         if not os.path.exists(self.proxy_file_path):
-            print(f"⚠️ KHÔNG TÌM THẤY file {self.proxy_file_path}. Sẽ chạy bằng IP gốc của máy!")
+            logger.warning(
+                "Proxy file not found at %s. ChromeDriver will run without proxy.",
+                self.proxy_file_path,
+            )
             return loaded_proxies
 
-        with open(self.proxy_file_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
+        try:
+            with open(self.proxy_file_path, "r", encoding="utf-8") as file:
+                for line in file:
+                    line = line.strip()
 
-                if not line:
-                    continue
+                    if not line or line.startswith("#"):
+                        continue
 
-                # Bỏ comment trong proxy.data
-                if line.startswith("#"):
-                    continue
+                    proxy = self._normalize_proxy(line)
 
-                proxy = self._normalize_proxy(line)
+                    if proxy:
+                        loaded_proxies.append(proxy)
 
-                if proxy:
-                    loaded_proxies.append(proxy)
+        except Exception as exc:
+            logger.warning(
+                "Failed to load proxy file %s: %s",
+                self.proxy_file_path,
+                exc,
+            )
+            return []
 
-        print(f"✅ Đã nạp thành công {len(loaded_proxies)} proxy từ proxy.data")
+        logger.info("Loaded %s proxies from proxy.data.", len(loaded_proxies))
         return loaded_proxies
 
     def _normalize_proxy(self, proxy_line: str) -> Optional[str]:
-        """
-        Chuẩn hóa proxy để đưa vào:
-          --proxy-server=<proxy>
-
-        Input có thể là:
-          HTTP|1.2.3.4:8000
-          1.2.3.4:8000
-          http://1.2.3.4:8000
-          socks5://1.2.3.4:1080
-        """
         proxy = proxy_line.strip()
 
         if not proxy:
             return None
 
-        # Nếu dạng HTTP|ip:port thì lấy phần sau dấu |
         if "|" in proxy:
             proxy = proxy.split("|", 1)[1].strip()
 
         if not proxy:
             return None
 
-        # Nếu đã có scheme thì giữ nguyên
         if proxy.startswith(("http://", "https://", "socks5://", "socks4://")):
             return proxy
 
-        # Mặc định coi là HTTP proxy
         return f"http://{proxy}"
 
     def _pick_proxy(self) -> Optional[str]:
@@ -104,27 +105,24 @@ class ChromeDriver:
 
         return random.choice(self.proxies)
 
-    def get_driver(self):
+    def _build_options(self) -> Options:
         chrome_options = Options()
 
-        # Chạy headless trên server
-        chrome_options.add_argument("--headless=new")
+        headless = getattr(settings, "CHROME_HEADLESS", True)
 
-        # Tối ưu môi trường server / Docker
+        if headless:
+            chrome_options.add_argument("--headless=new")
+
+        chrome_binary_path = getattr(settings, "CHROME_BINARY_PATH", None)
+
+        if chrome_binary_path:
+            chrome_options.binary_location = chrome_binary_path
+
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--window-size=1920,1080")
 
-        # Giảm log và bớt dấu hiệu automation cơ bản
-        chrome_options.add_experimental_option(
-            "excludeSwitches",
-            ["enable-logging", "enable-automation"]
-        )
-        chrome_options.add_experimental_option("useAutomationExtension", False)
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-
-        # Tắt một số thứ không cần thiết để nhẹ hơn
         chrome_options.add_argument("--disable-notifications")
         chrome_options.add_argument("--disable-popup-blocking")
         chrome_options.add_argument("--disable-extensions")
@@ -133,35 +131,66 @@ class ChromeDriver:
         chrome_options.add_argument("--metrics-recording-only")
         chrome_options.add_argument("--mute-audio")
 
-        # Fake user-agent
-        chrome_options.add_argument(
-            "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+
+        chrome_options.add_experimental_option(
+            "excludeSwitches",
+            ["enable-logging", "enable-automation"],
+        )
+        chrome_options.add_experimental_option("useAutomationExtension", False)
+
+        user_agent = getattr(
+            settings,
+            "CHROME_USER_AGENT",
+            (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
         )
 
-        # Proxy
+        chrome_options.add_argument(f"user-agent={user_agent}")
+
         selected_proxy = self._pick_proxy()
 
         if selected_proxy:
-            print(f"🔄 [Agent 3] Đang dùng Proxy: {selected_proxy}")
+            logger.info("Agent 3 ChromeDriver is using proxy: %s", selected_proxy)
             chrome_options.add_argument(f"--proxy-server={selected_proxy}")
         else:
-            print("ℹ️ [Agent 3] Không dùng proxy, chạy bằng IP gốc.")
+            logger.info("Agent 3 ChromeDriver is running without proxy.")
 
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        return chrome_options
 
-        # Timeout để Lens không treo quá lâu
-        driver.set_page_load_timeout(30)
-        driver.set_script_timeout(30)
+    def _build_service(self) -> Service:
+        driver_path = getattr(settings, "CHROME_DRIVER_PATH", None)
 
-        # Xóa cờ navigator.webdriver
+        if driver_path and os.path.exists(driver_path):
+            return Service(driver_path)
+
+        return Service(ChromeDriverManager().install())
+
+    def get_driver(self):
+        chrome_options = self._build_options()
+        service = self._build_service()
+
         try:
-            driver.execute_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-            )
-        except Exception:
-            pass
+            driver = webdriver.Chrome(service=service, options=chrome_options)
 
-        return driver
+            page_timeout = int(getattr(settings, "CHROME_PAGE_LOAD_TIMEOUT", 30))
+            script_timeout = int(getattr(settings, "CHROME_SCRIPT_TIMEOUT", 30))
+
+            driver.set_page_load_timeout(page_timeout)
+            driver.set_script_timeout(script_timeout)
+
+            try:
+                driver.execute_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+                )
+            except Exception:
+                pass
+
+            return driver
+
+        except Exception as exc:
+            logger.error("Failed to initialize ChromeDriver: %s", exc, exc_info=True)
+            raise

@@ -1,12 +1,13 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.database import init_db
 from app.core.config import settings
 
-# Import toàn bộ Routers
 from app.routers.auth_router import router as auth_router
 from app.routers.user_router import router as user_router
 from app.routers.recognition_router import router as recognition_router
@@ -16,36 +17,72 @@ from app.routers.currency_router import router as currency_router
 from app.routers.feedback_router import router as feedback_router
 from app.routers.admin_router import router as admin_router
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Chạy khi server start: Kết nối MongoDB
     await init_db()
     yield
-    # Chạy khi server stop
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="API cho hệ thống nhận diện tiền giấy Đông Nam Á",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY, max_age=3600)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY,
+    max_age=3600,
+)
 
-# Cấu hình CORS để Client React (Tailwind v4) có thể gọi API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173", # Port mặc định của Vite/React
+        "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "https://your-production-domain.com" # Thêm domain thật sau này
+        "https://your-production-domain.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Đăng ký các Router vào App (ĐÃ ĐỒNG BỘ CHUẨN)
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    detail = exc.detail
+
+    if isinstance(detail, dict):
+        message = detail.get("message") or detail.get("detail") or "Request failed"
+        error_code = detail.get("error_code") or "HTTP_ERROR"
+    else:
+        message = str(detail)
+        error_code = "HTTP_ERROR"
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "message": message,
+            "error_code": error_code,
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": "Internal server error",
+            "error_code": "INTERNAL_SERVER_ERROR",
+        },
+    )
+
+
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(user_router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(recognition_router, prefix="/api/v1/recognition", tags=["Recognition"])
@@ -55,13 +92,7 @@ app.include_router(currency_router, prefix="/api/v1/currency", tags=["Currency"]
 app.include_router(feedback_router, prefix="/api/v1/feedback", tags=["Feedback"])
 app.include_router(admin_router, prefix="/api/v1/admin", tags=["Admin"])
 
+
 @app.get("/")
 async def root():
     return {"message": "Welcome to Banknote Recognition API"}
-@app.on_event("startup")
-async def print_routes():
-    print("\n--- 🚀 DANH SÁCH CÁC ROUTE ĐANG HOẠT ĐỘNG ---")
-    for route in app.routes:
-        if hasattr(route, "path"):
-            print(f"{route.methods} {route.path}")
-    print("-----------------------------------------------\n")

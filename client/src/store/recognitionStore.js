@@ -1,25 +1,50 @@
-import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 
 export const useRecognitionStore = create(
   persist(
     (set) => ({
       currentScanSession: null,
+      activeTaskId: null,
 
-      // Lưu kết quả quét mới (Có thể là 1 kết quả hoặc mảng nhiều kết quả)
-      setScanSession: (previewUrl, resultData) => set({
-        currentScanSession: {
-          previewUrl: previewUrl,
-          result: resultData, // Data từ AI trả về
-          timestamp: new Date().toISOString()
-        }
-      }),
+      setActiveTaskId: (taskId) => set({ activeTaskId: taskId }),
+      clearActiveTaskId: () => set({ activeTaskId: null }),
 
-      // Xóa phiên làm việc khi người dùng bấm Xóa ảnh
-      clearScanSession: () => set({ currentScanSession: null }),
+      setScanSession: (previewUrl, resultData, taskId = null) =>
+        set({
+          activeTaskId: taskId,
+          currentScanSession: {
+            previewUrl,
+            result: resultData,
+            taskId,
+            timestamp: new Date().toISOString(),
+          },
+        }),
+
+      updateScanResult: (resultData) =>
+        set((state) => ({
+          currentScanSession: state.currentScanSession
+            ? {
+                ...state.currentScanSession,
+                result: resultData,
+                timestamp: new Date().toISOString(),
+              }
+            : {
+                previewUrl: null,
+                result: resultData,
+                taskId: state.activeTaskId,
+                timestamp: new Date().toISOString(),
+              },
+        })),
+
+      clearScanSession: () =>
+        set({
+          currentScanSession: null,
+          activeTaskId: null,
+        }),
     }),
     {
-      name: 'recognition-storage',
+      name: "recognition-storage",
       storage: createJSONStorage(() => localStorage),
     }
   )

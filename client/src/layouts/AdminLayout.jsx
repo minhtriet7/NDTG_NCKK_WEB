@@ -20,9 +20,9 @@ export default function AdminLayout() {
   const isDark = theme === "dark";
 
   const handleLogout = () => {
-    logout();
-    navigate("/auth/login");
-  };
+  logout();
+  navigate("/auth/admin-login", { replace: true });
+};
 
   // Hàm xử lý đổi ngôn ngữ an toàn, tương tự user app
   const toggleLanguage = () => {
