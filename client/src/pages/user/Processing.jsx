@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Brain,
@@ -9,266 +9,66 @@ import {
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
+
 import {
   startRecognitionTask,
   getRecognitionTaskStatus,
   saveActiveRecognitionTask,
   clearActiveRecognitionTask,
 } from "../../services/recognitionService";
+
 import { useAuthStore } from "../../store/authStore";
 import { useRecognitionStore } from "../../store/recognitionStore";
 
-export default function Processing() {
-  const navigate = useNavigate();
-  const location = useLocation();
+const POLL_INTERVAL_MS = 2000;
 
-  const { updateTokenBalance, user, syncProfile } = useAuthStore();
-  const { setScanSession, setActiveTaskId, clearActiveTaskId } =
-    useRecognitionStore();
+const TERMINAL_DONE_STATUSES = new Set([
+  "done",
+  "completed",
+  "complete",
+  "success",
+  "succeeded",
+  "needs_review",
+  "needs review",
+]);
 
-  const [progress, setProgress] = useState(0);
-  const [stage, setStage] = useState("queued");
-  const [error, setError] = useState(null);
+const TERMINAL_FAILED_STATUSES = new Set([
+  "failed",
+  "failure",
+  "error",
+  "cancelled",
+  "canceled",
+]);
 
-  const [agentsStatus, setAgentsStatus] = useState({
-    yolo: "scanning",
-    llm: "scanning",
-    lens: "scanning",
-    aggregator: "waiting",
-  });
+function normalizeStatus(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
 
-  const imageFile = location.state?.imageFile;
-  const previewUrl = location.state?.previewUrl;
+function unwrapApiResponse(response) {
+  return response?.data ?? response;
+}
 
-  useEffect(() => {
-    if (!imageFile) {
-      navigate("/recognize");
-      return;
-    }
+function getTaskId(task) {
+  return task?.task_id || task?.id || task?.taskId || null;
+}
 
-    let isMounted = true;
-    let pollTimer = null;
+function getTaskResult(task) {
+  return task?.result || task?.data?.result || task?.recognition || null;
+}
 
-    const setVisualStage = (nextStage, nextProgress) => {
-      if (!isMounted) return;
+function getTaskError(task) {
+  return (
+    task?.error_message ||
+    task?.error ||
+    task?.message ||
+    "Quá trình phân tích thất bại."
+  );
+}
 
-      setStage(nextStage || "processing");
-      setProgress(Number(nextProgress || 0));
-
-      const value = String(nextStage || "").toLowerCase();
-
-      if (value.includes("queued") || value.includes("preprocess")) {
-        setAgentsStatus({
-          yolo: "scanning",
-          llm: "waiting",
-          lens: "waiting",
-          aggregator: "waiting",
-        });
-      } else if (value.includes("agent") || value.includes("running")) {
-        setAgentsStatus({
-          yolo: "scanning",
-          llm: "scanning",
-          lens: "scanning",
-          aggregator: "waiting",
-        });
-      } else if (value.includes("aggregat")) {
-        setAgentsStatus({
-          yolo: "done",
-          llm: "done",
-          lens: "done",
-          aggregator: "scanning",
-        });
-      } else if (value.includes("done")) {
-        setAgentsStatus({
-          yolo: "done",
-          llm: "done",
-          lens: "done",
-          aggregator: "done",
-        });
-      }
-    };
-    const AgentCard = ({ icon: Icon, name, status, desc }) => (
-      <div
-        className={`p-5 rounded-2xl border transition-all duration-500 ${
-          status === "done"
-            ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-            : status === "scanning"
-              ? "bg-white border-teal-200 text-slate-900 shadow-sm"
-              : "bg-slate-50 border-slate-200 text-slate-400"
-        }`}
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              status === "done"
-                ? "bg-emerald-100"
-                : status === "scanning"
-                  ? "bg-teal-50"
-                  : "bg-slate-100"
-            }`}
-          >
-            {status === "done" ? (
-              <CheckCircle2 className="w-5 h-5" />
-            ) : status === "scanning" ? (
-              <Loader2 className="w-5 h-5 animate-spin text-teal-600" />
-            ) : (
-              <Icon className="w-5 h-5" />
-            )}
-          </div>
-
-          <div>
-            <h3 className="font-bold">{name}</h3>
-            <p className="text-xs opacity-70">{desc}</p>
-          </div>
-        </div>
-      </div>
-    );
-    const pollTask = async (taskId) => {
-      try {
-        const task = await getRecognitionTaskStatus(taskId);
-
-        if (!isMounted) return;
-
-        setVisualStage(task.stage, task.progress);
-
-        if (task.status === "done") {
-          if (pollTimer) clearInterval(pollTimer);
-
-          setVisualStage("done", 100);
-          clearActiveRecognitionTask();
-          clearActiveTaskId();
-
-          if (task.result) {
-            setScanSession(previewUrl, task.result, taskId);
-          }
-
-          try {
-            const latestProfile = await syncProfile?.();
-
-            if (!latestProfile && user) {
-              updateTokenBalance(
-                Math.max(Number(user.token_balance || 0) - 1, 0),
-              );
-            }
-          } catch {
-            if (user) {
-              updateTokenBalance(
-                Math.max(Number(user.token_balance || 0) - 1, 0),
-              );
-            }
-          }
-
-          setTimeout(() => {
-            navigate("/result", {
-              state: {
-                scanResult: task.result,
-                taskId,
-                previewUrl,
-              },
-            });
-          }, 700);
-
-          return;
-        }
-
-        if (task.status === "failed") {
-          if (pollTimer) clearInterval(pollTimer);
-
-          setError(task.error_message || "Quá trình phân tích thất bại.");
-          clearActiveRecognitionTask();
-          clearActiveTaskId();
-        }
-      } catch (err) {
-        if (!isMounted) return;
-
-        if (pollTimer) clearInterval(pollTimer);
-
-        setError(
-          err?.response?.data?.detail ||
-            err?.response?.data?.message ||
-            err?.message ||
-            "Không thể kiểm tra trạng thái xử lý.",
-        );
-      }
-    };
-
-    const start = async () => {
-      try {
-        setVisualStage("uploading", 10);
-
-        const task = await startRecognitionTask(imageFile);
-        const taskId = task.task_id || task.id;
-
-        if (!taskId) {
-          throw new Error("Backend không trả về task_id.");
-        }
-
-        saveActiveRecognitionTask(taskId, {
-          filename: imageFile.name,
-          size: imageFile.size,
-          type: imageFile.type,
-        });
-
-        setActiveTaskId(taskId);
-        setVisualStage(task.stage || "queued", task.progress || 5);
-
-        pollTimer = setInterval(() => {
-          pollTask(taskId);
-        }, 2000);
-
-        await pollTask(taskId);
-      } catch (err) {
-        if (!isMounted) return;
-
-        setError(
-          err?.response?.data?.detail ||
-            err?.response?.data?.message ||
-            err?.message ||
-            "Quá trình phân tích thất bại.",
-        );
-      }
-    };
-
-    start();
-
-    return () => {
-      isMounted = false;
-      if (pollTimer) clearInterval(pollTimer);
-    };
-  }, [
-    imageFile,
-    navigate,
-    previewUrl,
-    setScanSession,
-    setActiveTaskId,
-    clearActiveTaskId,
-    updateTokenBalance,
-    user,
-    syncProfile,
-  ]);
-
-  
-
-  if (error) {
-    return (
-      <div className="max-w-3xl mx-auto font-sans py-12">
-        <div className="bg-red-50 border border-red-100 rounded-3xl p-8 text-center">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-red-700 mb-2">
-            Analysis failed
-          </h2>
-          <p className="text-red-600 text-sm mb-6">{error}</p>
-          <button
-            onClick={() => navigate("/recognize")}
-            className="px-5 py-2.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700"
-          >
-            Try again
-          </button>
-        </div>
-      </div>
-    );
-  }
-  const AgentCard = ({ icon: Icon, name, status, desc }) => (
+function AgentCard({ icon: Icon, name, status, desc }) {
+  return (
     <div
       className={`p-5 rounded-2xl border transition-all duration-500 ${
         status === "done"
@@ -304,6 +104,359 @@ export default function Processing() {
       </div>
     </div>
   );
+}
+
+export default function Processing() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const imageFile = location.state?.imageFile || null;
+  const initialPreviewUrl = location.state?.previewUrl || null;
+  const [previewUrl, setPreviewUrl] = useState(initialPreviewUrl);
+
+  const updateTokenBalance = useAuthStore((state) => state.updateTokenBalance);
+  const syncProfile = useAuthStore((state) => state.syncProfile);
+  const tokenBalance = useAuthStore((state) => state.user?.token_balance);
+
+  const setScanSession = useRecognitionStore((state) => state.setScanSession);
+  const setActiveTask = useRecognitionStore((state) => state.setActiveTask);
+  const clearActiveTask = useRecognitionStore((state) => state.clearActiveTask);
+  const getFreshActiveTask = useRecognitionStore(
+    (state) => state.getFreshActiveTask,
+  );
+
+  const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState("queued");
+  const [error, setError] = useState(null);
+
+  const [agentsStatus, setAgentsStatus] = useState({
+    yolo: "scanning",
+    llm: "waiting",
+    lens: "waiting",
+    aggregator: "waiting",
+  });
+
+  const hasStartedRef = useRef(false);
+  const isMountedRef = useRef(false);
+  const pollTimerRef = useRef(null);
+  const navigateTimerRef = useRef(null);
+  const finishedRef = useRef(false);
+  const currentTaskIdRef = useRef(null);
+
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  };
+
+  const setVisualStage = (nextStage, nextProgress) => {
+    if (!isMountedRef.current) return;
+
+    const safeStage = nextStage || "processing";
+    const safeProgress = Number(nextProgress ?? 0);
+
+    setStage(safeStage);
+    setProgress(Number.isFinite(safeProgress) ? safeProgress : 0);
+
+    const value = String(safeStage).toLowerCase();
+
+    if (
+      value.includes("done") ||
+      value.includes("complete") ||
+      value.includes("success")
+    ) {
+      setAgentsStatus({
+        yolo: "done",
+        llm: "done",
+        lens: "done",
+        aggregator: "done",
+      });
+      return;
+    }
+
+    if (value.includes("aggregat") || safeProgress >= 80) {
+      setAgentsStatus({
+        yolo: "done",
+        llm: "done",
+        lens: "done",
+        aggregator: "scanning",
+      });
+      return;
+    }
+
+    if (
+      value.includes("agent") ||
+      value.includes("running") ||
+      safeProgress >= 25
+    ) {
+      setAgentsStatus({
+        yolo: "scanning",
+        llm: "scanning",
+        lens: "scanning",
+        aggregator: "waiting",
+      });
+      return;
+    }
+
+    setAgentsStatus({
+      yolo: "scanning",
+      llm: "waiting",
+      lens: "waiting",
+      aggregator: "waiting",
+    });
+  };
+
+  const finishSuccessfully = async (taskId, task) => {
+    if (finishedRef.current || !isMountedRef.current) return;
+
+    finishedRef.current = true;
+    stopPolling();
+
+    setVisualStage("done", 100);
+    clearActiveRecognitionTask();
+    clearActiveTask();
+
+    const rawResult = getTaskResult(task) || task;
+
+    const result = {
+      ...rawResult,
+      input_image_url:
+        rawResult?.input_image_url ||
+        task?.input_image_url ||
+        task?.image_url ||
+        task?.uploaded_image_url ||
+        null,
+      task_id: taskId,
+      result_id:
+        rawResult?.result_id ||
+        task?.result_id ||
+        rawResult?.id ||
+        task?.result?.id ||
+        null,
+    };
+
+    if (result) {
+      setScanSession(result.input_image_url || previewUrl, result, taskId);
+    }
+
+    try {
+      const latestProfile = await syncProfile?.();
+
+      if (!latestProfile && typeof tokenBalance !== "undefined") {
+        updateTokenBalance(Math.max(Number(tokenBalance || 0) - 1, 0));
+      }
+    } catch {
+      if (typeof tokenBalance !== "undefined") {
+        updateTokenBalance(Math.max(Number(tokenBalance || 0) - 1, 0));
+      }
+    }
+
+    navigateTimerRef.current = setTimeout(() => {
+      if (!isMountedRef.current) return;
+
+      navigate("/result", {
+        replace: true,
+        state: {
+          scanResult: result,
+          taskId,
+          previewUrl: result.input_image_url || previewUrl,
+        },
+      });
+    }, 500);
+  };
+
+  const failProcessing = (message) => {
+    if (finishedRef.current || !isMountedRef.current) return;
+
+    finishedRef.current = true;
+    stopPolling();
+
+    clearActiveRecognitionTask();
+    clearActiveTask();
+
+    setError(message || "Quá trình phân tích thất bại.");
+  };
+
+  const pollTask = async (taskId) => {
+    if (!taskId || finishedRef.current || !isMountedRef.current) return;
+
+    try {
+      const response = await getRecognitionTaskStatus(taskId);
+      const task = unwrapApiResponse(response);
+
+      if (!isMountedRef.current || finishedRef.current) return;
+
+      const status = normalizeStatus(task?.status);
+      
+      // Cập nhật lại ảnh preview nếu frontend bị mất URL do reload tab
+      if (!previewUrl && task?.input_image_url) {
+        setPreviewUrl(task.input_image_url);
+      }
+
+      setVisualStage(
+        task?.stage || task?.status || "processing",
+        task?.progress,
+      );
+
+      if (TERMINAL_DONE_STATUSES.has(status)) {
+        await finishSuccessfully(taskId, task);
+        return;
+      }
+
+      if (TERMINAL_FAILED_STATUSES.has(status)) {
+        failProcessing(getTaskError(task));
+      }
+    } catch (err) {
+      if (!isMountedRef.current || finishedRef.current) return;
+
+      // Xử lý 404 nếu task hết hạn hoặc không tồn tại trên backend
+      if (err?.response?.status === 404) {
+        finishedRef.current = true;
+        stopPolling();
+        clearActiveRecognitionTask();
+        clearActiveTask();
+        navigate("/recognize", { replace: true });
+        return;
+      }
+
+      failProcessing(
+        err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          err?.message ||
+          "Không thể kiểm tra trạng thái xử lý.",
+      );
+    }
+  };
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    if (hasStartedRef.current) {
+      return () => {
+        isMountedRef.current = false;
+        stopPolling();
+
+        if (navigateTimerRef.current) {
+          clearTimeout(navigateTimerRef.current);
+          navigateTimerRef.current = null;
+        }
+      };
+    }
+
+    hasStartedRef.current = true;
+
+    const start = async () => {
+      try {
+        setVisualStage("uploading", 10);
+
+        const restoredTask = getFreshActiveTask?.();
+        let taskId = restoredTask?.taskId || null;
+
+        if (!taskId) {
+          if (!imageFile) {
+            navigate("/recognize", { replace: true });
+            return;
+          }
+
+          const response = await startRecognitionTask(imageFile);
+          const task = unwrapApiResponse(response);
+          taskId = getTaskId(task);
+
+          if (!taskId) {
+            throw new Error("Backend không trả về task_id.");
+          }
+
+          saveActiveRecognitionTask(taskId, {
+            filename: imageFile.name,
+            size: imageFile.size,
+            type: imageFile.type,
+          });
+
+          setActiveTask(taskId, {
+            filename: imageFile.name,
+            size: imageFile.size,
+            type: imageFile.type,
+          });
+
+          setVisualStage(
+            task?.stage || task?.status || "queued",
+            task?.progress || 5,
+          );
+        } else {
+          setVisualStage("restoring task", 15);
+        }
+
+        currentTaskIdRef.current = taskId;
+
+        await pollTask(taskId);
+
+        if (!finishedRef.current && isMountedRef.current) {
+          stopPolling();
+          pollTimerRef.current = setInterval(() => {
+            pollTask(taskId);
+          }, POLL_INTERVAL_MS);
+        }
+      } catch (err) {
+        if (!isMountedRef.current || finishedRef.current) return;
+
+        // Xử lý 404 trong lần gọi đầu tiên
+        if (err?.response?.status === 404) {
+          finishedRef.current = true;
+          stopPolling();
+          clearActiveRecognitionTask();
+          clearActiveTask();
+          navigate("/recognize", { replace: true });
+          return;
+        }
+
+        failProcessing(
+          err?.response?.data?.detail ||
+            err?.response?.data?.message ||
+            err?.message ||
+            "Quá trình phân tích thất bại.",
+        );
+      }
+    };
+
+    start();
+
+    return () => {
+      isMountedRef.current = false;
+      stopPolling();
+
+      if (navigateTimerRef.current) {
+        clearTimeout(navigateTimerRef.current);
+        navigateTimerRef.current = null;
+      }
+    };
+    // Chỉ chạy 1 lần mỗi lần vào Processing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (error) {
+    return (
+      <div className="max-w-3xl mx-auto font-sans py-12">
+        <div className="bg-red-50 border border-red-100 rounded-3xl p-8 text-center">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+
+          <h2 className="text-2xl font-bold text-red-700 mb-2">
+            Analysis failed
+          </h2>
+
+          <p className="text-red-600 text-sm mb-6">{error}</p>
+
+          <button
+            onClick={() => navigate("/recognize", { replace: true })}
+            className="px-5 py-2.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto font-sans py-10 space-y-8">
       <div className="text-center">
@@ -316,7 +469,8 @@ export default function Processing() {
         </h2>
 
         <p className="text-slate-500 mt-2">
-          Multi-agent analysis is running. Please keep this page open.
+          Multi-agent analysis is running. You can leave and return to this page
+          while the current task is still active.
         </p>
       </div>
 
@@ -332,6 +486,12 @@ export default function Processing() {
             style={{ width: `${Math.min(Math.max(progress, 0), 100)}%` }}
           />
         </div>
+
+        {currentTaskIdRef.current && (
+          <p className="mt-3 text-xs text-slate-400">
+            Task: {currentTaskIdRef.current}
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -341,18 +501,21 @@ export default function Processing() {
           status={agentsStatus.yolo}
           desc="Visual detection and denomination clues"
         />
+
         <AgentCard
           icon={Brain}
           name="LLM Agent"
           status={agentsStatus.llm}
           desc="Text reading and contextual reasoning"
         />
+
         <AgentCard
           icon={Globe}
           name="Visual Search"
           status={agentsStatus.lens}
           desc="External visual reference checking"
         />
+
         <AgentCard
           icon={Cpu}
           name="Aggregator"
@@ -366,6 +529,7 @@ export default function Processing() {
           <p className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">
             Uploaded image
           </p>
+
           <img
             src={previewUrl}
             alt="Uploaded banknote"

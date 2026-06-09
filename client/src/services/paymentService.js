@@ -1,5 +1,9 @@
 import api, { normalizeList } from "./api";
 
+export const getPaymentGatewaySettings = async () => {
+  return await api.get("/payment/gateway-settings");
+};
+
 export const getTokenPackages = async () => {
   const data = await api.get("/payment/token-packages");
   return normalizeList(data);
@@ -8,7 +12,7 @@ export const getTokenPackages = async () => {
 export const createCheckoutSession = async (payload) => {
   return await api.post("/payment/buy", {
     package_id: payload.package_id,
-    gateway: payload.gateway || "sepay",
+    gateway: payload.gateway || null,
   });
 };
 

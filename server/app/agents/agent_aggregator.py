@@ -4,6 +4,14 @@ from collections import Counter
 from typing import Any, Dict, List, Optional
 
 
+# Thông điệp terminal khi hết lượt retry mà vẫn không đồng thuận.
+NEEDS_BETTER_IMAGE_MESSAGE = (
+    "Không đủ đồng thuận giữa các AI agent sau nhiều lần thử. "
+    "Vui lòng chụp lại tờ tiền ở góc rõ hơn, đủ sáng, "
+    "không bị lóa, và thấy toàn bộ tờ tiền."
+)
+
+
 INVALID_VALUES = {
     "",
     "lỗi",
@@ -138,7 +146,12 @@ def _clone_agent(agent: Dict[str, Any]) -> Dict[str, Any]:
     return dict(agent) if isinstance(agent, dict) else {}
 
 
-async def run_aggregator(json_1: str, json_2: str, json_3: str) -> dict:
+async def run_aggregator(
+    json_1: str,
+    json_2: str,
+    json_3: str,
+    is_final_attempt: bool = False,
+) -> dict:
     """
     Rule-based majority vote.
 
@@ -146,6 +159,8 @@ async def run_aggregator(json_1: str, json_2: str, json_3: str) -> dict:
     - Do not call Gemini here.
     - Do not select Agent 1 by default.
     - Only finalize when at least 2 valid agents agree.
+    - is_final_attempt=True: nếu vẫn conflict → trả needs_better_image (terminal, no retry).
+    - is_final_attempt=False: nếu conflict → trả require_rerun=True để caller retry.
     """
     agents = {
         "ml_dl": _safe_parse(json_1),
@@ -210,6 +225,20 @@ async def run_aggregator(json_1: str, json_2: str, json_3: str) -> dict:
 
     vote_values = ", ".join([vote["denomination"] for vote in valid_votes])
 
+    if is_final_attempt:
+        # Hết lượt retry → trả terminal state, không retry thêm.
+        return {
+            "require_rerun": False,
+            "method": "majority_vote",
+            "status": "needs_better_image",
+            "matched_agents": 0,
+            "so_luong_dong_thuan": 0,
+            "final_denomination": None,
+            "final_agent": None,
+            "valid_votes": valid_votes,
+            "quan_diem_trong_tai": NEEDS_BETTER_IMAGE_MESSAGE,
+        }
+
     return {
         "require_rerun": True,
         "method": "majority_vote",
@@ -221,6 +250,6 @@ async def run_aggregator(json_1: str, json_2: str, json_3: str) -> dict:
         "valid_votes": valid_votes,
         "quan_diem_trong_tai": (
             f"Mâu thuẫn kết quả giữa các Agent hợp lệ ({vote_values}). "
-            "Không đủ đồng thuận để chốt kết quả. Cần phân tích lại hoặc kiểm tra thủ công."
+            "Không đủ đồng thuận để chốt kết quả. Cần phân tích lại."
         ),
     }

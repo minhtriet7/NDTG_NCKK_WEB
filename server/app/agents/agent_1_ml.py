@@ -60,6 +60,12 @@ YOLO_CONF_THRES = float(os.getenv("AGENT1_YOLO_CONF", "0.25"))
 YOLO_IMG_SIZE = int(os.getenv("AGENT1_YOLO_IMGSZ", "640"))
 RES_IMG_SIZE = int(os.getenv("AGENT1_RES_IMGSZ", "224"))
 
+# Ngưỡng confidence tối thiểu của ResNet.
+# Nếu top1 confidence < threshold → Agent 1 trả status="Failed"
+# để Aggregator không tính vote sai vào majority vote.
+# Override qua env var: AGENT1_RES_CONF_MIN=0.60
+RES_CONF_MIN_THRESHOLD = float(os.getenv("AGENT1_RES_CONF_MIN", "0.70"))
+
 
 # ============================================================
 # Southeast Asia class mapping
@@ -508,21 +514,64 @@ def _build_completed_item(
         final_conf = round((yolo_conf * 0.45) + (res_conf * 0.55), 4)
         class_name = classification.get("class_name", "Không xác định")
         top_predictions = classification.get("top_predictions", [])
-        status = "Completed"
 
-        mo_ta = (
-            f"YOLO phát hiện một vùng tiền giấy. "
-            f"Mô hình phân loại nhận dạng class '{class_name}'."
-        )
+        # Top3 summary — dùng .get() an toàn tránh KeyError
+        top3_summary = ", ".join(
+            f"{p.get('menh_gia') or p.get('class_name') or 'Unknown'}"
+            f"({float(p.get('confidence') or 0.0):.2f})"
+            for p in top_predictions[:3]
+        ) if top_predictions else "N/A"
 
-        quan_diem = (
-            f"YOLO khoanh vùng tờ tiền với độ tin cậy {yolo_conf:.2f}. "
-            f"Bộ phân loại RES nhận dạng {denomination} thuộc {country} "
-            f"với độ tin cậy {res_conf:.2f}. "
-            f"Điểm tin cậy tổng hợp: {final_conf:.2f}."
-        )
+        if res_conf < RES_CONF_MIN_THRESHOLD:
+            # ── Confidence thấp ──────────────────────────────────────────────
+            # Trả Failed để Aggregator không tính vote sai vào majority.
+            # Vẫn giữ top_predictions trong JSON để debug.
+            country = "Không xác định"
+            denomination = "Không xác định"
+            final_conf = round(yolo_conf * 0.45, 4)  # chỉ tính YOLO portion
+            status = "Failed"
 
-        method = "YOLO detector + RES/EfficientNet classifier"
+            mo_ta = (
+                f"YOLO phát hiện vùng tiền giấy nhưng ResNet không đủ tự tin "
+                f"để xác định mệnh giá (confidence={res_conf:.4f} < "
+                f"threshold={RES_CONF_MIN_THRESHOLD})."
+            )
+
+            quan_diem = (
+                f"ResNet confidence thấp, không đủ tin cậy để vote. "
+                f"Top1='{class_name}', confidence={res_conf:.4f}, "
+                f"threshold={RES_CONF_MIN_THRESHOLD}. "
+                f"Top3: [{top3_summary}]. "
+                f"Agent 1 từ chối bỏ phiếu để tránh kéo sai đồng thuận."
+            )
+
+            method = "YOLO detector + RES classifier (low confidence — rejected)"
+
+            print(
+                f"[Agent 1 ML/DL] LOW CONFIDENCE: top1='{class_name}' "
+                f"conf={res_conf:.4f} < threshold={RES_CONF_MIN_THRESHOLD}. "
+                f"Top3: {top3_summary}. Returning Failed."
+            )
+
+        else:
+            # ── Confidence đủ cao ────────────────────────────────────────────
+            status = "Completed"
+
+            mo_ta = (
+                f"YOLO phát hiện một vùng tiền giấy. "
+                f"Mô hình phân loại nhận dạng class '{class_name}'."
+            )
+
+            quan_diem = (
+                f"YOLO khoanh vùng tờ tiền với độ tin cậy {yolo_conf:.2f}. "
+                f"Bộ phân loại RES nhận dạng {denomination} thuộc {country} "
+                f"với độ tin cậy {res_conf:.2f}. "
+                f"Điểm tin cậy tổng hợp: {final_conf:.2f}. "
+                f"Top3: [{top3_summary}]."
+            )
+
+            method = "YOLO detector + RES/EfficientNet classifier"
+
     else:
         country = "Không xác định"
         denomination = "Không xác định"
@@ -556,7 +605,15 @@ def _build_completed_item(
         "van_ban_nhin_thay": [],
         "dac_diem_chinh": [
             "Phát hiện bằng bounding box YOLO",
-            "Phân loại dựa trên ảnh crop của tờ tiền" if classification else "Chưa phân loại được mệnh giá",
+            (
+                "Phân loại dựa trên ảnh crop của tờ tiền"
+                if (classification and status == "Completed")
+                else (
+                    "ResNet confidence thấp, Agent 1 từ chối vote"
+                    if classification
+                    else "Chưa phân loại được mệnh giá"
+                )
+            ),
         ],
         "bbox": detection,
         "res_confidence": round(res_conf, 4),

@@ -41,6 +41,22 @@ function normalizeList(data) {
   return [];
 }
 
+function getPaymentUrl(data) {
+  return (
+    data?.payment_url ||
+    data?.pay_url ||
+    data?.checkout_url ||
+    data?.redirect_url ||
+    data?.url ||
+    data?.invoice?.payment_url ||
+    data?.invoice?.pay_url ||
+    data?.invoice?.checkout_url ||
+    data?.invoice?.redirect_url ||
+    data?.invoice?.url ||
+    ""
+  );
+}
+
 export default function Pricing() {
   const navigate = useNavigate();
   const { lang } = useAppStore();
@@ -58,7 +74,7 @@ export default function Pricing() {
     EN: {
       title: "Recharge Tokens",
       subtitle:
-        "Buy tokens to run banknote scans, review agent results, and export JSON reports. 1 successful scan uses 1 token.",
+        "Buy tokens to run banknote scans, review agent results, and export JSON reports.",
       currBalance: "Current Balance",
       tokenUnit: "tokens",
       toWorkspace: "Go to Scanner",
@@ -72,10 +88,9 @@ export default function Pricing() {
       bankTx: "Bank Transfer",
       bankTxDesc: "Transfer by invoice content",
       vnpay: "VNPay",
-      vnpayDesc: "Pay via VNPay gateway",
+      vnpayDesc: "Pay via VNPay sandbox gateway",
       mock: "Sandbox",
       mockDesc: "Test payment, still saved to DB",
-      comingSoon: "Soon",
       summary: "Order Summary",
       pkg: "Package",
       tokensInc: "Tokens included",
@@ -89,7 +104,7 @@ export default function Pricing() {
       step1Title: "Choose a package",
       step1Desc: "Select a token package created by the administrator.",
       step2Title: "Complete payment",
-      step2Desc: "Pay via VietQR, bank transfer, or sandbox mode.",
+      step2Desc: "Pay via VietQR, bank transfer, VNPay, or sandbox mode.",
       step3Title: "Receive tokens",
       step3Desc: "Tokens are added after payment is confirmed.",
       step4Title: "Start scanning",
@@ -112,6 +127,8 @@ export default function Pricing() {
       successInit: "Invoice generated successfully.",
       successMock: "Sandbox payment successful. Tokens added.",
       successBank: "Bank transfer invoice generated.",
+      successVnpay: "Redirecting to VNPay payment page.",
+      missingVnpayUrl: "Server did not return VNPay payment URL.",
       fallbackFeature1: "Multi-agent recognition result",
       fallbackFeature2: "Structured JSON output",
       fallbackFeature3: "Scan history saved",
@@ -119,7 +136,7 @@ export default function Pricing() {
     VI: {
       title: "Nạp Token",
       subtitle:
-        "Mua token để quét tiền, xem kết quả phân tích và xuất báo cáo JSON. 1 lần quét thành công sử dụng 1 token.",
+        "Mua token để quét tiền, xem kết quả phân tích và xuất báo cáo JSON.",
       currBalance: "Số dư hiện tại",
       tokenUnit: "tokens",
       toWorkspace: "Vào trang nhận diện",
@@ -133,10 +150,9 @@ export default function Pricing() {
       bankTx: "Chuyển khoản",
       bankTxDesc: "Chuyển khoản theo nội dung hóa đơn",
       vnpay: "VNPay",
-      vnpayDesc: "Thanh toán qua cổng VNPay",
+      vnpayDesc: "Thanh toán qua cổng VNPay sandbox",
       mock: "Sandbox",
       mockDesc: "Thanh toán test, vẫn lưu vào DB",
-      comingSoon: "Sắp có",
       summary: "Tóm tắt đơn hàng",
       pkg: "Gói",
       tokensInc: "Token nhận được",
@@ -150,7 +166,7 @@ export default function Pricing() {
       step1Title: "Chọn gói token",
       step1Desc: "Chọn gói token được quản trị viên tạo trong hệ thống.",
       step2Title: "Thanh toán",
-      step2Desc: "Thanh toán qua VietQR, chuyển khoản hoặc chế độ Sandbox.",
+      step2Desc: "Thanh toán qua VietQR, chuyển khoản, VNPay hoặc Sandbox.",
       step3Title: "Nhận Token",
       step3Desc: "Token được cộng sau khi hệ thống xác nhận thanh toán.",
       step4Title: "Sử dụng",
@@ -174,6 +190,8 @@ export default function Pricing() {
       successInit: "Khởi tạo hóa đơn thành công.",
       successMock: "Thanh toán giả lập thành công. Đã cộng token.",
       successBank: "Khởi tạo hóa đơn chuyển khoản thành công.",
+      successVnpay: "Đang chuyển sang cổng thanh toán VNPay.",
+      missingVnpayUrl: "Server chưa trả về link thanh toán VNPay.",
       fallbackFeature1: "Kết quả nhận diện đa tác tử",
       fallbackFeature2: "Xuất dữ liệu JSON có cấu trúc",
       fallbackFeature3: "Lưu lịch sử quét",
@@ -225,19 +243,13 @@ export default function Pricing() {
 
       const suggestedPackage =
         normalizedPkgs.find((pkg) =>
-          String(pkg.badge || "")
-            .toLowerCase()
-            .includes("best"),
+          String(pkg.badge || "").toLowerCase().includes("best"),
         ) ||
         normalizedPkgs.find((pkg) =>
-          String(pkg.badge || "")
-            .toLowerCase()
-            .includes("gợi"),
+          String(pkg.badge || "").toLowerCase().includes("gợi"),
         ) ||
         normalizedPkgs.find((pkg) =>
-          String(pkg.package_key || "")
-            .toLowerCase()
-            .includes("pro"),
+          String(pkg.package_key || "").toLowerCase().includes("pro"),
         ) ||
         normalizedPkgs[1] ||
         normalizedPkgs[0] ||
@@ -312,12 +324,33 @@ export default function Pricing() {
         }
 
         navigate("/recognize");
-      } else if (selectedGateway === "sepay") {
+        return;
+      }
+
+      if (selectedGateway === "sepay") {
         navigate("/sepay-checkout", { state: { invoice: invoiceData } });
         toast.success(t.successInit);
-      } else if (selectedGateway === "bank_transfer") {
+        return;
+      }
+
+      if (selectedGateway === "bank_transfer") {
         navigate("/checkout", { state: { invoice: invoiceData } });
         toast.success(t.successBank);
+        return;
+      }
+
+      if (selectedGateway === "vnpay") {
+        const paymentUrl = getPaymentUrl(checkoutData);
+
+        if (!paymentUrl) {
+          toast.error(t.missingVnpayUrl);
+          console.error("Missing VNPay payment URL:", checkoutData);
+          return;
+        }
+
+        toast.success(t.successVnpay);
+        window.location.href = paymentUrl;
+        return;
       }
     } catch (error) {
       console.error("Checkout Error:", error);
@@ -351,12 +384,13 @@ export default function Pricing() {
   const getGatewayLabel = () => {
     if (selectedGateway === "sepay") return t.sepay;
     if (selectedGateway === "bank_transfer") return t.bankTx;
+    if (selectedGateway === "vnpay") return t.vnpay;
     if (selectedGateway === "mock") return t.mock;
     return selectedGateway;
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-24 font-sans text-slate-900 dark:text-slate-100 animate-[fadeInUp_0.4s_ease-out] transition-colors duration-300">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-24 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300">
       <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 pt-10 pb-10 mb-8 transition-colors">
         <div className="max-w-7xl mx-auto px-4 md:px-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div className="max-w-2xl">
@@ -584,24 +618,31 @@ export default function Pricing() {
               </button>
 
               <button
-                disabled
-                className="relative flex flex-col items-center justify-center p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 opacity-60 cursor-not-allowed text-center transition-colors"
+                onClick={() => setSelectedGateway("vnpay")}
+                className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
+                  selectedGateway === "vnpay"
+                    ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/20 shadow-sm ring-1 ring-blue-500 dark:ring-blue-400"
+                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700"
+                }`}
               >
-                <div className="absolute top-0 right-0 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold px-2.5 py-1 rounded-bl-lg rounded-tr-xl transition-colors">
-                  {t.comingSoon}
-                </div>
-                <div className="w-10 h-10 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center mb-3 transition-colors">
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
                   <CreditCard
-                    className="text-slate-500 dark:text-slate-400 transition-colors"
+                    className="text-blue-600 dark:text-blue-400 transition-colors"
                     size={20}
                   />
                 </div>
-                <span className="text-sm font-bold text-slate-600 dark:text-slate-300 mb-1 transition-colors">
+                <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
                   {t.vnpay}
                 </span>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
                   {t.vnpayDesc}
                 </span>
+                {selectedGateway === "vnpay" && (
+                  <CheckCircle2
+                    size={16}
+                    className="absolute top-3 right-3 text-blue-600 dark:text-blue-400 transition-colors"
+                  />
+                )}
               </button>
 
               <button
@@ -679,7 +720,9 @@ export default function Pricing() {
                       className={`font-bold uppercase transition-colors text-right ${
                         selectedGateway === "mock"
                           ? "text-amber-600 dark:text-amber-400"
-                          : "text-slate-900 dark:text-white"
+                          : selectedGateway === "vnpay"
+                            ? "text-blue-600 dark:text-blue-400"
+                            : "text-slate-900 dark:text-white"
                       }`}
                     >
                       {getGatewayLabel()}
@@ -704,7 +747,9 @@ export default function Pricing() {
                   className={`w-full py-4 rounded-xl font-bold flex justify-center items-center gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed ${
                     selectedGateway === "mock"
                       ? "bg-amber-600 text-white hover:bg-amber-700"
-                      : "bg-slate-900 dark:bg-teal-600 text-white hover:bg-slate-800 dark:hover:bg-teal-500"
+                      : selectedGateway === "vnpay"
+                        ? "bg-blue-600 text-white hover:bg-blue-700"
+                        : "bg-slate-900 dark:bg-teal-600 text-white hover:bg-slate-800 dark:hover:bg-teal-500"
                   }`}
                 >
                   {isCheckoutLoading ? (

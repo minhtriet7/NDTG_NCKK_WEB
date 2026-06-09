@@ -20,6 +20,8 @@ import {
   SearchCheck,
   GitMerge,
   FileJson,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -172,6 +174,22 @@ const getAgentConfidence = (data) => {
   }
 
   return data?.confidence || data?.do_tin_cay || data?.confidence_score;
+};
+
+const getAgentReasoning = (data) => {
+  if (Array.isArray(data)) return safeStr(data[0]?.reasoning || data[0]?.ly_do || data[0]?.giai_thich || data[0]?.quan_diem);
+  return safeStr(data?.reasoning || data?.ly_do || data?.giai_thich || data?.quan_diem);
+};
+
+const normalizeStatusLabel = (status, lang) => {
+  const s = String(status || "").toLowerCase();
+  if (s === "completed") return lang === "VI" ? "Hoàn thành" : "Completed";
+  if (s === "needs_better_image") return lang === "VI" ? "Cần ảnh rõ hơn" : "Needs clearer image";
+  if (s === "needs review" || s === "needs_review") return lang === "VI" ? "Cần xem lại" : "Needs review";
+  if (s === "partial" || s.includes("partial")) return lang === "VI" ? "Hoàn thành một phần" : "Partially completed";
+  if (s === "no_banknote_detected") return lang === "VI" ? "Không phát hiện tiền" : "No banknote detected";
+  if (s === "failed") return lang === "VI" ? "Thất bại" : "Failed";
+  return status || "N/A";
 };
 
 // ==========================================
@@ -411,6 +429,28 @@ export default function History() {
     }
 
     return normalizeAgentOutputs(selectedRecord);
+  }, [selectedRecord]);
+
+  const isMultiObject = useMemo(() => {
+    if (!selectedRecord) return false;
+    return (
+      selectedRecord.multi_object === true ||
+      selectedRecord.final_result?.mode === "multi_object" ||
+      selectedRecord.consensus?.mode === "multi_object" ||
+      selectedRecord.consensus?.method === "multi_object_pipeline" ||
+      Array.isArray(selectedRecord.detected_objects) ||
+      Array.isArray(selectedRecord.final_result?.detected_objects)
+    );
+  }, [selectedRecord]);
+
+  const detectedObjects = useMemo(() => {
+    if (!selectedRecord) return [];
+    return (
+      selectedRecord.detected_objects ||
+      selectedRecord.final_result?.detected_objects ||
+      selectedRecord.consensus?.detected_objects ||
+      []
+    );
   }, [selectedRecord]);
 
   const handleExportCSV = () => {
@@ -1276,34 +1316,54 @@ export default function History() {
                   }`}
                 >
                   <GitMerge className="w-5 h-5 text-slate-400" />
-                  Agent Outputs
+                  {isMultiObject ? (lang === "VI" ? "Các đối tượng phát hiện" : "Detected Banknotes") : "Agent Outputs"}
                 </h3>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <AgentMiniCard
-                    isDark={isDark}
-                    title={t.ag1}
-                    icon={<Cpu size={16} />}
-                    data={selectedAgentOutputs.ml_dl}
-                    finalDenom={getRecDenom(selectedRecord)}
-                  />
+                {isMultiObject ? (
+                  <div className="space-y-4">
+                    {detectedObjects.length === 0 ? (
+                      <p className="text-slate-500 text-sm">No objects found in this record.</p>
+                    ) : (
+                      detectedObjects.map((obj, idx) => (
+                        <HistoryObjectCard 
+                          key={idx} 
+                          object={obj} 
+                          index={idx} 
+                          isDark={isDark} 
+                          t={t} 
+                          lang={lang} 
+                          rootImage={getRecImage(selectedRecord)}
+                        />
+                      ))
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <AgentMiniCard
+                      isDark={isDark}
+                      title={t.ag1}
+                      icon={<Cpu size={16} />}
+                      data={selectedAgentOutputs.ml_dl}
+                      finalDenom={getRecDenom(selectedRecord)}
+                    />
 
-                  <AgentMiniCard
-                    isDark={isDark}
-                    title={t.ag2}
-                    icon={<BotMessageSquare size={16} />}
-                    data={selectedAgentOutputs.llm_api}
-                    finalDenom={getRecDenom(selectedRecord)}
-                  />
+                    <AgentMiniCard
+                      isDark={isDark}
+                      title={t.ag2}
+                      icon={<BotMessageSquare size={16} />}
+                      data={selectedAgentOutputs.llm_api}
+                      finalDenom={getRecDenom(selectedRecord)}
+                    />
 
-                  <AgentMiniCard
-                    isDark={isDark}
-                    title={t.ag3}
-                    icon={<SearchCheck size={16} />}
-                    data={selectedAgentOutputs.visual_search}
-                    finalDenom={getRecDenom(selectedRecord)}
-                  />
-                </div>
+                    <AgentMiniCard
+                      isDark={isDark}
+                      title={t.ag3}
+                      icon={<SearchCheck size={16} />}
+                      data={selectedAgentOutputs.visual_search}
+                      finalDenom={getRecDenom(selectedRecord)}
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1477,6 +1537,115 @@ function AgentMiniCard({ title, icon, data, finalDenom, isDark }) {
                 ? `${(Number(confidence) * 100).toFixed(2)}%`
                 : `${Number(confidence).toFixed(2)}%`}
             </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// COMPONENT CON: HISTORY OBJECT CARD
+// ==========================================
+function HistoryObjectCard({ object, index, isDark, t, lang, rootImage }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const objectNo = object?.object_index || index + 1;
+  const denom = getAgentDenom(object) || getAgentDenom(object?.final_result) || getAgentDenom(object?.summary) || "N/A";
+  const country = getAgentCountry(object) || getAgentCountry(object?.final_result) || getAgentCountry(object?.summary) || "N/A";
+  const rawStatus = object?.final_result?.status || object?.summary?.status || object?.status || "Completed";
+  const status = normalizeStatusLabel(rawStatus, lang);
+  
+  const matchedAgents = Number(object?.final_result?.matched_agents || object?.summary?.matched_agents || 0);
+
+  const image = object?.crop_base64 ? `data:image/jpeg;base64,${object.crop_base64}` : rootImage;
+  const bboxText = object?.bbox ? `[${object.bbox.join(", ")}]` : null;
+
+  const agentData = normalizeAgentOutputs(object);
+  const hasAgents = !!(agentData.ml_dl || agentData.llm_api || agentData.visual_search);
+
+  const renderAgentRow = (title, icon, data) => {
+    if (!data) return null;
+    const aDenom = getAgentDenom(data);
+    const aCountry = getAgentCountry(data);
+    const aReason = getAgentReasoning(data);
+    const isMatched = aDenom === denom && denom !== "N/A";
+
+    return (
+      <div className={`p-3 rounded-xl border mt-2 ${isDark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}>
+        <div className="flex justify-between items-center mb-2 border-b pb-2 border-slate-100 dark:border-slate-800">
+          <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5">{icon} {title}</p>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${isMatched ? "bg-teal-500/20 text-teal-500" : "bg-amber-500/20 text-amber-500"}`}>
+            {isMatched ? (lang === "VI" ? "Khớp" : "Matched") : (lang === "VI" ? "Khác" : "Different")}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+          <div><span className="text-slate-400">Denom:</span> <span className={`font-bold ${isDark ? "text-slate-200" : "text-slate-700"}`}>{aDenom}</span></div>
+          <div><span className="text-slate-400">Country:</span> <span className={`font-semibold ${isDark ? "text-slate-300" : "text-slate-600"}`}>{aCountry}</span></div>
+        </div>
+        {aReason && aReason !== "N/A" && (
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-2 rounded line-clamp-3">
+            {aReason}
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className={`rounded-2xl border overflow-hidden ${isDark ? "bg-slate-800/40 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
+      <div className={`p-4 border-b flex justify-between items-center ${isDark ? "border-slate-700" : "border-slate-200"}`}>
+        <div>
+          <p className="text-xs font-black uppercase text-slate-400 tracking-wider">
+            {lang === "VI" ? "Tờ tiền" : "Banknote"} #{objectNo}
+          </p>
+          <h3 className={`text-lg font-black mt-1 ${isDark ? "text-white" : "text-slate-900"}`}>{denom}</h3>
+        </div>
+        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${matchedAgents >= 2 ? (isDark ? "bg-teal-500/20 text-teal-300 border-teal-500/30" : "bg-teal-50 text-teal-700 border-teal-200") : (isDark ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-amber-50 text-amber-700 border-amber-200")}`}>
+          {matchedAgents}/3
+        </span>
+      </div>
+
+      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          {image ? (
+             <img src={image} alt={`Crop ${objectNo}`} className="w-full rounded-xl object-contain max-h-[160px] bg-white dark:bg-slate-900" />
+          ) : (
+             <div className="h-[120px] rounded-xl flex items-center justify-center text-slate-400 bg-slate-100 dark:bg-slate-900 text-xs">No crop</div>
+          )}
+          {bboxText && <p className="text-[10px] text-slate-400 mt-2">bbox: {bboxText}</p>}
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex justify-between border-b border-slate-200 dark:border-slate-700/50 pb-1">
+             <span className="text-sm text-slate-500">Country</span>
+             <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{country}</span>
+          </div>
+          <div className="flex justify-between border-b border-slate-200 dark:border-slate-700/50 pb-1">
+             <span className="text-sm text-slate-500">Status</span>
+             <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{status}</span>
+          </div>
+          <div className="flex justify-between border-b border-slate-200 dark:border-slate-700/50 pb-1">
+             <span className="text-sm text-slate-500">Consensus</span>
+             <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{matchedAgents}/3 Agents</span>
+          </div>
+        </div>
+      </div>
+
+      <div className={`px-4 pb-4 ${!hasAgents ? "opacity-60" : ""}`}>
+        <button 
+          onClick={() => hasAgents && setExpanded(!expanded)}
+          className={`w-full py-2 flex items-center justify-center gap-2 text-xs font-bold rounded-xl transition-colors ${isDark ? "bg-slate-900 hover:bg-slate-950 text-slate-300" : "bg-white hover:bg-slate-100 text-slate-600"} ${!hasAgents ? "cursor-not-allowed" : ""}`}
+        >
+          {!hasAgents ? "Agent debate unavailable in this record." : (expanded ? "Hide agent debate" : "View agent debate")}
+          {hasAgents && (expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
+        </button>
+
+        {expanded && hasAgents && (
+          <div className="mt-2 space-y-2 animate-[fadeIn_0.2s_ease-out]">
+            {renderAgentRow(t.ag1 || "ML/DL", <Cpu size={14} />, agentData.ml_dl)}
+            {renderAgentRow(t.ag2 || "LLM", <BotMessageSquare size={14} />, agentData.llm_api)}
+            {renderAgentRow(t.ag3 || "Lens", <SearchCheck size={14} />, agentData.visual_search)}
           </div>
         )}
       </div>

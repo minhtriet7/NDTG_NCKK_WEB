@@ -1,0 +1,226 @@
+client/
+├── node_modules/
+├── public/
+│
+├── src/
+│   ├── assets/
+│   │
+│   ├── components/
+│   │   ├── common/
+│   │   │   └── ThemeLangToggle.jsx
+│   │   │
+│   │   ├── currency/
+│   │   │   ├── CurrencyInput.jsx
+│   │   │   └── ExchangeRateCard.jsx
+│   │   │
+│   │   ├── errors/
+│   │   │   ├── NotFound404.jsx
+│   │   │   └── ServerError500.jsx
+│   │   │
+│   │   ├── layout/
+│   │   │   └── Header.jsx
+│   │   │
+│   │   └── recognition/
+│   │       ├── ResultSection.jsx
+│   │       └── UploadSection.jsx
+│   │
+│   ├── layouts/
+│   │   ├── AdminLayout.jsx
+│   │   ├── AuthLayout.jsx
+│   │   └── MainLayout.jsx
+│   │
+│   ├── pages/
+│   │   ├── admin/
+│   │   │   ├── AgentsConfig.jsx
+│   │   │   ├── AgentsManager.jsx
+│   │   │   ├── AggregatorConfig.jsx
+│   │   │   ├── AiModelConfig.jsx
+│   │   │   ├── BanknotesManager.jsx
+│   │   │   ├── CurrencyRatesManager.jsx
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── FeedbacksManager.jsx
+│   │   │   ├── GoogleLensConfig.jsx
+│   │   │   ├── LlmConfig.jsx
+│   │   │   ├── ResultsManager.jsx
+│   │   │   ├── Settings.jsx
+│   │   │   ├── SystemLogs.jsx
+│   │   │   ├── TokenPackagesManager.jsx
+│   │   │   ├── TransactionsManager.jsx
+│   │   │   └── UsersManager.jsx
+│   │   │
+│   │   ├── auth/
+│   │   │   ├── AdminLogin.jsx
+│   │   │   ├── ForgotPassword.jsx
+│   │   │   ├── GoogleSuccess.jsx
+│   │   │   ├── Login.jsx
+│   │   │   └── Register.jsx
+│   │   │
+│   │   └── user/
+│   │       ├── AgentResultDetail.jsx
+│   │       ├── BanknoteDirectory.jsx
+│   │       ├── Checkout.jsx
+│   │       ├── CurrencyConverter.jsx
+│   │       ├── Feedback.jsx
+│   │       ├── History.jsx
+│   │       ├── Home.jsx
+│   │       ├── Info.jsx
+│   │       ├── Pricing.jsx
+│   │       ├── Processing.jsx
+│   │       ├── Profile.jsx
+│   │       ├── Recognition.jsx
+│   │       ├── Result.jsx
+│   │       ├── SepayCheckout.jsx
+│   │       ├── Transactions.jsx
+│   │       └── UserGuide.jsx
+│   │
+│   ├── routes/
+│   │   ├── AppRoutes.jsx
+│   │   └── PrivateRoutes.jsx
+│   │
+│   ├── services/
+│   │   ├── adminConfigService.js
+│   │   ├── adminService.js
+│   │   ├── agentService.js
+│   │   ├── api.js
+│   │   ├── authService.js
+│   │   ├── currencyService.js
+│   │   ├── feedbackService.js
+│   │   ├── paymentService.js
+│   │   ├── recognitionService.js
+│   │   └── userService.js
+│   │
+│   ├── store/
+│   │   ├── appStore.js
+│   │   ├── authStore.js
+│   │   ├── currencyStore.js
+│   │   ├── languageStore.js
+│   │   └── recognitionStore.js
+│   │
+│   ├── App.css
+│   ├── App.jsx
+│   ├── index.css
+│   └── main.jsx
+│
+├── .env
+├── .gitignore
+├── eslint.config.js
+├── index.html
+├── package-lock.json
+├── package.json
+├── README.md
+└── vite.config.js
+
+server/
+├── __pycache__/
+│
+├── app/
+│   ├── agents/
+│   │   ├── __pycache__/
+│   │   ├── agent_1_ml.py
+│   │   ├── agent_2_llm.py
+│   │   ├── agent_3_lens.py
+│   │   ├── agent_aggregator.py
+│   │   └── base_agent.py
+│   │
+│   ├── controllers/
+│   │   ├── __pycache__/
+│   │   ├── admin_controller.py
+│   │   ├── auth_controller.py
+│   │   ├── banknote_controller.py
+│   │   ├── currency_controller.py
+│   │   ├── feedback_controller.py
+│   │   ├── payment_controller.py
+│   │   ├── recognition_controller.py
+│   │   └── user_controller.py
+│   │
+│   ├── core/
+│   │   ├── __pycache__/
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   ├── dependencies.py
+│   │   ├── logger.py
+│   │   └── security.py
+│   │
+│   ├── models/
+│   │   ├── __pycache__/
+│   │   ├── banknote_model.py
+│   │   ├── config_model.py
+│   │   ├── currency_model.py
+│   │   ├── email_log_model.py
+│   │   ├── feedback_model.py
+│   │   ├── recognition_model.py
+│   │   ├── recognition_task_model.py
+│   │   ├── system_log_model.py
+│   │   ├── token_package_model.py
+│   │   ├── token_usage_model.py
+│   │   ├── transaction_model.py
+│   │   └── user_model.py
+│   │
+│   ├── routers/
+│   │   ├── __pycache__/
+│   │   ├── admin_router.py
+│   │   ├── auth_router.py
+│   │   ├── banknote_router.py
+│   │   ├── currency_router.py
+│   │   ├── feedback_router.py
+│   │   ├── payment_router.py
+│   │   ├── recognition_router.py
+│   │   ├── token_usage_router.py
+│   │   └── user_router.py
+│   │
+│   ├── schemas/
+│   │   ├── __pycache__/
+│   │   ├── admin_schema.py
+│   │   ├── banknote_schema.py
+│   │   ├── currency_schema.py
+│   │   ├── feedback_schema.py
+│   │   ├── payment_schema.py
+│   │   ├── recognition_schema.py
+│   │   ├── recognition_task_schema.py
+│   │   ├── response_schema.py
+│   │   └── user_schema.py
+│   │
+│   ├── services/
+│   │   ├── __pycache__/
+│   │   ├── admin_service.py
+│   │   ├── auth_service.py
+│   │   ├── banknote_service.py
+│   │   ├── chrome_driver.py
+│   │   ├── currency_service.py
+│   │   ├── email_service.py
+│   │   ├── email_templates.py
+│   │   ├── feedback_service.py
+│   │   ├── payment_service.py
+│   │   ├── recognition_service.py
+│   │   ├── token_billing_service.py
+│   │   └── user_service.py
+│   │
+│   └── utils/
+│       ├── __pycache__/
+│       ├── cloudinary_handler.py
+│       ├── file_handler.py
+│       ├── image_processing.py
+│       └── payment_gateway.py
+│
+├── ml_models/
+│   ├── res/
+│   └── yolo/
+│
+├── utils/
+│   └── logs/
+│       └── app.log
+│
+├── venv/
+│
+├── .env
+├── banknotes_data.json
+├── lens_no_results.html
+├── lens_no_results.png
+├── main.py
+├── proxy.data
+├── requirements.txt
+├── seeder.py
+├── supported_currencies_data.json
+├── test_agent3.py
+├── token_packages_data.json
+└── .gitignore

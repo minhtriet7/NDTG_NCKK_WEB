@@ -1007,10 +1007,12 @@ class AdminService:
             },
             {
                 "id": "agent_3_lens",
-                "name": "Agent 3 Google Lens",
+                "name": f"Agent 3 Google Lens ({getattr(config, 'lens_provider', 'serpapi')})",
                 "type": "visual_search",
-                "enabled": getattr(config, "enable_agent_3", True),
-                "status": "enabled" if getattr(config, "enable_agent_3", True) else "disabled",
+                "provider": getattr(config, "lens_provider", "serpapi"),
+                "fallback_enabled": getattr(config, "lens_fallback_enabled", True),
+                "enabled": getattr(config, "enable_agent_3", True) and getattr(config, "lens_enabled", True),
+                "status": "enabled" if (getattr(config, "enable_agent_3", True) and getattr(config, "lens_enabled", True)) else "disabled",
                 "health": "configured" if getattr(config, "lens_enabled", True) else "disabled",
                 "last_run_at": None,
                 "latency_ms": None,
@@ -1047,24 +1049,101 @@ class AdminService:
         config = await AdminService.get_system_config()
 
         return {
+            # General app settings
             "app_name": getattr(config, "app_name", "BanknoteAI"),
             "support_email": getattr(config, "support_email", "support@banknoteai.com"),
-            "default_language": getattr(config, "default_language", "VI"),
+            "default_language": getattr(config, "default_language", "EN"),
             "default_theme": getattr(config, "default_theme", "system"),
+
             "public_registration_enabled": getattr(config, "public_registration_enabled", True),
+            "feature_email_password_login_enabled": getattr(config, "feature_email_password_login_enabled", True),
+            "feature_google_login_enabled": getattr(config, "feature_google_login_enabled", True),
+            "feature_scan_enabled": getattr(config, "feature_scan_enabled", True),
+            "feature_currency_converter_enabled": getattr(config, "feature_currency_converter_enabled", True),
+            "feature_payment_enabled": getattr(config, "feature_payment_enabled", True),
+            "feature_feedback_enabled": getattr(config, "feature_feedback_enabled", True),
+            "feature_history_enabled": getattr(config, "feature_history_enabled", True),
+
+            # Upload / recognition limits
             "max_upload_size_mb": getattr(config, "max_upload_size_mb", 5),
             "allowed_image_types": getattr(config, "allowed_image_types", ["jpg", "jpeg", "png", "webp"]),
-            "token_cost_per_scan": getattr(config, "token_cost_per_scan", 1),
             "scan_history_retention_days": getattr(config, "scan_history_retention_days", 30),
+            "token_cost_per_scan": getattr(config, "token_cost_per_scan", 1),
+
+            # Payment gateway
+            "payment_gateway_default": getattr(config, "payment_gateway_default", "sepay"),
+            "enabled_payment_gateways": getattr(config, "enabled_payment_gateways", ["sepay"]),
+
+            "sepay_enabled": getattr(config, "sepay_enabled", True),
+            "vnpay_enabled": getattr(config, "vnpay_enabled", False),
+            "mock_payment_enabled": getattr(config, "mock_payment_enabled", False),
+
+            "sepay_bank_name": getattr(config, "sepay_bank_name", None),
+            "sepay_account_number": getattr(config, "sepay_account_number", None),
+            "sepay_account_name": getattr(config, "sepay_account_name", None),
+
+            "vnpay_tmn_code_configured": getattr(config, "vnpay_tmn_code_configured", False),
+            "vnpay_hash_secret_configured": getattr(config, "vnpay_hash_secret_configured", False),
+            "vnpay_return_url": getattr(config, "vnpay_return_url", None),
+            "vnpay_ipn_url": getattr(config, "vnpay_ipn_url", None),
+
+            # Token billing
+            "token_billing_enabled": getattr(config, "token_billing_enabled", True),
+            "token_billing_mode": getattr(config, "token_billing_mode", "fixed"),
+            "dynamic_ai_token_billing_enabled": getattr(config, "dynamic_ai_token_billing_enabled", False),
+            "token_count_model": getattr(config, "token_count_model", "gpt-3.5-turbo"),
+
+            "ai_token_to_system_token_rate": getattr(config, "ai_token_to_system_token_rate", 1000),
+            "token_billing_tax_rate": getattr(config, "token_billing_tax_rate", 0.10),
+            "token_billing_rounding_mode": getattr(config, "token_billing_rounding_mode", "ceil"),
+
+            "min_tokens_per_scan": getattr(config, "min_tokens_per_scan", 1),
+            "max_tokens_per_scan": getattr(config, "max_tokens_per_scan", 10),
+
+            "refund_on_system_error": getattr(config, "refund_on_system_error", True),
+            "refund_on_agent_failure": getattr(config, "refund_on_agent_failure", False),
+            "charge_when_needs_review": getattr(config, "charge_when_needs_review", True),
+
+            "save_token_usage_logs": getattr(config, "save_token_usage_logs", True),
+            "show_token_usage_to_user": getattr(config, "show_token_usage_to_user", True),
+            "show_ai_token_usage_to_admin": getattr(config, "show_ai_token_usage_to_admin", True),
+
+            # Email notifications
+            "email_notifications_enabled": getattr(config, "email_notifications_enabled", False),
+
+            "email_on_register": getattr(config, "email_on_register", True),
+            "email_on_google_first_login": getattr(config, "email_on_google_first_login", True),
+            "email_on_password_reset": getattr(config, "email_on_password_reset", True),
+            "email_on_payment_created": getattr(config, "email_on_payment_created", True),
+            "email_on_payment_success": getattr(config, "email_on_payment_success", True),
+            "email_on_payment_failed": getattr(config, "email_on_payment_failed", True),
+            "email_on_recognition_completed": getattr(config, "email_on_recognition_completed", False),
+            "email_on_recognition_failed": getattr(config, "email_on_recognition_failed", True),
+            "email_on_feedback_created": getattr(config, "email_on_feedback_created", True),
+            "email_on_feedback_replied": getattr(config, "email_on_feedback_replied", True),
+            "email_admin_on_system_error": getattr(config, "email_admin_on_system_error", True),
+
+            "smtp_configured": getattr(config, "smtp_configured", False),
+            "smtp_host": getattr(config, "smtp_host", None),
+            "smtp_port": getattr(config, "smtp_port", 587),
+            "smtp_username": getattr(config, "smtp_username", None),
+            "smtp_from_email": getattr(config, "smtp_from_email", None),
+            "smtp_from_name": getattr(config, "smtp_from_name", "BanknoteAI"),
+
+            # Maintenance
             "maintenance_mode": getattr(config, "maintenance_mode", False),
             "maintenance_message": getattr(config, "maintenance_message", ""),
             "allow_admin_login_during_maintenance": getattr(config, "allow_admin_login_during_maintenance", True),
+
+            # Security
             "session_timeout_minutes": getattr(config, "session_timeout_minutes", 120),
             "max_login_attempts": getattr(config, "max_login_attempts", 5),
             "password_min_length": getattr(config, "password_min_length", 6),
             "require_email_verification": getattr(config, "require_email_verification", False),
+
             "feedback_review_sla_days": getattr(config, "feedback_review_sla_days", 3),
             "admin_alert_email": getattr(config, "admin_alert_email", None),
+
             "updated_at": getattr(config, "updated_at", None),
         }
 
@@ -1182,9 +1261,9 @@ class AdminService:
                 "configured": bool(getattr(config, "llm_enabled", True)),
             },
             "agent_3_lens": {
-                "name": "Agent 3 Google Lens",
-                "enabled": getattr(config, "enable_agent_3", True),
-                "configured": bool(getattr(config, "lens_enabled", True)),
+                "name": f"Agent 3 Google Lens ({getattr(config, 'lens_provider', 'serpapi')})",
+                "enabled": getattr(config, "enable_agent_3", True) and getattr(config, "lens_enabled", True),
+                "configured": bool(getattr(config, "lens_enabled", True)) and str(getattr(config, "lens_provider", "serpapi")).lower() != "disabled",
             },
             "aggregator": {
                 "name": "Aggregator",
@@ -1279,6 +1358,10 @@ class AdminService:
             "agent_timeout_seconds",
             "max_retry_count",
             "require_minimum_valid_agents",
+            "lens_provider",
+            "lens_fallback_enabled",
+            "lens_fallback_provider",
+            "agent3_v2_enabled",
         ]
 
         return AdminService._pick_config_fields(config, fields)
@@ -1296,6 +1379,10 @@ class AdminService:
             "agent_timeout_seconds",
             "max_retry_count",
             "require_minimum_valid_agents",
+            "lens_provider",
+            "lens_fallback_enabled",
+            "lens_fallback_provider",
+            "agent3_v2_enabled",
         ]
 
         return await AdminService._update_config_fields(payload, fields)
@@ -1434,6 +1521,9 @@ class AdminService:
         fields = [
             "lens_enabled",
             "lens_provider",
+            "lens_fallback_enabled",
+            "lens_fallback_provider",
+            "agent3_v2_enabled",
             "proxy_url",
             "language_code",
             "country_code",
@@ -1468,6 +1558,9 @@ class AdminService:
         fields = [
             "lens_enabled",
             "lens_provider",
+            "lens_fallback_enabled",
+            "lens_fallback_provider",
+            "agent3_v2_enabled",
             "proxy_url",
             "language_code",
             "country_code",

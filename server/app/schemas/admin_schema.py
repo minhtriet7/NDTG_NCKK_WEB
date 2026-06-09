@@ -13,7 +13,7 @@ class AgentsConfigSchema(BaseModel):
     save_raw_agent_output: bool = True
 
     agent_timeout_seconds: int = Field(default=60, ge=1, le=300)
-    max_retry_count: int = Field(default=1, ge=0, le=10)
+    max_retry_count: int = Field(default=2, ge=0, le=10)
     require_minimum_valid_agents: int = Field(default=2, ge=1, le=3)
 
 
@@ -71,7 +71,11 @@ class LlmConfigSchema(BaseModel):
 
 class GoogleLensConfigSchema(BaseModel):
     lens_enabled: bool = True
+    # serpapi = Agent 3 v1, selenium/v2 = Agent 3 v2, disabled = bỏ qua Lens
     lens_provider: str = "serpapi"
+    lens_fallback_enabled: bool = True
+    lens_fallback_provider: str = "serpapi"
+    agent3_v2_enabled: bool = True
 
     api_key: Optional[str] = None
     proxy_url: Optional[str] = None
@@ -89,25 +93,113 @@ class GoogleLensConfigSchema(BaseModel):
 
 
 class SystemSettingsSchema(BaseModel):
+    # ============================================================
+    # GENERAL APP SETTINGS
+    # ============================================================
     app_name: str = "BanknoteAI"
     support_email: EmailStr = "support@banknoteai.com"
 
-    default_language: str = "VI"
+    default_language: str = "EN"
     default_theme: str = "system"
-    public_registration_enabled: bool = True
 
+    public_registration_enabled: bool = True
+    feature_email_password_login_enabled: bool = True
+    feature_google_login_enabled: bool = True
+    feature_scan_enabled: bool = True
+    feature_currency_converter_enabled: bool = True
+    feature_payment_enabled: bool = True
+    feature_feedback_enabled: bool = True
+    feature_history_enabled: bool = True
+
+    # ============================================================
+    # UPLOAD / RECOGNITION LIMITS
+    # ============================================================
     max_upload_size_mb: int = Field(default=5, ge=1, le=50)
     allowed_image_types: List[str] = Field(
         default_factory=lambda: ["jpg", "jpeg", "png", "webp"]
     )
-
-    token_cost_per_scan: int = Field(default=1, ge=0)
     scan_history_retention_days: int = Field(default=30, ge=1)
 
+    # Legacy/simple billing field.
+    token_cost_per_scan: int = Field(default=1, ge=0)
+
+    # ============================================================
+    # PAYMENT GATEWAY SETTINGS
+    # ============================================================
+    payment_gateway_default: str = "sepay"
+    enabled_payment_gateways: List[str] = Field(default_factory=lambda: ["sepay"])
+
+    sepay_enabled: bool = True
+    vnpay_enabled: bool = False
+    mock_payment_enabled: bool = False
+
+    sepay_bank_name: Optional[str] = None
+    sepay_account_number: Optional[str] = None
+    sepay_account_name: Optional[str] = None
+
+    vnpay_tmn_code_configured: bool = False
+    vnpay_hash_secret_configured: bool = False
+    vnpay_return_url: Optional[str] = None
+    vnpay_ipn_url: Optional[str] = None
+
+    # ============================================================
+    # TOKEN BILLING SETTINGS
+    # ============================================================
+    token_billing_enabled: bool = True
+    token_billing_mode: str = "fixed"
+
+    dynamic_ai_token_billing_enabled: bool = False
+    token_count_model: str = "gpt-3.5-turbo"
+
+    ai_token_to_system_token_rate: int = Field(default=1000, ge=1)
+    token_billing_tax_rate: float = Field(default=0.10, ge=0.0, le=1.0)
+    token_billing_rounding_mode: str = "ceil"
+
+    min_tokens_per_scan: int = Field(default=1, ge=0)
+    max_tokens_per_scan: int = Field(default=10, ge=1)
+
+    refund_on_system_error: bool = True
+    refund_on_agent_failure: bool = False
+    charge_when_needs_review: bool = True
+
+    save_token_usage_logs: bool = True
+    show_token_usage_to_user: bool = True
+    show_ai_token_usage_to_admin: bool = True
+
+    # ============================================================
+    # EMAIL NOTIFICATIONS
+    # ============================================================
+    email_notifications_enabled: bool = False
+
+    email_on_register: bool = True
+    email_on_google_first_login: bool = True
+    email_on_password_reset: bool = True
+    email_on_payment_created: bool = True
+    email_on_payment_success: bool = True
+    email_on_payment_failed: bool = True
+    email_on_recognition_completed: bool = False
+    email_on_recognition_failed: bool = True
+    email_on_feedback_created: bool = True
+    email_on_feedback_replied: bool = True
+    email_admin_on_system_error: bool = True
+
+    smtp_configured: bool = False
+    smtp_host: Optional[str] = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: Optional[str] = None
+    smtp_from_email: Optional[EmailStr] = None
+    smtp_from_name: str = "BanknoteAI"
+
+    # ============================================================
+    # MAINTENANCE
+    # ============================================================
     maintenance_mode: bool = False
     maintenance_message: str = ""
     allow_admin_login_during_maintenance: bool = True
 
+    # ============================================================
+    # SECURITY
+    # ============================================================
     session_timeout_minutes: int = Field(default=120, ge=5)
     max_login_attempts: int = Field(default=5, ge=1)
     password_min_length: int = Field(default=6, ge=6)
@@ -115,7 +207,6 @@ class SystemSettingsSchema(BaseModel):
 
     feedback_review_sla_days: int = Field(default=3, ge=1)
     admin_alert_email: Optional[EmailStr] = None
-
 
 class AdminUserUpdateSchema(BaseModel):
     full_name: Optional[str] = None

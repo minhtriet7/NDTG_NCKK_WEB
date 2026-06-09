@@ -11,3 +11,658 @@
 2026-05-26 14:39:18 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
 2026-05-26 14:56:09 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
 2026-05-26 15:01:51 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-27 15:58:55 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-27 18:31:56 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-27 20:49:23 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-27 20:49:23 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-27 20:49:49 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-27 20:57:54 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-27 21:01:25 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-27 21:01:48 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-27 21:01:48 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-27 21:01:48 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-27 21:01:48 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-27 21:01:49 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-27 21:02:19 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-28 01:06:07 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-28 11:34:26 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-28 12:03:33 | app.utils.image_processing | INFO | No reliable banknote contour found, using original image.
+2026-05-29 23:47:07 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-29 23:47:32 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-29 23:47:51 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:01:26 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:01:43 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:01:54 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:02:12 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:02:33 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:02:48 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:41:25 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:41:48 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:42:16 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:42:50 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:45:03 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:45:12 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:45:20 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:45:33 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:50:00 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:50:17 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 00:50:48 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 00:50:48 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 00:51:07 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 01:05:37 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 01:12:13 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 01:12:39 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 01:13:02 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 01:13:28 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 01:13:58 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 01:17:04 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 01:17:38 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 11:28:06 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 11:30:24 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 11:47:42 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 11:54:09 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 11:56:21 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 11:56:38 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:01:06 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:06:19 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:06:48 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:07:14 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:20:56 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:21:08 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:21:39 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:23:00 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:23:36 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:24:01 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:26:38 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:31:46 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 12:31:46 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 12:32:12 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 12:59:23 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 12:59:34 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 13:00:18 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 13:07:02 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-05-30 13:07:03 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-05-30 13:07:30 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-05-30 13:18:59 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-05-30 13:18:59 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-05-30 13:19:39 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-05-30 13:41:25 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-05-30 13:41:25 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-05-30 13:42:09 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-05-30 13:45:03 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 13:45:03 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 13:48:40 | app.utils.image_processing | INFO | Detected 3 banknote candidate(s).
+2026-05-30 13:48:40 | app.utils.image_processing | INFO | Detected 3 banknote candidate(s).
+2026-05-30 13:50:02 | app.utils.image_processing | INFO | Detected 3 banknote candidate(s).
+2026-05-30 13:53:04 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 13:53:04 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 13:59:39 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 13:59:56 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 13:59:56 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 13:59:56 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 14:00:12 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 14:00:39 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 14:00:39 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 14:00:55 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 15:22:49 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 15:23:13 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 15:25:41 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 15:30:27 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 15:34:23 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 15:47:38 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 15:48:05 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 15:49:36 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-05-30 15:49:46 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 15:59:46 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-05-30 16:00:15 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-05 00:42:07 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-06 00:37:40 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-06 01:07:44 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-06 01:15:00 | app.utils.image_processing | INFO | No reliable banknote candidate found, using original image.
+2026-06-06 01:15:05 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 01:15:05 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://23.95.150.145:6114
+2026-06-06 01:22:38 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-06 01:22:38 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-06 01:22:41 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 01:22:41 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://50.114.82.8:6992
+2026-06-06 01:23:23 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 01:23:23 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.105.121.200:6462
+2026-06-06 01:27:18 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-06 01:27:20 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 01:27:20 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://209.127.138.10:5784
+2026-06-06 01:29:00 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-06-06 01:29:03 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 01:29:03 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://209.127.138.10:5784
+2026-06-06 01:29:54 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 01:29:54 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://64.137.96.74:6641
+2026-06-06 01:30:52 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 01:30:52 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://38.154.203.95:5863
+2026-06-06 16:53:04 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-06 17:08:05 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-06-06 17:08:11 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 17:08:11 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://38.154.203.95:5863
+2026-06-06 17:09:02 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 17:09:02 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.105.121.200:6462
+2026-06-06 17:09:54 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 17:09:54 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://23.95.150.145:6114
+2026-06-06 17:31:09 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-06 17:31:12 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 17:31:12 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.105.121.200:6462
+2026-06-06 17:32:02 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 17:32:02 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://209.127.138.10:5784
+2026-06-06 17:57:24 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-06 17:57:27 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 17:57:27 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://50.114.82.8:6992
+2026-06-06 18:47:59 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-06 19:00:28 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-06 19:05:19 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-06 19:05:22 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 19:05:22 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://50.114.82.8:6992
+2026-06-06 19:38:31 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-06-06 19:38:37 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 19:38:37 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://38.154.185.97:6370
+2026-06-06 19:39:31 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 19:39:31 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.23.243.226:6361
+2026-06-06 19:40:20 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-06 19:40:20 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.23.243.226:6361
+2026-06-07 00:22:05 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-07 12:34:52 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-07 12:50:47 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-07 12:50:53 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-07 12:50:53 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://50.114.82.8:6992
+2026-06-07 12:56:53 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-07 12:56:55 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-07 12:56:55 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.105.121.200:6462
+2026-06-07 13:05:04 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-07 13:05:08 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-07 13:05:08 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://38.154.185.97:6370
+2026-06-07 13:12:15 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-07 13:12:19 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-07 13:12:19 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://142.111.67.146:5611
+2026-06-07 13:15:20 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-07 13:15:23 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-07 13:15:23 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://38.154.185.97:6370
+2026-06-07 13:17:38 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-06-07 13:17:40 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-07 13:17:40 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://38.154.185.97:6370
+2026-06-07 13:18:30 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-07 13:18:30 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.105.121.200:6462
+2026-06-07 13:26:41 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-06-07 13:26:42 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-07 13:26:42 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://23.95.150.145:6114
+2026-06-07 13:27:32 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-07 13:27:32 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.105.121.200:6462
+2026-06-07 15:02:24 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-07 15:02:28 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-07 15:02:28 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://84.247.60.125:6095
+2026-06-07 21:07:25 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-08 16:50:23 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-08 19:21:12 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-08 19:25:36 | app.utils.image_processing | INFO | Detected 3 banknote candidate(s).
+2026-06-08 19:25:40 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-08 19:25:40 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://142.111.67.146:5611
+2026-06-08 19:26:35 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-08 19:26:35 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://84.247.60.125:6095
+2026-06-08 19:27:27 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-08 19:27:27 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://64.137.96.74:6641
+2026-06-08 19:29:15 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-08 19:32:00 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-08 19:32:18 | app.utils.image_processing | INFO | Detected 2 banknote candidate(s).
+2026-06-08 19:38:58 | app.utils.image_processing | INFO | Detected 1 banknote candidate(s).
+2026-06-09 11:16:04 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:04:27 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:12:48 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:17:12 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:18:28 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:19:50 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:19:52 | app.utils.image_processing | DEBUG | Crop candidates stats: contour=0, h_split=0, color_block=0 | Before NMS=0, After NMS=0, After Fragment Filter (raw_candidate_count)=0
+2026-06-09 12:19:52 | app.utils.image_processing | INFO | No reliable banknote candidate found, using original image.
+2026-06-09 12:19:52 | app.utils.image_processing | DEBUG | Crop candidates stats: contour=0, h_split=0, color_block=0 | Before NMS=0, After NMS=0, After Fragment Filter (raw_candidate_count)=0
+2026-06-09 12:19:52 | app.utils.image_processing | INFO | No reliable banknote candidate found, using original image.
+2026-06-09 12:21:12 | app.utils.image_processing | DEBUG | Crop candidates stats: contour=2, h_split=2, color_block=0 | Before NMS=4, After NMS=2, After Fragment Filter (raw_candidate_count)=2
+2026-06-09 12:21:12 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s).
+2026-06-09 12:21:47 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-09 12:21:47 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://84.247.60.125:6095
+2026-06-09 12:22:34 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-09 12:22:34 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.105.121.200:6462
+2026-06-09 12:35:38 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:36:15 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:36:38 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:37:13 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:38:37 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a27a6dd45d62d66584fe51e
+2026-06-09 12:38:37 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a27a6dd45d62d66584fe51e
+2026-06-09 12:38:37 | app.utils.image_processing | DEBUG | Crop candidates stats: contour=0, h_split=1, color_block=1 | Before NMS=2, After NMS=1, After Fragment Filter (raw_candidate_count)=1
+2026-06-09 12:38:37 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s).
+2026-06-09 12:38:37 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-09 12:38:37 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=horizontal_split confidence=0.98 fallback=False bbox=[0, 9, 532, 248]
+2026-06-09 12:38:40 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=0/1
+2026-06-09 12:38:52 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=1000 VND
+2026-06-09 12:38:52 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=1000 VND
+2026-06-09 12:38:52 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=1000 VND
+2026-06-09 12:38:52 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=Completed matched_agents=3
+2026-06-09 12:38:52 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-09 12:39:41 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 12:39:57 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a27a72d8478adac8179df02
+2026-06-09 12:39:57 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a27a72d8478adac8179df02
+2026-06-09 12:39:57 | app.utils.image_processing | DEBUG | Crop candidates stats: contour=0, h_split=1, color_block=1 | Before NMS=2, After NMS=1, After Fragment Filter (raw_candidate_count)=1
+2026-06-09 12:39:57 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s).
+2026-06-09 12:39:57 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-09 12:39:57 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=horizontal_split confidence=0.98 fallback=False bbox=[0, 9, 532, 248]
+2026-06-09 12:40:00 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=0/1
+2026-06-09 12:40:07 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=1000 VND
+2026-06-09 12:40:07 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=1000 VND
+2026-06-09 12:40:07 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=1000 VND
+2026-06-09 12:40:07 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=Completed matched_agents=3
+2026-06-09 12:40:07 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-09 12:41:00 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a27a76c8478adac8179df09
+2026-06-09 12:41:00 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a27a76c8478adac8179df09
+2026-06-09 12:41:00 | app.utils.image_processing | DEBUG | Crop candidates stats: contour=1, h_split=1, color_block=2 | Before NMS=4, After NMS=2, After Fragment Filter (raw_candidate_count)=2
+2026-06-09 12:41:00 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s).
+2026-06-09 12:41:00 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-09 12:41:00 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=color_block confidence=0.5184 fallback=False bbox=[125, 0, 792, 126]
+2026-06-09 12:41:00 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=contour confidence=0.5042 fallback=False bbox=[143, 338, 509, 520]
+2026-06-09 12:41:02 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=0/1
+2026-06-09 12:41:16 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-09 12:41:16 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://84.247.60.125:6095
+2026-06-09 12:41:41 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-09 12:41:41 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=1000 VND
+2026-06-09 12:41:41 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-09 12:41:41 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=Conflict matched_agents=1
+2026-06-09 12:41:42 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/1
+2026-06-09 12:41:59 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-09 12:41:59 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://64.137.96.74:6641
+2026-06-09 12:42:24 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-09 12:42:24 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=1000 VND
+2026-06-09 12:42:24 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-09 12:42:24 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=needs_better_image matched_agents=0
+2026-06-09 12:42:24 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=0/1
+2026-06-09 12:42:37 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Completed denomination=1000 VND
+2026-06-09 12:42:37 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Completed denomination=1000 VND
+2026-06-09 12:42:37 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=1000 VND
+2026-06-09 12:42:37 | app.services.recognition_service | INFO | [Aggregator] done object_2 status=Completed matched_agents=3
+2026-06-09 12:42:37 | app.services.recognition_service | INFO | [Recognition] final status=needs_better_image require_rerun=False detected_count=2
+2026-06-09 16:23:16 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 16:25:33 | app.routers.auth_router | ERROR | Google OAuth callback failed: invalid_token: The token is not valid as it was issued in the future
+Traceback (most recent call last):
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\app\routers\auth_router.py", line 67, in google_callback
+    token = await oauth.google.authorize_access_token(request)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\integrations\starlette_client\apps.py", line 91, in authorize_access_token
+    userinfo = await self.parse_id_token(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\integrations\base_client\async_openid.py", line 84, in parse_id_token
+    claims.validate(leeway=leeway)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\oidc\core\claims.py", line 54, in validate
+    self.validate_iat(now, leeway)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\jose\rfc7519\claims.py", line 209, in validate_iat
+    raise InvalidTokenError(
+authlib.jose.errors.InvalidTokenError: invalid_token: The token is not valid as it was issued in the future
+2026-06-09 16:25:36 | app.routers.auth_router | ERROR | Google OAuth callback failed: invalid_token: The token is not valid as it was issued in the future
+Traceback (most recent call last):
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\app\routers\auth_router.py", line 67, in google_callback
+    token = await oauth.google.authorize_access_token(request)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\integrations\starlette_client\apps.py", line 91, in authorize_access_token
+    userinfo = await self.parse_id_token(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\integrations\base_client\async_openid.py", line 84, in parse_id_token
+    claims.validate(leeway=leeway)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\oidc\core\claims.py", line 54, in validate
+    self.validate_iat(now, leeway)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\jose\rfc7519\claims.py", line 209, in validate_iat
+    raise InvalidTokenError(
+authlib.jose.errors.InvalidTokenError: invalid_token: The token is not valid as it was issued in the future
+2026-06-09 16:25:39 | app.routers.auth_router | ERROR | Google OAuth callback failed: invalid_token: The token is not valid as it was issued in the future
+Traceback (most recent call last):
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\app\routers\auth_router.py", line 67, in google_callback
+    token = await oauth.google.authorize_access_token(request)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\integrations\starlette_client\apps.py", line 91, in authorize_access_token
+    userinfo = await self.parse_id_token(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\integrations\base_client\async_openid.py", line 84, in parse_id_token
+    claims.validate(leeway=leeway)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\oidc\core\claims.py", line 54, in validate
+    self.validate_iat(now, leeway)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\jose\rfc7519\claims.py", line 209, in validate_iat
+    raise InvalidTokenError(
+authlib.jose.errors.InvalidTokenError: invalid_token: The token is not valid as it was issued in the future
+2026-06-09 16:25:56 | app.routers.auth_router | ERROR | Google OAuth callback failed: invalid_token: The token is not valid as it was issued in the future
+Traceback (most recent call last):
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\app\routers\auth_router.py", line 67, in google_callback
+    token = await oauth.google.authorize_access_token(request)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\integrations\starlette_client\apps.py", line 91, in authorize_access_token
+    userinfo = await self.parse_id_token(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\integrations\base_client\async_openid.py", line 84, in parse_id_token
+    claims.validate(leeway=leeway)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\oidc\core\claims.py", line 54, in validate
+    self.validate_iat(now, leeway)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\authlib\jose\rfc7519\claims.py", line 209, in validate_iat
+    raise InvalidTokenError(
+authlib.jose.errors.InvalidTokenError: invalid_token: The token is not valid as it was issued in the future
+2026-06-09 16:40:32 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 18:16:06 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 18:26:11 | app.routers.auth_router | ERROR | Google OAuth callback failed: localhost:27017: [WinError 10061] No connection could be made because the target machine actively refused it (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 30s, Topology Description: <TopologyDescription id: 6a27f5f6dc54ddbcf83a5826, topology_type: Single, servers: [<ServerDescription ('localhost', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('localhost:27017: [WinError 10061] No connection could be made because the target machine actively refused it (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>
+Traceback (most recent call last):
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\app\routers\auth_router.py", line 86, in google_callback
+    user = await User.find_one(User.email == email)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\beanie\odm\queries\find.py", line 1030, in __await__
+    document = yield from self._find_one().__await__()  # type: ignore
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\beanie\odm\queries\find.py", line 997, in _find_one
+    return await self.document_model.get_pymongo_collection().find_one(
+  File "C:\Users\Admin\AppData\Local\Programs\Python\Python39\lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\collection.py", line 1754, in find_one
+    for result in cursor.limit(-1):
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\cursor.py", line 1166, in __next__
+    return self.next()
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\cursor.py", line 1142, in next
+    if len(self._data) or self._refresh():
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\cursor.py", line 1090, in _refresh
+    self._send_message(q)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\cursor.py", line 985, in _send_message
+    response = client._run_operation(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 1956, in _run_operation
+    return self._retryable_read(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 2076, in _retryable_read
+    return self._retry_internal(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 2025, in _retry_internal
+    return _ClientConnectionRetryable(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 2811, in run
+    res = self._read() if self._is_read else self._write()
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 3027, in _read
+    self._server = self._get_server()
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 2975, in _get_server
+    return self._client._select_server(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 1851, in _select_server
+    server = topology.select_server(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\topology.py", line 428, in select_server
+    server = self._select_server(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\topology.py", line 402, in _select_server
+    servers = self.select_servers(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\topology.py", line 298, in select_servers
+    server_descriptions = self._select_servers_loop(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\topology.py", line 359, in _select_servers_loop
+    raise ServerSelectionTimeoutError(
+pymongo.errors.ServerSelectionTimeoutError: localhost:27017: [WinError 10061] No connection could be made because the target machine actively refused it (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 30s, Topology Description: <TopologyDescription id: 6a27f5f6dc54ddbcf83a5826, topology_type: Single, servers: [<ServerDescription ('localhost', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('localhost:27017: [WinError 10061] No connection could be made because the target machine actively refused it (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>
+2026-06-09 18:28:50 | app.routers.auth_router | ERROR | Google OAuth callback failed: localhost:27017: [WinError 10061] No connection could be made because the target machine actively refused it (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 30s, Topology Description: <TopologyDescription id: 6a27f5f6dc54ddbcf83a5826, topology_type: Single, servers: [<ServerDescription ('localhost', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('localhost:27017: [WinError 10061] No connection could be made because the target machine actively refused it (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>
+Traceback (most recent call last):
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\app\routers\auth_router.py", line 86, in google_callback
+    user = await User.find_one(User.email == email)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\beanie\odm\queries\find.py", line 1030, in __await__
+    document = yield from self._find_one().__await__()  # type: ignore
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\beanie\odm\queries\find.py", line 997, in _find_one
+    return await self.document_model.get_pymongo_collection().find_one(
+  File "C:\Users\Admin\AppData\Local\Programs\Python\Python39\lib\concurrent\futures\thread.py", line 58, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\collection.py", line 1754, in find_one
+    for result in cursor.limit(-1):
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\cursor.py", line 1166, in __next__
+    return self.next()
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\cursor.py", line 1142, in next
+    if len(self._data) or self._refresh():
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\cursor.py", line 1090, in _refresh
+    self._send_message(q)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\cursor.py", line 985, in _send_message
+    response = client._run_operation(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 1956, in _run_operation
+    return self._retryable_read(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 2076, in _retryable_read
+    return self._retry_internal(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\_csot.py", line 125, in csot_wrapper
+    return func(self, *args, **kwargs)
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 2025, in _retry_internal
+    return _ClientConnectionRetryable(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 2811, in run
+    res = self._read() if self._is_read else self._write()
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 3027, in _read
+    self._server = self._get_server()
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 2975, in _get_server
+    return self._client._select_server(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\mongo_client.py", line 1851, in _select_server
+    server = topology.select_server(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\topology.py", line 428, in select_server
+    server = self._select_server(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\topology.py", line 402, in _select_server
+    servers = self.select_servers(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\topology.py", line 298, in select_servers
+    server_descriptions = self._select_servers_loop(
+  File "D:\LuanVanTotNghiep\NTTG_BCKH\server\venv\lib\site-packages\pymongo\synchronous\topology.py", line 359, in _select_servers_loop
+    raise ServerSelectionTimeoutError(
+pymongo.errors.ServerSelectionTimeoutError: localhost:27017: [WinError 10061] No connection could be made because the target machine actively refused it (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms), Timeout: 30s, Topology Description: <TopologyDescription id: 6a27f5f6dc54ddbcf83a5826, topology_type: Single, servers: [<ServerDescription ('localhost', 27017) server_type: Unknown, rtt: None, error=AutoReconnect('localhost:27017: [WinError 10061] No connection could be made because the target machine actively refused it (configured timeouts: socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)')>]>
+2026-06-09 18:35:34 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 18:36:55 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a27fad7bbabc46675166f94
+2026-06-09 18:36:55 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a27fad7bbabc46675166f94
+2026-06-09 18:36:55 | app.utils.image_processing | DEBUG | Crop candidates stats: contour=1, h_split=0, color_block=3 | Before NMS=4, After NMS=3, After Fragment Filter (raw_candidate_count)=3
+2026-06-09 18:36:55 | app.utils.image_processing | INFO | Returned 3 final crop object(s) from 3 raw candidate(s).
+2026-06-09 18:36:55 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=3 all_fallback=False raw_candidate_count=3
+2026-06-09 18:36:55 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=contour confidence=0.9555 fallback=False bbox=[0, 195, 960, 842]
+2026-06-09 18:36:55 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=color_block confidence=0.6097 fallback=False bbox=[249, 786, 960, 1062]
+2026-06-09 18:36:55 | app.services.recognition_service | INFO | [Recognition/Object] object_index=3 source=color_block confidence=0.5257 fallback=False bbox=[0, 814, 500, 1000]
+2026-06-09 18:36:59 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=0/1
+2026-06-09 18:37:07 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=5000 KHR
+2026-06-09 18:37:07 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=500000 VND
+2026-06-09 18:37:07 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=Không xác định
+2026-06-09 18:37:07 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=Conflict matched_agents=1
+2026-06-09 18:37:08 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/1
+2026-06-09 18:37:28 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=5000 KHR
+2026-06-09 18:37:28 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=50000 VND
+2026-06-09 18:37:28 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=Không xác định
+2026-06-09 18:37:28 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=needs_better_image matched_agents=0
+2026-06-09 18:37:28 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=0/1
+2026-06-09 18:37:36 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-09 18:37:36 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.23.243.226:6361
+2026-06-09 18:38:10 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-09 18:38:10 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-09 18:38:10 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Partial denomination=Không xác định
+2026-06-09 18:38:10 | app.services.recognition_service | INFO | [Aggregator] done object_2 status=Failed matched_agents=0
+2026-06-09 18:38:10 | app.services.recognition_service | INFO | [Recognition/Object] start object_3 attempt=0/1
+2026-06-09 18:38:20 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-09 18:38:20 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://84.247.60.125:6095
+2026-06-09 18:38:45 | app.services.recognition_service | INFO | [Agent1] done object_3 status=Failed denomination=Không xác định
+2026-06-09 18:38:45 | app.services.recognition_service | INFO | [Agent2] done object_3 status=Completed denomination=50000 VND
+2026-06-09 18:38:45 | app.services.recognition_service | INFO | [Agent3] done object_3 status=Partial denomination=Không xác định
+2026-06-09 18:38:45 | app.services.recognition_service | INFO | [Aggregator] done object_3 status=Conflict matched_agents=1
+2026-06-09 18:38:46 | app.services.recognition_service | INFO | [Recognition/Object] start object_3 attempt=1/1
+2026-06-09 18:38:54 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-09 18:38:54 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.105.121.200:6462
+2026-06-09 18:39:19 | app.services.recognition_service | INFO | [Agent1] done object_3 status=Failed denomination=Không xác định
+2026-06-09 18:39:19 | app.services.recognition_service | INFO | [Agent2] done object_3 status=Completed denomination=50000 VND
+2026-06-09 18:39:19 | app.services.recognition_service | INFO | [Agent3] done object_3 status=Partial denomination=Không xác định
+2026-06-09 18:39:19 | app.services.recognition_service | INFO | [Aggregator] done object_3 status=needs_better_image matched_agents=0
+2026-06-09 18:39:19 | app.services.recognition_service | INFO | [Recognition] final status=needs_better_image require_rerun=False detected_count=3
+2026-06-09 19:55:46 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-09 19:57:30 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-09 19:57:31 | app.utils.image_processing | INFO | [CropYOLO] No detections, fallback heuristic.
+2026-06-09 19:57:31 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=0 h_split=0 color=0
+2026-06-09 19:57:31 | app.utils.image_processing | DEBUG | Crop candidates stats: provider=heuristic | Before NMS=0, After NMS=0, After Fragment Filter (raw_candidate_count)=0
+2026-06-09 19:57:31 | app.utils.image_processing | INFO | No reliable banknote candidate found, using original image.
+2026-06-09 19:57:31 | app.utils.image_processing | INFO | [CropYOLO] No detections, fallback heuristic.
+2026-06-09 19:57:31 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=0 h_split=0 color=0
+2026-06-09 19:57:31 | app.utils.image_processing | DEBUG | Crop candidates stats: provider=heuristic | Before NMS=0, After NMS=0, After Fragment Filter (raw_candidate_count)=0
+2026-06-09 19:57:31 | app.utils.image_processing | INFO | No reliable banknote candidate found, using original image.
+2026-06-09 19:57:31 | app.utils.image_processing | INFO | [CropYOLO] No detections, fallback heuristic.
+2026-06-09 19:57:31 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=1 h_split=0 color=1
+2026-06-09 19:57:31 | app.utils.image_processing | DEBUG | Crop candidates stats: provider=heuristic | Before NMS=2, After NMS=1, After Fragment Filter (raw_candidate_count)=1
+2026-06-09 19:57:31 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s).
+2026-06-09 19:58:34 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-09 19:58:35 | app.utils.image_processing | INFO | [CropYOLO] No detections, fallback heuristic.
+2026-06-09 19:58:35 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=0 h_split=0 color=0
+2026-06-09 19:58:35 | app.utils.image_processing | DEBUG | Crop candidates stats: provider=heuristic | Before NMS=0, After NMS=0, After Fragment Filter (raw_candidate_count)=0
+2026-06-09 19:58:35 | app.utils.image_processing | INFO | No reliable banknote candidate found, using original image.
+2026-06-10 00:07:37 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-10 00:12:08 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a2849686d813eb24f8da0b3
+2026-06-10 00:12:08 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a2849686d813eb24f8da0b3
+2026-06-10 00:12:08 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-10 00:12:08 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-10 00:12:08 | app.utils.image_processing | INFO | [CropYOLO] Dùng YOLO crop provider: 1 candidate(s).
+2026-06-10 00:12:08 | app.utils.image_processing | DEBUG | Crop candidates stats: provider=yolo | Before NMS=1, After NMS=1, After Fragment Filter (raw_candidate_count)=1
+2026-06-10 00:12:08 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s).
+2026-06-10 00:12:08 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-10 00:12:08 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.5603 fallback=False bbox=[373, 315, 684, 751]
+2026-06-10 00:12:12 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=0/1
+2026-06-10 00:12:28 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=5000 KHR
+2026-06-10 00:12:28 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=50000 VND
+2026-06-10 00:12:28 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=50000 VND
+2026-06-10 00:12:28 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=Completed matched_agents=2
+2026-06-10 00:12:28 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-10 00:23:29 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-10 00:37:18 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-10 00:46:39 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a28517fe1f85ae075a99519
+2026-06-10 00:46:39 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a28517fe1f85ae075a99519
+2026-06-10 00:46:39 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-10 00:46:40 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 6 box(es).
+2026-06-10 00:46:40 | app.utils.image_processing | INFO | [CropYOLO] Dùng YOLO crop provider: 6 candidate(s).
+2026-06-10 00:46:40 | app.utils.image_processing | DEBUG | Crop candidates stats: provider=yolo | Before NMS=6, After NMS=6, After Fragment Filter (raw_candidate_count)=6
+2026-06-10 00:46:40 | app.utils.image_processing | INFO | Returned 5 final crop object(s) from 6 raw candidate(s).
+2026-06-10 00:46:40 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=5 all_fallback=False raw_candidate_count=6
+2026-06-10 00:46:40 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.5138 fallback=False bbox=[425, 336, 898, 548]
+2026-06-10 00:46:40 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=yolo_crop confidence=0.5147 fallback=False bbox=[428, 547, 910, 758]
+2026-06-10 00:46:40 | app.services.recognition_service | INFO | [Recognition/Object] object_index=3 source=yolo_crop confidence=0.4816 fallback=False bbox=[898, 603, 1086, 867]
+2026-06-10 00:46:40 | app.services.recognition_service | INFO | [Recognition/Object] object_index=4 source=yolo_crop confidence=0.4952 fallback=False bbox=[873, 747, 1086, 1081]
+2026-06-10 00:46:40 | app.services.recognition_service | INFO | [Recognition/Object] object_index=5 source=yolo_crop confidence=0.5116 fallback=False bbox=[445, 760, 898, 974]
+2026-06-10 00:46:40 | app.services.recognition_service | WARNING | [Recognition/Crop] WARN: Ảnh có quá nhiều vùng (6). Chỉ xử lý 5 vùng lớn nhất.
+2026-06-10 00:46:45 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=0/1
+2026-06-10 00:46:59 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-10 00:46:59 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=500000 VND
+2026-06-10 00:46:59 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=500000 VND
+2026-06-10 00:46:59 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=Completed matched_agents=2
+2026-06-10 00:46:59 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=0/1
+2026-06-10 00:47:14 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-10 00:47:14 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Completed denomination=200000 VND
+2026-06-10 00:47:14 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=200000 VND
+2026-06-10 00:47:14 | app.services.recognition_service | INFO | [Aggregator] done object_2 status=Completed matched_agents=2
+2026-06-10 00:47:14 | app.services.recognition_service | INFO | [Recognition/Object] start object_3 attempt=0/1
+2026-06-10 00:47:31 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-10 00:47:31 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://38.154.203.95:5863
+2026-06-10 00:48:01 | app.services.recognition_service | INFO | [Agent1] done object_3 status=Failed denomination=Không xác định
+2026-06-10 00:48:01 | app.services.recognition_service | INFO | [Agent2] done object_3 status=Completed denomination=100 LAK
+2026-06-10 00:48:01 | app.services.recognition_service | INFO | [Agent3] done object_3 status=Partial denomination=Không xác định
+2026-06-10 00:48:01 | app.services.recognition_service | INFO | [Aggregator] done object_3 status=Conflict matched_agents=1
+2026-06-10 00:48:02 | app.services.recognition_service | INFO | [Recognition/Object] start object_3 attempt=1/1
+2026-06-10 00:48:24 | app.services.recognition_service | INFO | [Agent1] done object_3 status=Failed denomination=Không xác định
+2026-06-10 00:48:24 | app.services.recognition_service | INFO | [Agent2] done object_3 status=Completed denomination=1000 KHR
+2026-06-10 00:48:24 | app.services.recognition_service | INFO | [Agent3] done object_3 status=Completed denomination=1000 THB
+2026-06-10 00:48:24 | app.services.recognition_service | INFO | [Aggregator] done object_3 status=needs_better_image matched_agents=0
+2026-06-10 00:48:24 | app.services.recognition_service | INFO | [Recognition/Object] start object_4 attempt=0/1
+2026-06-10 00:48:34 | app.services.recognition_service | INFO | [Agent1] done object_4 status=Failed denomination=Không xác định
+2026-06-10 00:48:34 | app.services.recognition_service | INFO | [Agent2] done object_4 status=Completed denomination=50 MYR
+2026-06-10 00:48:34 | app.services.recognition_service | INFO | [Agent3] done object_4 status=Completed denomination=50 MYR
+2026-06-10 00:48:34 | app.services.recognition_service | INFO | [Aggregator] done object_4 status=Completed matched_agents=2
+2026-06-10 00:48:34 | app.services.recognition_service | INFO | [Recognition/Object] start object_5 attempt=0/1
+2026-06-10 00:48:47 | app.services.recognition_service | INFO | [Agent1] done object_5 status=Completed denomination=100 SGD
+2026-06-10 00:48:47 | app.services.recognition_service | INFO | [Agent2] done object_5 status=Completed denomination=100000 VND
+2026-06-10 00:48:47 | app.services.recognition_service | INFO | [Agent3] done object_5 status=Completed denomination=100000 VND
+2026-06-10 00:48:47 | app.services.recognition_service | INFO | [Aggregator] done object_5 status=Completed matched_agents=2
+2026-06-10 00:48:47 | app.services.recognition_service | INFO | [Recognition] final status=needs_better_image require_rerun=False detected_count=5
+2026-06-10 00:56:39 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-10 01:04:13 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-10 01:07:50 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a285676a7904f9c76b37535
+2026-06-10 01:07:50 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a285676a7904f9c76b37535
+2026-06-10 01:07:50 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-10 01:07:50 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 2 box(es).
+2026-06-10 01:07:50 | app.utils.image_processing | INFO | [CropYOLO] Dùng YOLO crop provider: 2 candidate(s).
+2026-06-10 01:07:50 | app.utils.image_processing | DEBUG | Crop candidates stats: provider=yolo | Before NMS=2, After NMS=2, After Fragment Filter (raw_candidate_count)=2
+2026-06-10 01:07:50 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s).
+2026-06-10 01:07:50 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-10 01:07:50 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.9248 fallback=False bbox=[0, 0, 642, 273]
+2026-06-10 01:07:50 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=yolo_crop confidence=0.98 fallback=False bbox=[0, 207, 591, 575]
+2026-06-10 01:07:53 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=0/1
+2026-06-10 01:08:03 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-10 01:08:03 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=2 USD
+2026-06-10 01:08:03 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=2 USD
+2026-06-10 01:08:03 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=Completed matched_agents=2
+2026-06-10 01:08:03 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=0/1
+2026-06-10 01:08:16 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-10 01:08:16 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Completed denomination=2000 VND
+2026-06-10 01:08:16 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=2000 VND
+2026-06-10 01:08:16 | app.services.recognition_service | INFO | [Aggregator] done object_2 status=Completed matched_agents=2
+2026-06-10 01:08:16 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=2
+2026-06-10 01:34:57 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a285cd1a7904f9c76b3753f
+2026-06-10 01:34:57 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a285cd1a7904f9c76b3753f
+2026-06-10 01:34:58 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 2 box(es).
+2026-06-10 01:34:58 | app.utils.image_processing | INFO | [CropYOLO] Dùng YOLO crop provider: 2 candidate(s).
+2026-06-10 01:34:58 | app.utils.image_processing | DEBUG | Crop candidates stats: provider=yolo | Before NMS=2, After NMS=2, After Fragment Filter (raw_candidate_count)=2
+2026-06-10 01:34:58 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s).
+2026-06-10 01:34:58 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-10 01:34:58 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.7043 fallback=False bbox=[627, 126, 1184, 687]
+2026-06-10 01:34:58 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=yolo_crop confidence=0.756 fallback=False bbox=[35, 147, 667, 742]
+2026-06-10 01:35:00 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=0/1
+2026-06-10 01:35:11 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-10 01:35:11 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-10 01:35:11 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=10000 VND
+2026-06-10 01:35:11 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=Conflict matched_agents=1
+2026-06-10 01:35:12 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/1
+2026-06-10 01:35:27 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-10 01:35:27 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://142.111.67.146:5611
+2026-06-10 01:35:53 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-10 01:35:53 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=10000 VND
+2026-06-10 01:35:53 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-10 01:35:53 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=needs_better_image matched_agents=0
+2026-06-10 01:35:53 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=0/1
+2026-06-10 01:36:06 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-10 01:36:06 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://198.23.243.226:6361
+2026-06-10 01:37:10 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-10 01:37:15 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a285d5be29d5b31bf2befaf
+2026-06-10 01:37:15 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a285d5be29d5b31bf2befaf
+2026-06-10 01:37:15 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-10 01:37:15 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 2 box(es).
+2026-06-10 01:37:15 | app.utils.image_processing | INFO | [CropYOLO] Dùng YOLO crop provider: 2 candidate(s).
+2026-06-10 01:37:15 | app.utils.image_processing | DEBUG | Crop candidates stats: provider=yolo | Before NMS=2, After NMS=2, After Fragment Filter (raw_candidate_count)=2
+2026-06-10 01:37:15 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s).
+2026-06-10 01:37:15 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-10 01:37:15 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.7043 fallback=False bbox=[627, 126, 1184, 687]
+2026-06-10 01:37:15 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=yolo_crop confidence=0.756 fallback=False bbox=[35, 147, 667, 742]
+2026-06-10 01:37:18 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=0/1
+2026-06-10 01:37:36 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-10 01:37:36 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://84.247.60.125:6095
+2026-06-10 01:38:01 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-10 01:38:01 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-10 01:38:01 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-10 01:38:01 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=Failed matched_agents=0
+2026-06-10 01:38:01 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=0/1
+2026-06-10 01:38:18 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-10 01:38:18 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://64.137.96.74:6641
+2026-06-10 01:38:42 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-10 01:38:42 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Completed denomination=2 USD
+2026-06-10 01:38:42 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Partial denomination=Không xác định
+2026-06-10 01:38:42 | app.services.recognition_service | INFO | [Aggregator] done object_2 status=Conflict matched_agents=1
+2026-06-10 01:38:43 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=1/1
+2026-06-10 01:38:56 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-10 01:38:56 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://50.114.82.8:6992
+2026-06-10 01:39:21 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-10 01:39:21 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-10 01:39:21 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Partial denomination=Không xác định
+2026-06-10 01:39:21 | app.services.recognition_service | INFO | [Aggregator] done object_2 status=Failed matched_agents=0
+2026-06-10 01:39:21 | app.services.recognition_service | INFO | [Recognition] final status=Needs Review require_rerun=False detected_count=2
+2026-06-10 01:41:04 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-10 01:41:28 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a285e58787721952295658d
+2026-06-10 01:41:28 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a285e58787721952295658d
+2026-06-10 01:41:29 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-10 01:41:29 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 2 box(es).
+2026-06-10 01:41:29 | app.utils.image_processing | INFO | [CropYOLO] Dùng YOLO crop provider: 2 candidate(s).
+2026-06-10 01:41:29 | app.utils.image_processing | DEBUG | Crop candidates stats: provider=yolo | Before NMS=2, After NMS=2, After Fragment Filter (raw_candidate_count)=2
+2026-06-10 01:41:29 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s).
+2026-06-10 01:41:29 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-10 01:41:29 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.7043 fallback=False bbox=[627, 126, 1184, 687]
+2026-06-10 01:41:29 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=yolo_crop confidence=0.756 fallback=False bbox=[35, 147, 667, 742]
+2026-06-10 01:41:32 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=0/1
+2026-06-10 01:41:50 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-10 01:41:50 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://142.111.67.146:5611
+2026-06-10 01:42:16 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-10 01:42:16 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=10000 VND
+2026-06-10 01:42:16 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-10 01:42:16 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=Conflict matched_agents=1
+2026-06-10 01:42:17 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/1
+2026-06-10 01:42:26 | app.services.chrome_driver | INFO | Loaded 10 proxies from proxy.data.
+2026-06-10 01:42:26 | app.services.chrome_driver | INFO | Agent 3 ChromeDriver is using proxy: http://23.95.150.145:6114
+2026-06-10 01:42:52 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-10 01:42:52 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=10000 VND
+2026-06-10 01:42:52 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-10 01:42:52 | app.services.recognition_service | INFO | [Aggregator] done object_1 status=needs_better_image matched_agents=0
+2026-06-10 01:42:52 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=0/1
+2026-06-10 01:43:02 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-10 01:43:02 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Completed denomination=2 USD
+2026-06-10 01:43:02 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=2 USD
+2026-06-10 01:43:02 | app.services.recognition_service | INFO | [Aggregator] done object_2 status=Completed matched_agents=2
+2026-06-10 01:43:02 | app.services.recognition_service | INFO | [Recognition] final status=Needs Review require_rerun=False detected_count=2

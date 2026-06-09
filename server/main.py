@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-
+from app.routers.token_usage_router import router as token_usage_router
 from app.core.database import init_db
 from app.core.config import settings
 
@@ -39,11 +39,7 @@ app.add_middleware(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "https://your-production-domain.com",
-    ],
+    allow_origins=settings.ALLOW_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -91,6 +87,7 @@ app.include_router(payment_router, prefix="/api/v1/payment", tags=["Payment"])
 app.include_router(currency_router, prefix="/api/v1/currency", tags=["Currency"])
 app.include_router(feedback_router, prefix="/api/v1/feedback", tags=["Feedback"])
 app.include_router(admin_router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(token_usage_router, prefix="/api/v1/token-usage", tags=["Token Usage"])
 
 
 @app.get("/")

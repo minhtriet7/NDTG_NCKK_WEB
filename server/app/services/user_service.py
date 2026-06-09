@@ -8,7 +8,7 @@ from app.models.user_model import User
 from app.models.recognition_model import RecognitionRequest
 from app.schemas.user_schema import UserUpdate, ChangePasswordRequest
 from app.core.security import verify_password, get_password_hash
-
+from app.services.email_service import EmailService
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
@@ -98,6 +98,11 @@ class UserService:
             user.updated_at = now_utc()
 
         await user.save()
+
+        try:
+            await EmailService.send_password_updated_email(user)
+        except Exception:
+            pass
 
         return {
             "message": "Password updated successfully.",

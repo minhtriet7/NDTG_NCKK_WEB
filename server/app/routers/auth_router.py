@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Optional
 
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Request, status
@@ -10,11 +11,11 @@ from app.core.logger import get_logger
 from app.core.security import create_access_token
 from app.models.user_model import User
 from app.schemas.user_schema import UserRegister, UserLogin
+from app.services.email_service import EmailService
 
 
 router = APIRouter()
 logger = get_logger(__name__)
-
 
 oauth = OAuth()
 
@@ -39,13 +40,24 @@ async def login(data: UserLogin):
 
 
 @router.get("/google/login")
-async def google_login(request: Request):
+async def google_login(request: Request, platform: str = "web"):
     if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+        if platform == "mobile":
+            return RedirectResponse(
+                url="banknoteai://auth/google/success?error=GoogleOAuthNotConfigured"
+            )
+
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/auth/login?error=GoogleOAuthNotConfigured"
         )
 
-    redirect_uri = settings.GOOGLE_REDIRECT_URI or "http://localhost:8000/api/v1/auth/google/callback"
+    request.session["google_oauth_platform"] = platform
+
+    redirect_uri = (
+        settings.GOOGLE_REDIRECT_URI
+        or "http://localhost:8000/api/v1/auth/google/callback"
+    )
+
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
@@ -56,8 +68,9 @@ async def google_callback(request: Request):
         user_info = token.get("userinfo")
 
         if not user_info:
-            return RedirectResponse(
-                url=f"{settings.FRONTEND_URL}/auth/login?error=GoogleAuthFailed"
+            return _redirect_google_result(
+                request,
+                error="GoogleAuthFailed",
             )
 
         email = user_info.get("email")
@@ -65,13 +78,17 @@ async def google_callback(request: Request):
         avatar_url = user_info.get("picture")
 
         if not email:
-            return RedirectResponse(
-                url=f"{settings.FRONTEND_URL}/auth/login?error=GoogleEmailMissing"
+            return _redirect_google_result(
+                request,
+                error="GoogleEmailMissing",
             )
 
         user = await User.find_one(User.email == email)
+        is_google_first_login = False
 
         if not user:
+            is_google_first_login = True
+
             user = User(
                 email=email,
                 full_name=full_name,
@@ -102,12 +119,49 @@ async def google_callback(request: Request):
             await user.save()
 
         access_token = create_access_token(subject=str(user.id))
-        return RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/auth/google/success?token={access_token}"
+
+        if is_google_first_login:
+            try:
+                await EmailService.send_google_first_login_email(user)
+            except Exception as exc:
+                logger.warning("Google first login email failed: %s", exc)
+
+        return _redirect_google_result(
+            request,
+            token=access_token,
         )
 
     except Exception as exc:
         logger.error("Google OAuth callback failed: %s", exc, exc_info=True)
-        return RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/auth/login?error=ServerError"
+
+        return _redirect_google_result(
+            request,
+            error="ServerError",
         )
+
+
+def _redirect_google_result(
+    request: Request,
+    token: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    platform = request.session.pop("google_oauth_platform", "web")
+
+    if platform == "mobile":
+        if token:
+            return RedirectResponse(
+                url=f"banknoteai://auth/google/success?token={token}"
+            )
+
+        return RedirectResponse(
+            url=f"banknoteai://auth/google/success?error={error or 'GoogleAuthFailed'}"
+        )
+
+    if token:
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/auth/google/success?token={token}"
+        )
+
+    return RedirectResponse(
+        url=f"{settings.FRONTEND_URL}/auth/login?error={error or 'GoogleAuthFailed'}"
+    )

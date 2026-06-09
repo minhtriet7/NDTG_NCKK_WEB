@@ -26,7 +26,17 @@ from app.core.config import settings
 # Gemini Client
 # =========================
 
-gemini_client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+_gemini_client = None
+
+def get_gemini_client():
+    global _gemini_client
+    if _gemini_client is None:
+        if not settings.GOOGLE_API_KEY:
+            raise RuntimeError(
+                "GOOGLE_API_KEY chưa được cấu hình. Hãy thêm vào file .env."
+            )
+        _gemini_client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+    return _gemini_client
 
 
 # =========================
@@ -38,48 +48,47 @@ MODEL_LLM_MAIN = "gemini-2.5-flash"
 FALLBACK_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-3.1-flash-lite",
 ]
 
 MAX_ATTEMPTS_PER_MODEL = 2
 
 
 # =========================
-# Southeast Asia Currency Map
+# Supported Currency Map
 # =========================
 
 SEA_CURRENCY_MAP = {
+    # Đông Nam Á
     "Việt Nam": "VND",
     "Viet Nam": "VND",
     "Vietnam": "VND",
-
     "Thái Lan": "THB",
     "Thai Lan": "THB",
     "Thailand": "THB",
-
     "Lào": "LAK",
     "Lao": "LAK",
     "Laos": "LAK",
-
     "Campuchia": "KHR",
     "Cambodia": "KHR",
-
     "Myanmar": "MMK",
     "Miến Điện": "MMK",
-
     "Malaysia": "MYR",
-
     "Singapore": "SGD",
-
     "Indonesia": "IDR",
-
     "Philippines": "PHP",
     "Phi-líp-pin": "PHP",
-
     "Brunei": "BND",
-
     "Timor-Leste": "USD",
     "Đông Timor": "USD",
+    
+    # Ngoại tệ phổ biến
+    "Hoa Kỳ": "USD",
+    "Mỹ": "USD",
+    "United States": "USD",
+    "Châu Âu": "EUR",
+    "Nhật Bản": "JPY",
+    "Trung Quốc": "CNY",
+    "Hàn Quốc": "KRW",
 }
 
 
@@ -87,7 +96,8 @@ VALID_COUNTRIES = set(SEA_CURRENCY_MAP.keys())
 
 VALID_CURRENCIES = {
     "VND", "THB", "LAK", "KHR", "MMK",
-    "MYR", "SGD", "IDR", "PHP", "BND", "USD"
+    "MYR", "SGD", "IDR", "PHP", "BND", "USD",
+    "EUR", "JPY", "CNY", "KRW"
 }
 
 
@@ -115,8 +125,8 @@ INVALID_VALUES = {
 JSON_TEMPLATE = """
 [
   {
-    "quoc_gia": "Tên quốc gia Đông Nam Á, ví dụ: Việt Nam",
-    "menh_gia": "Số + mã tiền tệ, ví dụ: 500000 VND",
+    "quoc_gia": "Tên quốc gia, ví dụ: Việt Nam, Hoa Kỳ",
+    "menh_gia": "Số + mã tiền tệ, ví dụ: 500000 VND, 1 USD",
     "mat_tien": "Mặt trước / Mặt sau / Không xác định",
     "nam_phat_hanh": "Năm phát hành nếu nhìn thấy, nếu không thì ghi Không xác định",
     "chat_lieu": "Polymer / Cotton / Giấy / Không xác định",
@@ -304,7 +314,7 @@ def _parse_json_list(json_text: str) -> Tuple[Optional[List[Dict[str, Any]]], st
 def _extract_currency_from_denomination(denomination: Any) -> Optional[str]:
     text = _normalize_upper_ascii(denomination)
 
-    match = re.search(r"\b(VND|THB|LAK|KHR|MMK|MYR|SGD|IDR|PHP|BND|USD)\b", text)
+    match = re.search(r"\b(VND|THB|LAK|KHR|MMK|MYR|SGD|IDR|PHP|BND|USD|EUR|JPY|CNY|KRW)\b", text)
     if match:
         return match.group(1)
 
@@ -366,7 +376,7 @@ def _normalize_denomination(value: Any, country: Any = None) -> str:
         return text
 
     currency_match = re.search(
-        r"\b(vnd|thb|lak|khr|mmk|myr|sgd|idr|php|bnd|usd)\b",
+        r"\b(vnd|thb|lak|khr|mmk|myr|sgd|idr|php|bnd|usd|eur|jpy|cny|krw)\b",
         lower
     )
 
@@ -423,6 +433,25 @@ def _canonical_country(country: Any) -> str:
         "timor-leste": "Timor-Leste",
         "đông timor": "Timor-Leste",
         "dong timor": "Timor-Leste",
+        
+        "hoa kỳ": "Hoa Kỳ",
+        "mỹ": "Hoa Kỳ",
+        "usa": "Hoa Kỳ",
+        "united states": "Hoa Kỳ",
+        
+        "châu âu": "Châu Âu",
+        "eu": "Châu Âu",
+        
+        "nhật bản": "Nhật Bản",
+        "nhật": "Nhật Bản",
+        "japan": "Nhật Bản",
+        
+        "trung quốc": "Trung Quốc",
+        "china": "Trung Quốc",
+        
+        "hàn quốc": "Hàn Quốc",
+        "korea": "Hàn Quốc",
+        "south korea": "Hàn Quốc",
     }
 
     key = text.lower()
@@ -493,10 +522,10 @@ def validate_agent2_result(json_text: str) -> Tuple[bool, str, Optional[str]]:
     if _is_invalid_value(country):
         return False, "Không xác định được quốc gia", None
 
-    # Kiểm tra quốc gia Đông Nam Á
+    # Kiểm tra quốc gia có trong danh sách hỗ trợ không
     expected_currency = _expected_currency_for_country(country)
-    if expected_currency is None:
-        return False, f"Quốc gia không nằm trong phạm vi Đông Nam Á hoặc chưa hỗ trợ: {country}", None
+    if expected_currency is None and country != "Khác":
+        return False, f"Quốc gia chưa được hỗ trợ: {country}", None
 
     # Chuẩn hóa mệnh giá
     item["menh_gia"] = _normalize_denomination(item.get("menh_gia"), country=country)
@@ -510,12 +539,12 @@ def validate_agent2_result(json_text: str) -> Tuple[bool, str, Optional[str]]:
     if currency_in_denom is None:
         # Nếu mệnh giá chỉ có số, thêm currency từ quốc gia
         number_match = re.search(r"\d+", item["menh_gia"])
-        if number_match:
+        if number_match and expected_currency:
             item["menh_gia"] = f"{number_match.group(0)} {expected_currency}"
         else:
             return False, "Mệnh giá không có số hợp lệ", None
     else:
-        if currency_in_denom != expected_currency:
+        if expected_currency and currency_in_denom != expected_currency:
             return False, (
                 f"Mâu thuẫn quốc gia và tiền tệ: {country} phải là "
                 f"{expected_currency}, nhưng model trả {currency_in_denom}"
@@ -567,11 +596,11 @@ def validate_agent2_result(json_text: str) -> Tuple[bool, str, Optional[str]]:
 
 def build_agent2_prompt(context: str = "", model_name: str = "") -> str:
     prompt = f"""
-Bạn là Chuyên gia Giám định Tiền giấy Đông Nam Á.
+Bạn là Chuyên gia Giám định Tiền giấy.
 
 Nhiệm vụ của bạn là phân tích ảnh tiền giấy được cung cấp và nhận diện chính xác thông tin của tờ tiền.
 
-Phạm vi nhận diện chỉ gồm tiền giấy các quốc gia Đông Nam Á:
+Phạm vi nhận diện ưu tiên bao gồm các quốc gia Đông Nam Á và ngoại tệ phổ biến:
 - Việt Nam: VND
 - Thái Lan: THB
 - Lào: LAK
@@ -583,6 +612,11 @@ Phạm vi nhận diện chỉ gồm tiền giấy các quốc gia Đông Nam Á:
 - Philippines: PHP
 - Brunei: BND
 - Timor-Leste: USD
+- Hoa Kỳ: USD
+- Châu Âu: EUR
+- Nhật Bản: JPY
+- Trung Quốc: CNY
+- Hàn Quốc: KRW
 
 Bạn cần phân tích:
 1. Quốc gia phát hành.
@@ -595,16 +629,14 @@ Bạn cần phân tích:
 8. Lý do chọn kết quả.
 
 Quy tắc bắt buộc:
-- Chỉ trả về JSON hợp lệ.
-- Không viết giải thích bên ngoài JSON.
+- Nếu tờ tiền nằm ngoài danh sách hỗ trợ, bắt buộc trả về quoc_gia là "Khác" và ghi rõ quốc gia thật vào mo_ta. Không tự ý gán ghép sai.
+- Chỉ trả về JSON hợp lệ, không viết giải thích bên ngoài JSON.
 - Không dùng markdown.
 - Không bịa thông tin nếu ảnh không đủ rõ.
 - Nếu không chắc chắn, ghi "Không xác định".
-- Field "menh_gia" phải có dạng: "Số + mã tiền tệ", ví dụ "500000 VND", "100 THB", "1000 KHR".
+- Field "menh_gia" phải có dạng: "Số + mã tiền tệ", ví dụ "500000 VND", "100 THB", "1 USD".
 - Field "do_tin_cay" là số từ 0.0 đến 1.0.
 - Field "phuong_phap" ghi: "LLM Gemini - {model_name or 'Gemini'}".
-- Nếu thấy chữ hoặc số trên tiền, đưa vào "van_ban_nhin_thay".
-- Nếu thấy đặc điểm nhận dạng, đưa vào "dac_diem_chinh".
 
 Cấu trúc JSON bắt buộc:
 {JSON_TEMPLATE}
@@ -652,7 +684,7 @@ async def _call_gemini_once(
     """
 
     try:
-        response = gemini_client.models.generate_content(
+        response = get_gemini_client().models.generate_content(
             model=model_name,
             contents=[prompt, image],
             config=types.GenerateContentConfig(
@@ -664,7 +696,7 @@ async def _call_gemini_once(
 
     except TypeError:
         # Phòng trường hợp version google-genai cũ không hỗ trợ config
-        response = gemini_client.models.generate_content(
+        response = get_gemini_client().models.generate_content(
             model=model_name,
             contents=[prompt, image],
         )
@@ -793,7 +825,7 @@ def _sync_call_gemini_wrapper(model_name: str, prompt: str, image: Image.Image) 
     Vì google genai generate_content là hàm sync.
     """
     try:
-        response = gemini_client.models.generate_content(
+        response = get_gemini_client().models.generate_content(
             model=model_name,
             contents=[prompt, image],
             config=types.GenerateContentConfig(
@@ -804,7 +836,7 @@ def _sync_call_gemini_wrapper(model_name: str, prompt: str, image: Image.Image) 
         return response.text or ""
 
     except TypeError:
-        response = gemini_client.models.generate_content(
+        response = get_gemini_client().models.generate_content(
             model=model_name,
             contents=[prompt, image],
         )

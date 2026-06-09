@@ -379,7 +379,29 @@ export const getSystemSettings = async () => {
 export const updateSystemSettings = async (payload) => {
   return await api.put("/admin/settings", payload);
 };
+export const getPaymentGatewaySettings = async () => {
+  return await getSystemSettings();
+};
 
+export const updatePaymentGatewaySettings = async (payload) => {
+  return await updateSystemSettings(payload);
+};
+
+export const getTokenBillingSettings = async () => {
+  return await getSystemSettings();
+};
+
+export const updateTokenBillingSettings = async (payload) => {
+  return await updateSystemSettings(payload);
+};
+
+export const getEmailNotificationSettings = async () => {
+  return await getSystemSettings();
+};
+
+export const updateEmailNotificationSettings = async (payload) => {
+  return await updateSystemSettings(payload);
+};
 /* =========================================================
    SAFE FALLBACKS
 ========================================================= */

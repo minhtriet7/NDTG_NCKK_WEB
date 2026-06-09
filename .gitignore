@@ -4,6 +4,12 @@
 .env
 client/.env
 server/.env
+.env.local
+.env.*.local
+client/.env.local
+client/.env.*.local
+server/.env.local
+server/.env.*.local
 
 # ==========================================
 # 2. CLIENT (NODE.JS / VITE / REACT)

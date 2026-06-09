@@ -1,6 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
-
+from app.models.token_usage_model import TokenUsage
 from app.core.config import settings
 from app.core.logger import get_logger
 from app.models.recognition_task_model import RecognitionTask
@@ -18,6 +18,8 @@ from app.models.currency_model import (
 from app.models.config_model import SystemConfig
 from app.models.banknote_model import Banknote
 from app.models.recognition_model import RecognitionRequest
+from app.models.email_log_model import EmailLog
+
 
 
 logger = get_logger(__name__)
@@ -43,7 +45,8 @@ async def init_db():
             Banknote,
             RecognitionTask,
             RecognitionRequest,
-            
+            TokenUsage,
+            EmailLog,
         ],
     )
 
