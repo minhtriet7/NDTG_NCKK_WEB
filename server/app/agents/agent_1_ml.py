@@ -107,6 +107,7 @@ CURRENCY_CODE = {
 
 INVALID_RESULT_JSON = {
     "quoc_gia": "Không xác định",
+    "ma_tien_te": "Không xác định",
     "menh_gia": "Không xác định",
     "mat_tien": "Không xác định",
     "nam_phat_hanh": "Không xác định",
@@ -182,7 +183,7 @@ def _parse_class_name(class_name: str) -> Tuple[str, str, str]:
       singapore_sgd_50
 
     Output:
-      ("Việt Nam", "500000 VND", "vietnam_vnd_500000")
+      ("Việt Nam", "VND", "500000 VND", "vietnam_vnd_500000")
     """
     raw = str(class_name).strip()
     low = raw.lower()
@@ -222,7 +223,7 @@ def _parse_class_name(class_name: str) -> Tuple[str, str, str]:
     else:
         denomination = "Không xác định"
 
-    return country_vi, denomination, raw
+    return country_vi, currency or "Không xác định", denomination, raw
 
 
 def _guess_material(country: str, denomination: str) -> str:
@@ -471,7 +472,7 @@ def _classify_crop_sync(crop: Image.Image) -> Dict[str, Any]:
     idx_int = int(idx.detach().cpu().item())
 
     class_name = classes[idx_int]
-    country, denomination, raw_class = _parse_class_name(class_name)
+    country, currency, denomination, raw_class = _parse_class_name(class_name)
 
     # Top 5 để debug
     topk = min(5, len(classes))
@@ -482,11 +483,12 @@ def _classify_crop_sync(crop: Image.Image) -> Dict[str, Any]:
         ci = int(i.detach().cpu().item())
         cp = float(p.detach().cpu().item())
         c_name = classes[ci]
-        c_country, c_denom, c_raw = _parse_class_name(c_name)
+        c_country, c_currency, c_denom, c_raw = _parse_class_name(c_name)
 
         top_predictions.append({
             "class_name": c_raw,
             "quoc_gia": c_country,
+            "ma_tien_te": c_currency,
             "menh_gia": c_denom,
             "confidence": round(cp, 4),
         })
@@ -494,6 +496,7 @@ def _classify_crop_sync(crop: Image.Image) -> Dict[str, Any]:
     return {
         "class_name": raw_class,
         "quoc_gia": country,
+        "ma_tien_te": currency,
         "menh_gia": denomination,
         "confidence": conf_float,
         "top_predictions": top_predictions,
@@ -509,6 +512,7 @@ def _build_completed_item(
 
     if classification:
         country = classification["quoc_gia"]
+        currency = classification.get("ma_tien_te", "Không xác định")
         denomination = classification["menh_gia"]
         res_conf = _clamp01(classification["confidence"])
         final_conf = round((yolo_conf * 0.45) + (res_conf * 0.55), 4)
@@ -527,6 +531,7 @@ def _build_completed_item(
             # Trả Failed để Aggregator không tính vote sai vào majority.
             # Vẫn giữ top_predictions trong JSON để debug.
             country = "Không xác định"
+            currency = "Không xác định"
             denomination = "Không xác định"
             final_conf = round(yolo_conf * 0.45, 4)  # chỉ tính YOLO portion
             status = "Failed"
@@ -574,6 +579,7 @@ def _build_completed_item(
 
     else:
         country = "Không xác định"
+        currency = "Không xác định"
         denomination = "Không xác định"
         res_conf = 0.0
         final_conf = round(yolo_conf * 0.45, 4)
@@ -594,6 +600,7 @@ def _build_completed_item(
 
     item = {
         "quoc_gia": country,
+        "ma_tien_te": currency,
         "menh_gia": denomination,
         "mat_tien": "Không xác định",
         "nam_phat_hanh": "Không xác định",

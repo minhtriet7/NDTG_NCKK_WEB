@@ -1,6 +1,9 @@
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 
+// Common
+import ScrollToTop from "../components/common/ScrollToTop.jsx";
+
 // Layouts
 import MainLayout from "../layouts/MainLayout.jsx";
 import AuthLayout from "../layouts/AuthLayout.jsx";
@@ -34,6 +37,10 @@ import Info from "../pages/user/Info.jsx";
 import SepayCheckout from "../pages/user/SepayCheckout.jsx";
 import Checkout from "../pages/user/Checkout.jsx";
 
+// Pages - Legal
+import PrivacyPolicy from "../pages/legal/PrivacyPolicy.jsx";
+import TermsOfService from "../pages/legal/TermsOfService.jsx";
+
 // Pages - Admin
 import Dashboard from "../pages/admin/Dashboard.jsx";
 import UsersManager from "../pages/admin/UsersManager.jsx";
@@ -55,121 +62,135 @@ import Settings from "../pages/admin/Settings.jsx";
 // Error Components
 import NotFound404 from "../errors/NotFound404.jsx";
 
+// Dev
+import DebugPlayground from "../pages/dev/DebugPlayground.jsx";
+
 export default function AppRoutes() {
   return (
-    <Routes>
-      {/* ===================================================== */}
-      {/* PUBLIC + USER APP LAYOUT */}
-      {/* ===================================================== */}
-      <Route element={<MainLayout />}>
-        {/* Public */}
-        <Route path="/" element={<Home />} />
-        <Route path="/directory" element={<BanknoteDirectory />} />
+    <>
+      <ScrollToTop />
+      <Routes>
+        {/* ===================================================== */}
+        {/* PUBLIC + USER APP LAYOUT */}
+        {/* ===================================================== */}
+        
+        {/* Dev Playground (Hidden from navigation) */}
+        <Route path="/dev/debug" element={<DebugPlayground />} />
+        
+        <Route element={<MainLayout />}>
+          {/* Public */}
+          <Route path="/" element={<Home />} />
+          <Route path="/directory" element={<BanknoteDirectory />} />
 
-        {/* Alias tỷ giá */}
-        <Route path="/currency-converter" element={<CurrencyConverter />} />
-        <Route path="/exchange" element={<CurrencyConverter />} />
+          {/* Legal */}
+          <Route path="/privacy" element={<PrivacyPolicy />} />
+          <Route path="/terms" element={<TermsOfService />} />
 
-        <Route path="/guide" element={<UserGuide />} />
-        <Route path="/info" element={<Info />} />
+          {/* Alias tỷ giá */}
+          <Route path="/currency-converter" element={<CurrencyConverter />} />
+          <Route path="/exchange" element={<CurrencyConverter />} />
 
-        {/* Private user */}
-        <Route element={<UserRoute />}>
-          {/* Alias workspace */}
-          <Route path="/recognize" element={<Recognition />} />
-          <Route path="/workspace" element={<Recognition />} />
+          <Route path="/guide" element={<UserGuide />} />
+          <Route path="/info" element={<Info />} />
 
-          <Route path="/processing" element={<Processing />} />
-          <Route path="/result" element={<Result />} />
+          {/* Private user */}
+          <Route element={<UserRoute />}>
+            {/* Alias workspace */}
+            <Route path="/recognize" element={<Recognition />} />
+            <Route path="/workspace" element={<Recognition />} />
 
-          {/* Alias agent detail */}
-          <Route path="/result/detail" element={<AgentResultDetail />} />
-          <Route path="/agent-result-detail" element={<AgentResultDetail />} />
+            <Route path="/processing" element={<Processing />} />
+            <Route path="/result" element={<Result />} />
 
-          <Route path="/history" element={<History />} />
-          <Route path="/pricing" element={<Pricing />} />
-          <Route path="/transactions" element={<Transactions />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/feedback" element={<Feedback />} />
-          <Route path="/checkout" element={<Checkout />} />
-          <Route path="/sepay-checkout" element={<SepayCheckout />} />
+            {/* Alias agent detail */}
+            <Route path="/result/detail" element={<AgentResultDetail />} />
+            <Route path="/agent-result-detail" element={<AgentResultDetail />} />
+
+            <Route path="/history" element={<History />} />
+            <Route path="/pricing" element={<Pricing />} />
+            <Route path="/transactions" element={<Transactions />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/feedback" element={<Feedback />} />
+            <Route path="/checkout" element={<Checkout />} />
+            <Route path="/sepay-checkout" element={<SepayCheckout />} />
+          </Route>
         </Route>
-      </Route>
 
-      {/* ===================================================== */}
-      {/* AUTH LAYOUT */}
-      {/* ===================================================== */}
-      <Route path="/auth" element={<AuthLayout />}>
-        <Route index element={<Navigate to="/auth/login" replace />} />
+        {/* ===================================================== */}
+        {/* AUTH LAYOUT */}
+        {/* ===================================================== */}
+        <Route path="/auth" element={<AuthLayout />}>
+          <Route index element={<Navigate to="/auth/login" replace />} />
 
-        <Route path="login" element={<Login />} />
-        <Route path="register" element={<Register />} />
-        <Route path="forgot-password" element={<ForgotPassword />} />
+          <Route path="login" element={<Login />} />
+          <Route path="register" element={<Register />} />
+          <Route path="forgot-password" element={<ForgotPassword />} />
 
-        {/* Admin login */}
-        <Route path="admin-login" element={<AdminLogin />} />
-        <Route path="admin" element={<Navigate to="/auth/admin-login" replace />} />
+          {/* Admin login */}
+          <Route path="admin-login" element={<AdminLogin />} />
+          <Route path="admin" element={<Navigate to="/auth/admin-login" replace />} />
 
-        {/* Google OAuth success */}
-        <Route path="google/success" element={<GoogleSuccess />} />
-      </Route>
-
-      {/* ===================================================== */}
-      {/* ADMIN PANEL */}
-      {/* ===================================================== */}
-      <Route element={<AdminRoute />}>
-        <Route element={<AdminLayout />}>
-          <Route
-            path="/admin"
-            element={<Navigate to="/admin/dashboard" replace />}
-          />
-
-          {/* Overview & System */}
-          <Route path="/admin/dashboard" element={<Dashboard />} />
-          <Route path="/admin/logs" element={<SystemLogs />} />
-          <Route path="/admin/settings" element={<Settings />} />
-
-          {/* User & Payments */}
-          <Route path="/admin/users" element={<UsersManager />} />
-          <Route
-            path="/admin/token-packages"
-            element={<TokenPackagesManager />}
-          />
-          <Route
-            path="/admin/transactions"
-            element={<TransactionsManager />}
-          />
-          <Route path="/admin/feedbacks" element={<FeedbacksManager />} />
-
-          {/* Recognition Data */}
-          <Route path="/admin/results" element={<ResultsManager />} />
-          <Route path="/admin/banknotes" element={<BanknotesManager />} />
-          <Route
-            path="/admin/currency-rates"
-            element={<CurrencyRatesManager />}
-          />
-
-          {/* AI Agents */}
-          <Route path="/admin/agents" element={<AgentsManager />} />
-          <Route path="/admin/agents/config" element={<AgentsConfig />} />
-          <Route path="/admin/agents/ai-model" element={<AiModelConfig />} />
-          <Route path="/admin/agents/llm" element={<LlmConfig />} />
-          <Route
-            path="/admin/agents/google-lens"
-            element={<GoogleLensConfig />}
-          />
-          <Route
-            path="/admin/agents/aggregator"
-            element={<AggregatorConfig />}
-          />
+          {/* Google OAuth success */}
+          <Route path="google/success" element={<GoogleSuccess />} />
         </Route>
-      </Route>
 
-      {/* ===================================================== */}
-      {/* 404 */}
-      {/* ===================================================== */}
-      <Route path="/404" element={<NotFound404 />} />
-      <Route path="*" element={<Navigate to="/404" replace />} />
-    </Routes>
+        {/* ===================================================== */}
+        {/* ADMIN PANEL */}
+        {/* ===================================================== */}
+        <Route element={<AdminRoute />}>
+          <Route element={<AdminLayout />}>
+            <Route
+              path="/admin"
+              element={<Navigate to="/admin/dashboard" replace />}
+            />
+
+            {/* Overview & System */}
+            <Route path="/admin/dashboard" element={<Dashboard />} />
+            <Route path="/admin/logs" element={<SystemLogs />} />
+            <Route path="/admin/settings" element={<Settings />} />
+
+            {/* User & Payments */}
+            <Route path="/admin/users" element={<UsersManager />} />
+            <Route
+              path="/admin/token-packages"
+              element={<TokenPackagesManager />}
+            />
+            <Route
+              path="/admin/transactions"
+              element={<TransactionsManager />}
+            />
+            <Route path="/admin/feedbacks" element={<FeedbacksManager />} />
+
+            {/* Recognition Data */}
+            <Route path="/admin/results" element={<ResultsManager />} />
+            <Route path="/admin/banknotes" element={<BanknotesManager />} />
+            <Route
+              path="/admin/currency-rates"
+              element={<CurrencyRatesManager />}
+            />
+
+            {/* AI Agents */}
+            <Route path="/admin/agents" element={<AgentsManager />} />
+            <Route path="/admin/agents/config" element={<AgentsConfig />} />
+            <Route path="/admin/agents/ai-model" element={<AiModelConfig />} />
+            <Route path="/admin/agents/llm" element={<LlmConfig />} />
+            <Route
+              path="/admin/agents/google-lens"
+              element={<GoogleLensConfig />}
+            />
+            <Route
+              path="/admin/agents/aggregator"
+              element={<AggregatorConfig />}
+            />
+          </Route>
+        </Route>
+
+        {/* ===================================================== */}
+        {/* 404 */}
+        {/* ===================================================== */}
+        <Route path="/404" element={<NotFound404 />} />
+        <Route path="*" element={<Navigate to="/404" replace />} />
+      </Routes>
+    </>
   );
 }

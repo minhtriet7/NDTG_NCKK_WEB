@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from app.agents.agent_3_lens import run_agent3_lens as run_agent3_lens_v1
 from app.agents.agent_3_lens_v2 import run_agent3_lens_v2
@@ -39,6 +39,7 @@ def _agent3_response(
         [
             {
                 "quoc_gia": "Không xác định",
+                "ma_tien_te": "Không xác định",
                 "menh_gia": "Không xác định",
                 "mat_tien": "Không xác định",
                 "nam_phat_hanh": "Không xác định",
@@ -163,18 +164,18 @@ def _summarize_result(raw_result: str) -> Dict[str, Any]:
     }
 
 
-async def _run_by_provider(provider: str, image_bytes: bytes, context: str = "") -> str:
+async def _run_by_provider(provider: str, image_bytes: bytes, context: str = "", debug_log: Optional[Dict] = None) -> str:
     provider = _normalize_provider(provider)
 
     _log("Running provider", {"provider": provider, "image_bytes": len(image_bytes)})
 
     if provider == "serpapi":
-        result = await run_agent3_lens_v1(image_bytes, context=context)
+        result = await run_agent3_lens_v1(image_bytes, context=context, debug_log=debug_log)
         _log("Provider serpapi finished", _summarize_result(result))
         return result
 
     if provider == "selenium":
-        result = await run_agent3_lens_v2(image_bytes, context=context)
+        result = await run_agent3_lens_v2(image_bytes, context=context, debug_log=debug_log)
         _log("Provider selenium finished", _summarize_result(result))
         return result
 
@@ -196,7 +197,7 @@ async def _run_by_provider(provider: str, image_bytes: bytes, context: str = "")
     return result
 
 
-async def run_agent3_lens(image_bytes: bytes, context: str = "") -> str:
+async def run_agent3_lens(image_bytes: bytes, context: str = "", debug_log: Optional[Dict] = None) -> str:
     """
     Entry point thay thế cho app.agents.agent_3_lens.run_agent3_lens.
     RecognitionService chỉ cần import hàm này.
@@ -209,7 +210,7 @@ async def run_agent3_lens(image_bytes: bytes, context: str = "") -> str:
         _log("Cannot read admin config, fallback to v1", {"error": str(exc)})
 
         try:
-            result = await run_agent3_lens_v1(image_bytes, context=context)
+            result = await run_agent3_lens_v1(image_bytes, context=context, debug_log=debug_log)
             _log("Fallback v1 after config error finished", _summarize_result(result))
             return result
         except Exception as fallback_exc:
@@ -260,7 +261,7 @@ async def run_agent3_lens(image_bytes: bytes, context: str = "") -> str:
         )
 
     try:
-        primary_result = await _run_by_provider(provider, image_bytes, context=context)
+        primary_result = await _run_by_provider(provider, image_bytes, context=context, debug_log=debug_log)
         primary_summary = _summarize_result(primary_result)
         primary_is_weak = _is_weak_agent3_result(primary_result)
 
@@ -292,6 +293,7 @@ async def run_agent3_lens(image_bytes: bytes, context: str = "") -> str:
                 fallback_provider,
                 image_bytes,
                 context=context,
+                debug_log=debug_log,
             )
 
             fallback_summary = _summarize_result(fallback_result)
@@ -331,6 +333,7 @@ async def run_agent3_lens(image_bytes: bytes, context: str = "") -> str:
                     fallback_provider,
                     image_bytes,
                     context=context,
+                    debug_log=debug_log,
                 )
 
                 fallback_summary = _summarize_result(fallback_result)

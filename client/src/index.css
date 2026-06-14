@@ -7,6 +7,25 @@
 
 @theme {
   --font-sans: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+  --color-primary: #3157F6;
+  --color-background: var(--bg-color);
+  --color-surface: var(--surface-color);
+  --color-foreground: var(--text-color);
+  --color-border-theme: var(--border-color);
+}
+
+:root {
+  --bg-color: #f8fafc;
+  --surface-color: #ffffff;
+  --text-color: #0f172a;
+  --border-color: #e2e8f0;
+}
+
+.dark {
+  --bg-color: #020617;
+  --surface-color: #0f172a;
+  --text-color: #f8fafc;
+  --border-color: #1e293b;
 }
 
 body {

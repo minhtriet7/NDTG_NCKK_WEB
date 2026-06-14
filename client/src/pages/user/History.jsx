@@ -1018,8 +1018,70 @@ export default function History() {
                   filteredRecords.map((r, i) => {
                     const d = new Date(r.created_at);
                     const image = getRecImage(r);
-                    const denom = getRecDenom(r);
-                    const currency = getRecCurrency(r);
+                    
+                    const isMultiObject = r.multi_object === true || r.final_result?.mode === "multi_object" || r.consensus?.mode === "multi_object";
+                    
+                    let displayDenom, displayCurrency, displayCountry, consensusNode;
+                    
+                    if (isMultiObject) {
+                      const detectedObjects = r.detected_objects || r.final_result?.detected_objects || r.consensus?.detected_objects || [];
+                      const totalObj = detectedObjects.length;
+                      
+                      const completedCount = detectedObjects.filter(o => {
+                        const s = String(o?.final_result?.status || o?.summary?.status || o?.status || "").toLowerCase();
+                        return s === "completed" || s === "success";
+                      }).length;
+                      
+                      const needsBetterCount = detectedObjects.filter(o => {
+                        const s = String(o?.final_result?.status || o?.summary?.status || o?.status || "").toLowerCase();
+                        return s.includes("needs") || s.includes("partial");
+                      }).length;
+                      
+                      const rCompleted = r.completed_objects !== undefined ? r.completed_objects : completedCount;
+                      const rTotal = r.total_objects !== undefined ? r.total_objects : totalObj;
+
+                      const langVi = lang === "VI";
+                      displayDenom = langVi ? `Phát hiện ${rTotal} tờ tiền` : `${rTotal} banknotes detected`;
+                      
+                      if (needsBetterCount > 0) {
+                        displayCurrency = langVi 
+                          ? `${rCompleted}/${rTotal} nhận diện thành công · ${needsBetterCount} cần ảnh rõ hơn`
+                          : `${rCompleted}/${rTotal} recognized · ${needsBetterCount} needs clearer image`;
+                      } else {
+                        displayCurrency = langVi 
+                          ? `${rCompleted}/${rTotal} nhận diện thành công`
+                          : `${rCompleted}/${rTotal} recognized`;
+                      }
+                      
+                      const countries = [...new Set(detectedObjects.map(o => resolveObjectCountry(o)).filter(c => c && c !== "N/A" && c !== "Không xác định"))];
+                      if (countries.length === 1) {
+                        displayCountry = countries[0];
+                      } else if (countries.length > 1) {
+                        displayCountry = langVi ? "Nhiều quốc gia" : "Multiple";
+                      } else {
+                        displayCountry = langVi ? "Nhiều quốc gia" : "Multiple";
+                      }
+                      
+                      const allCompleted = rCompleted === rTotal && rTotal > 0;
+                      const hasCompleted = rCompleted > 0;
+                      
+                      const badgeBg = allCompleted 
+                        ? (isDark ? "bg-teal-900/40 text-teal-400" : "bg-teal-50 text-teal-700")
+                        : (hasCompleted 
+                           ? (isDark ? "bg-amber-900/40 text-amber-400" : "bg-amber-50 text-amber-700") 
+                           : (isDark ? "bg-rose-900/40 text-rose-400" : "bg-rose-50 text-rose-700"));
+                           
+                      consensusNode = (
+                        <span className={`px-2 py-1 rounded-md text-xs font-bold whitespace-nowrap ${badgeBg}`}>
+                          {rCompleted}/{rTotal} {langVi ? "Hoàn thành" : "Completed"}
+                        </span>
+                      );
+                    } else {
+                      displayDenom = getRecDenom(r);
+                      displayCurrency = getRecCurrency(r);
+                      displayCountry = getRecCountry(r);
+                      consensusNode = renderConsensusBadge(getRecConsensus(r), isDark);
+                    }
 
                     return (
                       <tr
@@ -1073,10 +1135,10 @@ export default function History() {
                               isDark ? "text-white" : "text-slate-900"
                             }`}
                           >
-                            {denom}
+                            {displayDenom}
                           </p>
                           <p className="text-[10px] font-bold text-slate-400 uppercase">
-                            {currency}
+                            {displayCurrency}
                           </p>
                         </td>
 
@@ -1085,11 +1147,11 @@ export default function History() {
                             isDark ? "text-slate-300" : "text-slate-700"
                           }`}
                         >
-                          {getRecCountry(r)}
+                          {displayCountry}
                         </td>
 
                         <td className="px-6 py-4">
-                          {renderConsensusBadge(getRecConsensus(r), isDark)}
+                          {consensusNode}
                         </td>
 
                         <td className="px-6 py-4">
@@ -1544,6 +1606,63 @@ function AgentMiniCard({ title, icon, data, finalDenom, isDark }) {
   );
 }
 
+const resolveObjectDenom = (object) => {
+  if (!object) return "N/A";
+  const candidates = [
+    object?.final_result?.final_denomination,
+    object?.final_result?.menh_gia,
+    object?.final_result?.denomination,
+    object?.final_denomination,
+    object?.menh_gia,
+    object?.denomination,
+    object?.summary?.final_denomination,
+    object?.summary?.menh_gia,
+    object?.summary?.denomination
+  ];
+  for (const c of candidates) {
+    if (c && c !== "N/A" && c !== "Không xác định") return String(c);
+  }
+  
+  const agents = normalizeAgentOutputs(object);
+  const llmDenom = agents.llm_api ? getAgentDenom(agents.llm_api) : "N/A";
+  const visualDenom = agents.visual_search ? getAgentDenom(agents.visual_search) : "N/A";
+  const mlDenom = agents.ml_dl ? getAgentDenom(agents.ml_dl) : "N/A";
+  
+  if (llmDenom !== "N/A" && llmDenom !== "Không xác định" && llmDenom === visualDenom) return llmDenom;
+  
+  for (const aDenom of [llmDenom, visualDenom, mlDenom]) {
+    if (aDenom !== "N/A" && aDenom !== "Không xác định") return aDenom;
+  }
+  return "N/A";
+};
+
+const resolveObjectCountry = (object) => {
+  if (!object) return "N/A";
+  const candidates = [
+    object?.final_result?.quoc_gia,
+    object?.final_result?.country,
+    object?.quoc_gia,
+    object?.country,
+    object?.summary?.quoc_gia,
+    object?.summary?.country
+  ];
+  for (const c of candidates) {
+    if (c && c !== "N/A" && c !== "Không xác định") return String(c);
+  }
+  
+  const agents = normalizeAgentOutputs(object);
+  const llmCountry = agents.llm_api ? getAgentCountry(agents.llm_api) : "N/A";
+  const visualCountry = agents.visual_search ? getAgentCountry(agents.visual_search) : "N/A";
+  const mlCountry = agents.ml_dl ? getAgentCountry(agents.ml_dl) : "N/A";
+  
+  if (llmCountry !== "N/A" && llmCountry !== "Không xác định" && llmCountry === visualCountry) return llmCountry;
+  
+  for (const aCountry of [llmCountry, visualCountry, mlCountry]) {
+    if (aCountry !== "N/A" && aCountry !== "Không xác định") return aCountry;
+  }
+  return "N/A";
+};
+
 // ==========================================
 // COMPONENT CON: HISTORY OBJECT CARD
 // ==========================================
@@ -1551,104 +1670,66 @@ function HistoryObjectCard({ object, index, isDark, t, lang, rootImage }) {
   const [expanded, setExpanded] = useState(false);
 
   const objectNo = object?.object_index || index + 1;
-  const denom = getAgentDenom(object) || getAgentDenom(object?.final_result) || getAgentDenom(object?.summary) || "N/A";
-  const country = getAgentCountry(object) || getAgentCountry(object?.final_result) || getAgentCountry(object?.summary) || "N/A";
+  const denom = resolveObjectDenom(object);
+  const country = resolveObjectCountry(object);
   const rawStatus = object?.final_result?.status || object?.summary?.status || object?.status || "Completed";
   const status = normalizeStatusLabel(rawStatus, lang);
   
   const matchedAgents = Number(object?.final_result?.matched_agents || object?.summary?.matched_agents || 0);
 
-  const image = object?.crop_base64 ? `data:image/jpeg;base64,${object.crop_base64}` : rootImage;
   const bboxText = object?.bbox ? `[${object.bbox.join(", ")}]` : null;
 
   const agentData = normalizeAgentOutputs(object);
   const hasAgents = !!(agentData.ml_dl || agentData.llm_api || agentData.visual_search);
 
-  const renderAgentRow = (title, icon, data) => {
-    if (!data) return null;
-    const aDenom = getAgentDenom(data);
-    const aCountry = getAgentCountry(data);
-    const aReason = getAgentReasoning(data);
-    const isMatched = aDenom === denom && denom !== "N/A";
-
-    return (
-      <div className={`p-3 rounded-xl border mt-2 ${isDark ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"}`}>
-        <div className="flex justify-between items-center mb-2 border-b pb-2 border-slate-100 dark:border-slate-800">
-          <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5">{icon} {title}</p>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${isMatched ? "bg-teal-500/20 text-teal-500" : "bg-amber-500/20 text-amber-500"}`}>
-            {isMatched ? (lang === "VI" ? "Khớp" : "Matched") : (lang === "VI" ? "Khác" : "Different")}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-xs mb-2">
-          <div><span className="text-slate-400">Denom:</span> <span className={`font-bold ${isDark ? "text-slate-200" : "text-slate-700"}`}>{aDenom}</span></div>
-          <div><span className="text-slate-400">Country:</span> <span className={`font-semibold ${isDark ? "text-slate-300" : "text-slate-600"}`}>{aCountry}</span></div>
-        </div>
-        {aReason && aReason !== "N/A" && (
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-2 rounded line-clamp-3">
-            {aReason}
-          </p>
-        )}
-      </div>
-    );
-  };
-
   return (
-    <div className={`rounded-2xl border overflow-hidden ${isDark ? "bg-slate-800/40 border-slate-700" : "bg-slate-50 border-slate-200"}`}>
-      <div className={`p-4 border-b flex justify-between items-center ${isDark ? "border-slate-700" : "border-slate-200"}`}>
-        <div>
-          <p className="text-xs font-black uppercase text-slate-400 tracking-wider">
-            {lang === "VI" ? "Tờ tiền" : "Banknote"} #{objectNo}
-          </p>
-          <h3 className={`text-lg font-black mt-1 ${isDark ? "text-white" : "text-slate-900"}`}>{denom}</h3>
-        </div>
-        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${matchedAgents >= 2 ? (isDark ? "bg-teal-500/20 text-teal-300 border-teal-500/30" : "bg-teal-50 text-teal-700 border-teal-200") : (isDark ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-amber-50 text-amber-700 border-amber-200")}`}>
-          {matchedAgents}/3
-        </span>
-      </div>
-
-      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          {image ? (
-             <img src={image} alt={`Crop ${objectNo}`} className="w-full rounded-xl object-contain max-h-[160px] bg-white dark:bg-slate-900" />
-          ) : (
-             <div className="h-[120px] rounded-xl flex items-center justify-center text-slate-400 bg-slate-100 dark:bg-slate-900 text-xs">No crop</div>
-          )}
-          {bboxText && <p className="text-[10px] text-slate-400 mt-2">bbox: {bboxText}</p>}
-        </div>
-
-        <div className="space-y-3">
-          <div className="flex justify-between border-b border-slate-200 dark:border-slate-700/50 pb-1">
-             <span className="text-sm text-slate-500">Country</span>
-             <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{country}</span>
+    <div className={`rounded-xl border overflow-hidden ${isDark ? "bg-slate-800/40 border-slate-700" : "bg-white border-slate-200"}`}>
+      <div className="p-3 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center justify-center w-8 h-8 rounded-lg font-bold text-sm ${isDark ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
+            #{objectNo}
           </div>
-          <div className="flex justify-between border-b border-slate-200 dark:border-slate-700/50 pb-1">
-             <span className="text-sm text-slate-500">Status</span>
-             <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{status}</span>
-          </div>
-          <div className="flex justify-between border-b border-slate-200 dark:border-slate-700/50 pb-1">
-             <span className="text-sm text-slate-500">Consensus</span>
-             <span className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{matchedAgents}/3 Agents</span>
+          <div>
+            <h4 className={`text-base font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{denom}</h4>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 text-xs text-slate-500">
+              <span>{country}</span>
+              <span className="w-1 h-1 rounded-full bg-slate-400"></span>
+              <span>{status}</span>
+              {bboxText && (
+                <>
+                  <span className="w-1 h-1 rounded-full bg-slate-400"></span>
+                  <span className="font-mono text-[10px]">bbox: {bboxText}</span>
+                </>
+              )}
+            </div>
           </div>
         </div>
+
+        <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
+          <span className={`px-2 py-1 rounded text-[11px] font-bold border whitespace-nowrap ${matchedAgents >= 2 ? (isDark ? "bg-teal-500/10 text-teal-400 border-teal-500/20" : "bg-teal-50 text-teal-700 border-teal-200") : (isDark ? "bg-amber-500/10 text-amber-400 border-amber-500/20" : "bg-amber-50 text-amber-700 border-amber-200")}`}>
+            {matchedAgents}/3 Match
+          </span>
+
+          <button 
+            onClick={() => hasAgents && setExpanded(!expanded)}
+            className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold ${isDark ? "hover:bg-slate-700 text-slate-400" : "hover:bg-slate-100 text-slate-600"} ${!hasAgents ? "opacity-50 cursor-not-allowed" : ""}`}
+            title={hasAgents ? "View agent debate" : "No agent data"}
+          >
+            <span className="hidden sm:inline">{expanded ? "Hide debate" : "View debate"}</span>
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+        </div>
       </div>
 
-      <div className={`px-4 pb-4 ${!hasAgents ? "opacity-60" : ""}`}>
-        <button 
-          onClick={() => hasAgents && setExpanded(!expanded)}
-          className={`w-full py-2 flex items-center justify-center gap-2 text-xs font-bold rounded-xl transition-colors ${isDark ? "bg-slate-900 hover:bg-slate-950 text-slate-300" : "bg-white hover:bg-slate-100 text-slate-600"} ${!hasAgents ? "cursor-not-allowed" : ""}`}
-        >
-          {!hasAgents ? "Agent debate unavailable in this record." : (expanded ? "Hide agent debate" : "View agent debate")}
-          {hasAgents && (expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-        </button>
-
-        {expanded && hasAgents && (
-          <div className="mt-2 space-y-2 animate-[fadeIn_0.2s_ease-out]">
-            {renderAgentRow(t.ag1 || "ML/DL", <Cpu size={14} />, agentData.ml_dl)}
-            {renderAgentRow(t.ag2 || "LLM", <BotMessageSquare size={14} />, agentData.llm_api)}
-            {renderAgentRow(t.ag3 || "Lens", <SearchCheck size={14} />, agentData.visual_search)}
+      {expanded && hasAgents && (
+        <div className={`p-4 border-t bg-slate-50/50 dark:bg-slate-900/50 ${isDark ? "border-slate-700" : "border-slate-200"}`}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <AgentMiniCard isDark={isDark} title={t.ag1 || "ML/DL Analysis"} icon={<Cpu size={14} />} data={agentData.ml_dl} finalDenom={denom} />
+            <AgentMiniCard isDark={isDark} title={t.ag2 || "LLM/API Analysis"} icon={<BotMessageSquare size={14} />} data={agentData.llm_api} finalDenom={denom} />
+            <AgentMiniCard isDark={isDark} title={t.ag3 || "Visual Search"} icon={<SearchCheck size={14} />} data={agentData.visual_search} finalDenom={denom} />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

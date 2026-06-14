@@ -53,7 +53,7 @@ class Agent3LensV2(BaseAgent):
     def __init__(self):
         super().__init__(agent_name="Agent 3 v2 (Google Lens Selenium)")
 
-    async def run(self, image_bytes: bytes, context: str = "") -> str:
+    async def run(self, image_bytes: bytes, context: str = "", debug_log: Optional[Dict] = None) -> str:
         sem = _get_semaphore()
 
         if sem.locked():
@@ -207,7 +207,8 @@ class Agent3LensV2(BaseAgent):
 
         while time.time() - start < timeout_seconds:
             try:
-                body_text = driver.find_element("tag name", "body").text.lower()
+                body_text = driver.execute_script("return document.body.innerText || document.body.textContent;") or ""
+                body_text = body_text.lower()
                 source_len = len(driver.page_source or "")
 
                 if any(token in body_text for token in ["visual matches", "kết quả", "hình ảnh", "matches", "search"]):
@@ -234,6 +235,7 @@ class Agent3LensV2(BaseAgent):
             [
                 {
                     "quoc_gia": "Không xác định",
+                    "ma_tien_te": "Không xác định",
                     "menh_gia": "Không xác định",
                     "mat_tien": "Không xác định",
                     "nam_phat_hanh": "Không xác định",
@@ -256,6 +258,7 @@ class Agent3LensV2(BaseAgent):
             [
                 {
                     "quoc_gia": "Không xác định",
+                    "ma_tien_te": "Không xác định",
                     "menh_gia": "Không xác định",
                     "mat_tien": "Không xác định",
                     "nam_phat_hanh": "Không xác định",
@@ -280,6 +283,7 @@ class Agent3LensV2(BaseAgent):
             [
                 {
                     "quoc_gia": "Không xác định",
+                    "ma_tien_te": "Không xác định",
                     "menh_gia": "Không xác định",
                     "mat_tien": "Không xác định",
                     "nam_phat_hanh": "Không xác định",
@@ -315,6 +319,6 @@ class _EnvFallbackConfig:
     request_timeout_seconds = 20
 
 
-async def run_agent3_lens_v2(image_bytes: bytes, context: str = "") -> str:
+async def run_agent3_lens_v2(image_bytes: bytes, context: str = "", debug_log: Optional[Dict] = None) -> str:
     agent = Agent3LensV2()
-    return await agent.run(image_bytes, context=context)
+    return await agent.run(image_bytes, context=context, debug_log=debug_log)

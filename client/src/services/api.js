@@ -67,7 +67,7 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 60000,
+  timeout: 180000, // Tăng lên 3 phút vì Debug Playground chạy song song 2 Agent (V1, V2) nên rất lâu
 });
 
 api.interceptors.request.use(

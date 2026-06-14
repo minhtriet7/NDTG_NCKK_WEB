@@ -233,12 +233,13 @@ const getObjectCountry = (item) => {
 
 const getObjectMatchedAgents = (item) => {
   const final = getObjectFinalData(item);
-  return Number(
-    final.matched_agents ||
-      final.so_luong_dong_thuan ||
-      final.valid_votes?.length ||
-      0,
-  );
+  if (final.matched_agents !== undefined && final.matched_agents !== null) {
+    return Number(final.matched_agents);
+  }
+  if (final.so_luong_dong_thuan !== undefined && final.so_luong_dong_thuan !== null) {
+    return Number(final.so_luong_dong_thuan);
+  }
+  return 0;
 };
 
 const getObjectRefereeText = (item) => {
@@ -483,11 +484,12 @@ const normalizeBackendResult = (rawResult, session) => {
     final.referee_view ||
     "";
 
-  const matchedAgents =
-    final.matched_agents ||
-    final.so_luong_dong_thuan ||
-    final.valid_votes?.length ||
-    0;
+  let matchedAgents = 0;
+  if (final.matched_agents !== undefined && final.matched_agents !== null) {
+    matchedAgents = Number(final.matched_agents);
+  } else if (final.so_luong_dong_thuan !== undefined && final.so_luong_dong_thuan !== null) {
+    matchedAgents = Number(final.so_luong_dong_thuan);
+  }
 
   const status =
     final.status || rawResult.status || rawResult.result?.status || "Completed";

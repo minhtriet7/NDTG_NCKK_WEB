@@ -14,6 +14,14 @@ export const recognitionService = {
     });
   },
 
+  scanDebug: async (formData) => {
+    return await api.post("/recognition/debug_scan", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+  },
+
   startTask: async (file) => {
     const formData = new FormData();
     formData.append("file", file);
@@ -48,6 +56,10 @@ export const getRecognitionResult = async (resultId) => {
 
 export const scanBanknote = async (file) => {
   return await recognitionService.scan(file);
+};
+
+export const scanBanknoteDebug = async (formData) => {
+  return await recognitionService.scanDebug(formData);
 };
 
 export const saveActiveRecognitionTask = (taskId, inputMeta = {}) => {

@@ -44,6 +44,25 @@ export const useRecognitionStore = create(
     (set, get) => ({
       currentScanSession: null,
       activeTask: null,
+      
+      // Temporary UI states for workspace
+      currentImageFile: null,
+      currentPreviewUrl: null,
+      isScanning: false,
+
+      setCurrentImage: (file, url) => set({
+        currentImageFile: file,
+        currentPreviewUrl: url
+      }),
+
+      clearCurrentImage: () => set({
+        currentImageFile: null,
+        currentPreviewUrl: null
+      }),
+
+      setIsScanning: (status) => set({
+        isScanning: status
+      }),
 
       setActiveTask: (taskId, inputMeta = {}) =>
         set({
@@ -152,6 +171,7 @@ export const useRecognitionStore = create(
           : null,
 
         activeTask: isFreshTask(state.activeTask) ? state.activeTask : null,
+        // Exclude currentImageFile, currentPreviewUrl and isScanning from persistence
       }),
     },
   ),

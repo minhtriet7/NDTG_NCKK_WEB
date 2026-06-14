@@ -72,26 +72,26 @@ function AgentCard({ icon: Icon, name, status, desc }) {
     <div
       className={`p-5 rounded-2xl border transition-all duration-500 ${
         status === "done"
-          ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+          ? "bg-green-500/10 border-green-500/20 text-green-500"
           : status === "scanning"
-            ? "bg-white border-teal-200 text-slate-900 shadow-sm"
-            : "bg-slate-50 border-slate-200 text-slate-400"
+            ? "bg-surface border-primary/30 text-foreground shadow-sm shadow-primary/5"
+            : "bg-background border-border text-secondary"
       }`}
     >
       <div className="flex items-center gap-3">
         <div
           className={`w-10 h-10 rounded-xl flex items-center justify-center ${
             status === "done"
-              ? "bg-emerald-100"
+              ? "bg-green-500/20"
               : status === "scanning"
-                ? "bg-teal-50"
-                : "bg-slate-100"
+                ? "bg-primary/10"
+                : "bg-surface"
           }`}
         >
           {status === "done" ? (
-            <CheckCircle2 className="w-5 h-5" />
+            <CheckCircle2 className="w-5 h-5 text-green-500" />
           ) : status === "scanning" ? (
-            <Loader2 className="w-5 h-5 animate-spin text-teal-600" />
+            <Loader2 className="w-5 h-5 animate-spin text-primary" />
           ) : (
             <Icon className="w-5 h-5" />
           )}
@@ -108,10 +108,12 @@ function AgentCard({ icon: Icon, name, status, desc }) {
 
 export default function Processing() {
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const imageFile = location.state?.imageFile || null;
-  const initialPreviewUrl = location.state?.previewUrl || null;
+  const currentImageFile = useRecognitionStore((state) => state.currentImageFile);
+  const currentPreviewUrl = useRecognitionStore((state) => state.currentPreviewUrl);
+
+  const imageFile = currentImageFile;
+  const initialPreviewUrl = currentPreviewUrl;
   const [previewUrl, setPreviewUrl] = useState(initialPreviewUrl);
 
   const updateTokenBalance = useAuthStore((state) => state.updateTokenBalance);
@@ -355,7 +357,7 @@ export default function Processing() {
 
         if (!taskId) {
           if (!imageFile) {
-            navigate("/recognize", { replace: true });
+            navigate("/workspace", { replace: true });
             return;
           }
 
@@ -437,18 +439,18 @@ export default function Processing() {
   if (error) {
     return (
       <div className="max-w-3xl mx-auto font-sans py-12">
-        <div className="bg-red-50 border border-red-100 rounded-3xl p-8 text-center">
+        <div className="bg-red-500/10 border border-red-500/20 rounded-3xl p-8 text-center">
           <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
 
-          <h2 className="text-2xl font-bold text-red-700 mb-2">
+          <h2 className="text-2xl font-bold text-red-500 mb-2">
             Analysis failed
           </h2>
 
-          <p className="text-red-600 text-sm mb-6">{error}</p>
+          <p className="text-red-400 text-sm mb-6">{error}</p>
 
           <button
-            onClick={() => navigate("/recognize", { replace: true })}
-            className="px-5 py-2.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700"
+            onClick={() => navigate("/workspace", { replace: true })}
+            className="px-5 py-2.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 transition"
           >
             Try again
           </button>
@@ -457,32 +459,38 @@ export default function Processing() {
     );
   }
 
+  // Graceful Fallback if Store is totally empty and no task is running
+  if (!currentImageFile && !getFreshActiveTask()) {
+    navigate("/workspace", { replace: true });
+    return null;
+  }
+
   return (
-    <div className="max-w-4xl mx-auto font-sans py-10 space-y-8">
+    <div className="max-w-4xl mx-auto font-sans py-10 space-y-8 text-foreground bg-background">
       <div className="text-center">
-        <div className="w-16 h-16 bg-teal-50 text-teal-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <div className="w-16 h-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto mb-4 border border-primary/20">
           <Cpu className="w-8 h-8" />
         </div>
 
-        <h2 className="text-3xl font-extrabold text-slate-900">
+        <h2 className="text-3xl font-extrabold text-foreground">
           Processing Banknote
         </h2>
 
-        <p className="text-slate-500 mt-2">
+        <p className="text-secondary mt-2">
           Multi-agent analysis is running. You can leave and return to this page
           while the current task is still active.
         </p>
       </div>
 
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
-        <div className="flex justify-between text-sm font-semibold text-slate-500 mb-2">
-          <span>{stage}</span>
+      <div className="bg-surface rounded-3xl border border-border shadow-sm p-6">
+        <div className="flex justify-between text-sm font-semibold text-secondary mb-2">
+          <span className="capitalize">{stage}</span>
           <span>{Math.round(progress)}%</span>
         </div>
 
-        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+        <div className="w-full bg-background rounded-full h-3 overflow-hidden border border-border">
           <div
-            className="h-full bg-teal-600 rounded-full transition-all duration-500"
+            className="h-full bg-primary rounded-full transition-all duration-500"
             style={{ width: `${Math.min(Math.max(progress, 0), 100)}%` }}
           />
         </div>
@@ -525,15 +533,15 @@ export default function Processing() {
       </div>
 
       {previewUrl && (
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
-          <p className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">
+        <div className="bg-surface rounded-3xl border border-border shadow-sm p-5">
+          <p className="text-sm font-bold text-secondary uppercase tracking-wider mb-3">
             Uploaded image
           </p>
 
           <img
             src={previewUrl}
             alt="Uploaded banknote"
-            className="w-full max-h-[320px] object-contain rounded-2xl bg-slate-50"
+            className="w-full max-h-[320px] object-contain rounded-2xl bg-background border border-border"
           />
         </div>
       )}

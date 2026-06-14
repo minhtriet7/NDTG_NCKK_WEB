@@ -58,6 +58,8 @@ async def google_login(request: Request, platform: str = "web"):
         or "http://localhost:8000/api/v1/auth/google/callback"
     )
 
+    logger.info(f"GOOGLE OAUTH redirect_uri USED: {redirect_uri}")
+
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 

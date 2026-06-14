@@ -354,6 +354,7 @@ class RecognitionService:
         user: User,
         image_bytes: bytes,
         task: Optional[RecognitionTask] = None,
+        debug_mode: bool = False,
     ) -> Dict[str, Any]:
         _task_id_log = task.id if task else "None"
         logger.info("[Recognition] Start scan task_id=%s", _task_id_log)
@@ -450,6 +451,7 @@ class RecognitionService:
         all_agent_results: List[Dict[str, Any]] = []
         detected_results: List[Dict[str, Any]] = []
         object_summaries: List[Dict[str, Any]] = []
+        debug_output_objects = []
 
         total_objects = len(detected_objects)
 
@@ -488,21 +490,40 @@ class RecognitionService:
 
             final_consensus: Dict[str, Any] = {}
             object_agent_results: List[Dict[str, Any]] = []
+            
+            # --- Capture debug ---
+            current_debug_object = {
+                "object_index": object_index,
+                "crop_image_base64": object_item.get("crop_base64") or "original_image",
+                "aggregator_log": {"attempts": []}
+            }
 
             for attempt in range(max_retries + 1):
                 logger.info("[Recognition/Object] start object_%s attempt=%s/%s", object_index, attempt, max_retries)
+                
+                # --- Capture prompt & raw llm ---
+                llm_debug_log = {} if debug_mode else None
+                lens_debug_log = {} if debug_mode else None
+                lens_v1_debug = {} if debug_mode else None
+                lens_v2_debug = {} if debug_mode else None
 
                 agent_tasks = [
                     run_agent1_yolo(crop_bytes)
                     if enable_agent_1
                     else build_disabled_agent_result("Agent 1 ML/DL", "Agent 1 bị tắt theo cấu hình admin."),
-                    run_agent2_llm(crop_bytes, context_for_llm)
+                    run_agent2_llm(crop_bytes, context_for_llm, debug_log=llm_debug_log)
                     if enable_agent_2
                     else build_disabled_agent_result("Agent 2 LLM", "Agent 2 bị tắt theo cấu hình admin."),
-                    run_agent3_lens(crop_bytes, context_for_llm)
+                    run_agent3_lens(crop_bytes, context_for_llm, debug_log=lens_debug_log)
                     if enable_agent_3
                     else build_disabled_agent_result("Agent 3 Lens", "Agent 3 bị tắt theo cấu hình admin."),
                 ]
+                
+                if debug_mode and enable_agent_3:
+                    from app.agents.agent_3_lens import run_agent3_lens as run_agent3_lens_v1
+                    from app.agents.agent_3_lens_v2 import run_agent3_lens_v2
+                    agent_tasks.append(run_agent3_lens_v1(crop_bytes, context_for_llm, debug_log=lens_v1_debug))
+                    agent_tasks.append(run_agent3_lens_v2(crop_bytes, context_for_llm, debug_log=lens_v2_debug))
 
                 try:
                     results = await asyncio.wait_for(
@@ -511,9 +532,8 @@ class RecognitionService:
                     )
                 except asyncio.TimeoutError:
                     results = [
-                        TimeoutError(f"Agents timeout after {agent_timeout_seconds}s"),
-                        TimeoutError(f"Agents timeout after {agent_timeout_seconds}s"),
-                        TimeoutError(f"Agents timeout after {agent_timeout_seconds}s"),
+                        TimeoutError(f"Agents timeout after {agent_timeout_seconds}s")
+                        for _ in agent_tasks
                     ]
 
                 raw_1 = results[0]
@@ -589,6 +609,35 @@ class RecognitionService:
                         "quan_diem_trong_tai": "Aggregator bị tắt theo cấu hình admin.",
                     }
                 final_consensus["object_index"] = object_index
+                
+                if debug_mode:
+                    r3_v1_result = results[3] if enable_agent_3 and len(results) > 3 else None
+                    r3_v2_result = results[4] if enable_agent_3 and len(results) > 4 else None
+
+                    if "agent_1_raw" not in current_debug_object:
+                        current_debug_object["agent_1_raw"] = r1
+                        current_debug_object["agent_2_raw"] = llm_debug_log
+                        current_debug_object["agent_3_raw"] = {"raw_result": r3, "debug_log": lens_debug_log}
+                        if enable_agent_3:
+                            current_debug_object["agent_3_compare"] = {
+                                "v1_serpapi": {
+                                    "raw_result": r3_v1_result if not isinstance(r3_v1_result, Exception) else str(r3_v1_result), 
+                                    "debug_log": lens_v1_debug
+                                },
+                                "v2_selenium": {
+                                    "raw_result": r3_v2_result if not isinstance(r3_v2_result, Exception) else str(r3_v2_result), 
+                                    "debug_log": lens_v2_debug
+                                }
+                            }
+                    
+                    # Log aggregator
+                    current_debug_object["aggregator_log"]["attempts"].append({
+                        "attempt": attempt + 1,
+                        "matched_agents": final_consensus.get("matched_agents", 0),
+                        "status": final_consensus.get("status"),
+                        "require_rerun": final_consensus.get("require_rerun", False),
+                        "votes": [v.get("vote_key") for v in final_consensus.get("valid_votes", [])],
+                    })
 
                 if final_consensus.get("require_rerun") and attempt < max_retries:
                     context_for_llm = (
@@ -651,6 +700,10 @@ class RecognitionService:
 
             detected_results.append(object_result)
             object_summaries.append(object_result["summary"])
+            
+            if debug_mode:
+                current_debug_object["final_result"] = final_consensus
+                debug_output_objects.append(current_debug_object)
 
         if task:
             await RecognitionService.update_task(task, "building_result", 88)
@@ -893,6 +946,18 @@ class RecognitionService:
             task.finished_at = now_utc()
             task.updated_at = now_utc()
             await task.save()
+
+        if debug_mode:
+            return {
+                "input_info": {
+                    "file_size_bytes": len(image_bytes),
+                    "started_at": started_at.isoformat(),
+                    "processing_time_ms": int((now_utc() - started_at).total_seconds() * 1000)
+                },
+                "objects": debug_output_objects,
+                "pipeline_final_status": status_value,
+                "final_db_record": result_data
+            }
 
         return result_data
 

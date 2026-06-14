@@ -1,0 +1,81 @@
+{
+  "home": {
+    "heroBadge": "Multi-Agent Banknote Analysis",
+    "heroTitle": "Identify Southeast Asian Banknotes with Multi-Agent Analysis",
+    "heroSubtitle": "Upload a banknote image and compare results from visual recognition, language reasoning, and visual search before generating a structured result.",
+    "heroCta": "Start Scan",
+    "heroCtaSub": "View Supported Banknotes",
+    "heroTokenLabel": "Token Balance",
+    "heroTokenUnit": "tokens",
+    "heroPill1": "3-Agent Verification",
+    "heroPill2": "JSON Output",
+    "heroPill3": "Majority Voting",
+    "mockTitle": "BanknoteAI Workspace",
+    "mockSub": "Multi-Agent Engine",
+    "mockUpload": "Upload Banknote Image",
+    "mockUploadSub": "JPG, PNG, WEBP supported",
+    "mockAgent1": "ML/DL Agent",
+    "mockAgent2": "LLM Agent",
+    "mockAgent3": "Visual Search",
+    "mockAgg": "Aggregator Decision",
+    "mockAggSub": "Majority vote in progress...",
+    "mockJson": "Structured output",
+    "mockPending": "Pending",
+    "mockConsensus": "Consensus",
+    "statsTitle": "System Capabilities",
+    "howTitle": "How It Works",
+    "howSub": "Four clear steps from image upload to a structured, consensus-based result.",
+    "steps": [
+      { "num": "01", "title": "Upload banknote image", "desc": "Drag and drop or select a photo of any Southeast Asian banknote." },
+      { "num": "02", "title": "Agents analyze independently", "desc": "ML/DL model, LLM API, and Visual Search each produce their own result in parallel." },
+      { "num": "03", "title": "Aggregator compares results", "desc": "Majority voting determines the final answer; conflicts are flagged for review." },
+      { "num": "04", "title": "Review result and export JSON", "desc": "View denomination, country, material, consensus status, and download structured data." }
+    ],
+    "agentsTitle": "The Agent System",
+    "agentsSub": "Each agent operates independently. The aggregator decides the final result.",
+    "agents": [
+      { "label": "Agent 1", "name": "ML / DL Model", "desc": "Detects visual patterns, denomination clues, and cropped banknote regions.", "accent": "teal" },
+      { "label": "Agent 2", "name": "LLM API", "desc": "Reads visible text and reasons over country, currency, material, and description.", "accent": "violet" },
+      { "label": "Agent 3", "name": "Visual Search", "desc": "Compares the uploaded image with external visual references when available.", "accent": "blue" },
+      { "label": "Aggregator", "name": "Majority Voting", "desc": "Applies majority voting and marks conflicts when results do not agree.", "accent": "amber" }
+    ],
+    "resultTitle": "Sample Output",
+    "resultSub": "The final result includes denomination, origin, material, consensus status, and a structured JSON export.",
+    "resultNote": "Example preview only",
+    "resultDenom": "Denomination",
+    "resultCountry": "Country",
+    "resultMaterial": "Material",
+    "resultConsensus": "Consensus",
+    "resultStatus": "Status",
+    "resultCompleted": "Completed",
+    "featTitle": "Everything You Need",
+    "featSub": "Tools built around the recognition workflow.",
+    "seaTitle": "Southeast Asia Focus",
+    "seaSub": "Optimised for the currencies most commonly encountered across the region.",
+    "ctaTitle": "Ready to analyze a banknote?",
+    "ctaSub": "Upload an image and get a structured result in seconds — no setup required.",
+    "ctaMain": "Start Scan",
+    "ctaSecond": "Buy Tokens"
+  },
+  "stats": {
+    "label1": "Total Scans",
+    "label2": "Avg. Accuracy",
+    "label3": "Supported Countries",
+    "label4": "Training Samples"
+  },
+  "footer": {
+    "slogan": "Empowering verification with Multi-Agent AI.",
+    "product": "Product",
+    "support": "Support",
+    "legal": "Legal",
+    "links": {
+      "workspace": "Workspace",
+      "directory": "Directory",
+      "pricing": "Pricing",
+      "guide": "User Guide",
+      "feedback": "Feedback",
+      "privacy": "Privacy Policy",
+      "terms": "Terms of Service"
+    }
+  }
+}

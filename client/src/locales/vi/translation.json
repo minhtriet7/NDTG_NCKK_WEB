@@ -1,0 +1,81 @@
+{
+  "home": {
+    "heroBadge": "Phân tích tiền giấy đa tác tử",
+    "heroTitle": "Nhận diện tiền giấy Đông Nam Á bằng phân tích đa tác tử",
+    "heroSubtitle": "Tải ảnh tiền giấy lên để hệ thống đối chiếu kết quả từ nhận diện hình ảnh, phân tích ngôn ngữ và tìm kiếm trực quan trước khi tạo kết quả có cấu trúc.",
+    "heroCta": "Bắt đầu quét",
+    "heroCtaSub": "Xem danh mục tiền",
+    "heroTokenLabel": "Số dư token",
+    "heroTokenUnit": "token",
+    "heroPill1": "Xác minh 3 tác tử",
+    "heroPill2": "Kết quả JSON",
+    "heroPill3": "Biểu quyết đa số",
+    "mockTitle": "BanknoteAI Workspace",
+    "mockSub": "Lõi đa tác tử",
+    "mockUpload": "Tải ảnh tiền giấy",
+    "mockUploadSub": "Hỗ trợ JPG, PNG, WEBP",
+    "mockAgent1": "Tác tử ML/DL",
+    "mockAgent2": "Tác tử LLM",
+    "mockAgent3": "Tìm kiếm trực quan",
+    "mockAgg": "Quyết định tổng hợp",
+    "mockAggSub": "Đang biểu quyết đa số...",
+    "mockJson": "Đầu ra có cấu trúc",
+    "mockPending": "Chờ xử lý",
+    "mockConsensus": "Đồng thuận",
+    "statsTitle": "Năng lực hệ thống",
+    "howTitle": "Cách hoạt động",
+    "howSub": "Bốn bước rõ ràng từ tải ảnh đến kết quả có cấu trúc dựa trên đồng thuận.",
+    "steps": [
+      { "num": "01", "title": "Tải ảnh tiền giấy", "desc": "Kéo thả hoặc chọn ảnh bất kỳ tờ tiền Đông Nam Á nào." },
+      { "num": "02", "title": "Các tác tử phân tích độc lập", "desc": "Mô hình ML/DL, LLM API và Tìm kiếm trực quan hoạt động song song, mỗi tác tử cho ra kết quả riêng." },
+      { "num": "03", "title": "Bộ tổng hợp so sánh kết quả", "desc": "Biểu quyết đa số xác định kết quả cuối; xung đột được gắn cờ để xem xét." },
+      { "num": "04", "title": "Xem kết quả và xuất JSON", "desc": "Xem mệnh giá, quốc gia, chất liệu, trạng thái đồng thuận và tải dữ liệu có cấu trúc." }
+    ],
+    "agentsTitle": "Hệ thống tác tử",
+    "agentsSub": "Mỗi tác tử hoạt động độc lập. Bộ tổng hợp đưa ra kết quả cuối cùng.",
+    "agents": [
+      { "label": "Tác tử 1", "name": "Mô hình ML/DL", "desc": "Phân tích đặc trưng hình ảnh, dấu hiệu mệnh giá và vùng tiền được cắt.", "accent": "teal" },
+      { "label": "Tác tử 2", "name": "LLM API", "desc": "Đọc thông tin hiển thị và suy luận về quốc gia, tiền tệ, chất liệu, mô tả.", "accent": "violet" },
+      { "label": "Tác tử 3", "name": "Tìm kiếm trực quan", "desc": "Đối chiếu ảnh tải lên với nguồn tham chiếu trực quan khi có dữ liệu.", "accent": "blue" },
+      { "label": "Bộ tổng hợp", "name": "Biểu quyết đa số", "desc": "Áp dụng biểu quyết đa số và đánh dấu cần xem lại khi kết quả không thống nhất.", "accent": "amber" }
+    ],
+    "resultTitle": "Kết quả mẫu",
+    "resultSub": "Kết quả cuối bao gồm mệnh giá, xuất xứ, chất liệu, trạng thái đồng thuận và xuất JSON có cấu trúc.",
+    "resultNote": "Ví dụ minh họa",
+    "resultDenom": "Mệnh giá",
+    "resultCountry": "Quốc gia",
+    "resultMaterial": "Chất liệu",
+    "resultConsensus": "Đồng thuận",
+    "resultStatus": "Trạng thái",
+    "resultCompleted": "Hoàn thành",
+    "featTitle": "Mọi thứ bạn cần",
+    "featSub": "Các công cụ được xây dựng xung quanh quy trình nhận diện.",
+    "seaTitle": "Trọng tâm Đông Nam Á",
+    "seaSub": "Tối ưu hoá cho các đồng tiền phổ biến nhất trong khu vực.",
+    "ctaTitle": "Sẵn sàng nhận diện một tờ tiền?",
+    "ctaSub": "Tải ảnh lên và nhận kết quả có cấu trúc trong vài giây — không cần cài đặt.",
+    "ctaMain": "Bắt đầu quét",
+    "ctaSecond": "Mua token"
+  },
+  "stats": {
+    "label1": "Lượt nhận diện",
+    "label2": "Độ chính xác",
+    "label3": "Quốc gia hỗ trợ",
+    "label4": "Dữ liệu huấn luyện"
+  },
+  "footer": {
+    "slogan": "Nâng tầm kiểm chứng với trí tuệ nhân tạo đa tác tử.",
+    "product": "Sản phẩm",
+    "support": "Hỗ trợ",
+    "legal": "Pháp lý",
+    "links": {
+      "workspace": "Không gian làm việc",
+      "directory": "Danh mục tiền",
+      "pricing": "Bảng giá",
+      "guide": "Hướng dẫn",
+      "feedback": "Gửi phản hồi",
+      "privacy": "Chính sách bảo mật",
+      "terms": "Điều khoản dịch vụ"
+    }
+  }
+}

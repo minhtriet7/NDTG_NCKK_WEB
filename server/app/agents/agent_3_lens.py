@@ -157,6 +157,7 @@ class Agent3Lens(BaseAgent):
         if raw_lens_text:
             fallback_data = {
                 "quoc_gia": "Không xác định",
+                "ma_tien_te": "Không xác định",
                 "menh_gia": "Không xác định",
                 "mat_tien": "Không xác định",
                 "nam_phat_hanh": "Không xác định",
@@ -174,6 +175,7 @@ class Agent3Lens(BaseAgent):
 
         failed_data = {
             "quoc_gia": "Lỗi",
+            "ma_tien_te": "Lỗi",
             "menh_gia": "Lỗi",
             "mat_tien": "Lỗi",
             "nam_phat_hanh": "Lỗi",
@@ -197,6 +199,7 @@ class Agent3Lens(BaseAgent):
                 return self.build_visual_search_result(raw_lens_text=raw_lens_data)
 
             item.setdefault("quoc_gia", "Không xác định")
+            item.setdefault("ma_tien_te", "Không xác định")
             item.setdefault("menh_gia", "Không xác định")
             item.setdefault("mat_tien", "Không xác định")
             item.setdefault("nam_phat_hanh", "Không xác định")
@@ -220,6 +223,7 @@ class Agent3Lens(BaseAgent):
         self,
         compact_lens_data: Dict[str, Any],
         context: str = "",
+        debug_log: Optional[Dict] = None,
     ) -> str:
         raw_lens_data = json.dumps(compact_lens_data, ensure_ascii=False, indent=2)
 
@@ -250,6 +254,8 @@ Quy tắc:
 - Field "phuong_phap" ghi: "Google Lens SerpApi".
 - Field "do_tin_cay" từ 0.0 đến 1.0.
 """
+        if debug_log is not None:
+            debug_log["prompt_sent"] = prompt_format
         # 🌟 CẬP NHẬT 1: Chuyển sang model lite để né Quota và phản hồi nhanh hơn
         # 🌟 CẬP NHẬT 2: Sử dụng GenerateContentConfig để ép trả về JSON cấu trúc sạch
         try:
@@ -268,9 +274,13 @@ Quy tắc:
         except asyncio.TimeoutError:
             raise RuntimeError("Gemini Lens format call timeout after 20s.")
 
-        return clean_json(response.text or "")
+        raw_response = response.text or ""
+        if debug_log is not None:
+            debug_log["raw_response"] = raw_response
 
-    async def run(self, image_bytes: bytes, context: str = "") -> str:
+        return clean_json(raw_response)
+
+    async def run(self, image_bytes: bytes, context: str = "", debug_log: Optional[Dict] = None) -> str:
         if not settings.IMGBB_API_KEY:
             return self.build_visual_search_result(error=Exception("Thiếu IMGBB_API_KEY"))
 
@@ -297,7 +307,7 @@ Quy tắc:
             last_error = None
             for attempt in range(2):
                 try:
-                    formatted_text = await self._format_lens_results_with_llm(compact_data, context=context)
+                    formatted_text = await self._format_lens_results_with_llm(compact_data, context=context, debug_log=debug_log)
                     print(f"[{self.agent_name}] Hoàn tất format Lens!")
                     return self.parse_formatted_result(formatted_text, raw_lens_data)
 
@@ -319,6 +329,6 @@ Quy tắc:
             return self.build_visual_search_result(error=e)
 
 
-async def run_agent3_lens(image_bytes: bytes, context: str = "") -> str:
+async def run_agent3_lens(image_bytes: bytes, context: str = "", debug_log: Optional[Dict] = None) -> str:
     agent = Agent3Lens()
-    return await agent.run(image_bytes, context)
+    return await agent.run(image_bytes, context, debug_log=debug_log)

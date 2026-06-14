@@ -77,9 +77,11 @@ def _get_attr(element, name: str) -> str:
         return ""
 
 
-def _element_text(element) -> str:
+def _element_text(driver, element) -> str:
     try:
-        return _clean_spaces(element.text or "")
+        # Use JavaScript to get text regardless of CSS visibility
+        txt = driver.execute_script("return arguments[0].innerText || arguments[0].textContent;", element)
+        return _clean_spaces(txt or "")
     except Exception:
         return ""
 
@@ -90,14 +92,14 @@ def _parent_text(driver, element, depth: int = 3) -> str:
     """
     try:
         current = element
-        best = _element_text(current)
+        best = _element_text(driver, current)
 
         for _ in range(depth):
             current = driver.execute_script("return arguments[0].parentElement;", current)
             if not current:
                 break
 
-            txt = _element_text(current)
+            txt = _element_text(driver, current)
             if len(txt) > len(best):
                 best = txt
 
@@ -106,7 +108,7 @@ def _parent_text(driver, element, depth: int = 3) -> str:
 
         return best[:1000]
     except Exception:
-        return _element_text(element)[:1000]
+        return _element_text(driver, element)[:1000]
 
 
 def _classify_bucket(title: str, snippet: str, url: str) -> str:
@@ -171,7 +173,7 @@ def extract_lens_evidence_from_driver(
         if not _is_external_url(href):
             continue
 
-        anchor_text = _element_text(anchor)
+        anchor_text = _element_text(driver, anchor)
         snippet = _parent_text(driver, anchor, depth=4)
 
         title = anchor_text
@@ -212,7 +214,7 @@ def extract_lens_evidence_from_driver(
 
     # Fallback: lấy text body nếu không có link external.
     try:
-        body_text = _clean_spaces(driver.find_element("tag name", "body").text or "")
+        body_text = _clean_spaces(driver.execute_script("return document.body.innerText || document.body.textContent;") or "")
     except Exception:
         body_text = ""
 

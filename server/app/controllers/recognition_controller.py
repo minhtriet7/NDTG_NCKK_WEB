@@ -141,3 +141,24 @@ class RecognitionController:
     async def get_result_detail(user: User, record_id: str):
         result = await RecognitionService.get_recognition_by_id(str(user.id), record_id)
         return _format_result_detail(result)
+
+    @staticmethod
+    async def debug_recognize(user: User, file: UploadFile):
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=400,
+                detail="Vui lòng tải lên một tệp hình ảnh.",
+            )
+
+        image_bytes = await file.read()
+        
+        # Gọi run_pipeline trực tiếp với debug_mode=True
+        # Không dùng process_banknote vì nó trả về DB record model, thay vì dict
+        debug_result = await RecognitionService.run_pipeline(
+            user=user,
+            image_bytes=image_bytes,
+            task=None,
+            debug_mode=True
+        )
+
+        return debug_result

@@ -1,56 +1,45 @@
-# ==========================================
-# 1. FILE BẢO MẬT (CỰC KỲ QUAN TRỌNG)
-# ==========================================
-.env
-client/.env
-server/.env
-.env.local
-.env.*.local
-client/.env.local
-client/.env.*.local
-server/.env.local
-server/.env.*.local
-
-# ==========================================
-# 2. CLIENT (NODE.JS / VITE / REACT)
-# ==========================================
-# Thư mục chứa thư viện nặng
+# Dependencies
 node_modules/
 client/node_modules/
+venv/
+.venv/
+server/venv/
 
-# Thư mục build sản phẩm (Vite thường xuất ra thư mục dist)
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Build & Output
 dist/
 client/dist/
 build/
-
-# File log của npm
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# ==========================================
-# 3. SERVER (PYTHON)
-# ==========================================
-# Thư mục môi trường ảo
-venv/
-server/venv/
-env/
-.env_python/
-
-# File cache và file biên dịch của Python
 __pycache__/
-server/__pycache__/
-*.py[cod]
-*$py.class
+*.pyc
 
-# ==========================================
-# 4. HỆ ĐIỀU HÀNH & EDITOR (VS CODE, MAC, WIN)
-# ==========================================
-# Mac OS
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+
+# OS & Editor
 .DS_Store
-
-# Windows
 Thumbs.db
-
-# VS Code
 .vscode/
+.idea/
+
+# Keep Model Weights
+!server/ml_models/**/*.pt
+!server/ml_models/**/*.pth
+!server/ml_models/**/*.txt
+
+# Keep Important Project Files
+!README.md
+!INSTALL.md
+!TECHNOLOGIES.md
+!requirements.txt
+!package.json

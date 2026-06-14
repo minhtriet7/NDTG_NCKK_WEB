@@ -405,6 +405,7 @@ def build_banknote_result_from_evidence(
 
     return {
         "quoc_gia": country,
+        "ma_tien_te": currency or "Không xác định",
         "menh_gia": denomination,
         "mat_tien": "Không xác định",
         "nam_phat_hanh": "Không xác định",

@@ -16,6 +16,14 @@ async def scan_banknote(
     return await RecognitionController.recognize(current_user, file)
 
 
+@router.post("/debug_scan")
+async def debug_scan_banknote(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    return await RecognitionController.debug_recognize(current_user, file)
+
+
 @router.post("/tasks")
 async def start_recognition_task(
     file: UploadFile = File(...),

@@ -14,6 +14,7 @@ class BaseAgent(ABC):
         error_data = [
             {
                 "quoc_gia": "Không xác định",
+                "ma_tien_te": "Không xác định",
                 "menh_gia": "Không xác định",
                 "mat_tien": "Không xác định",
                 "nam_phat_hanh": "Không xác định",

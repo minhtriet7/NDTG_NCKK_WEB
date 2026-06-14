@@ -126,6 +126,7 @@ JSON_TEMPLATE = """
 [
   {
     "quoc_gia": "Tên quốc gia, ví dụ: Việt Nam, Hoa Kỳ",
+    "ma_tien_te": "Mã tiền tệ, ví dụ: VND, USD, EUR",
     "menh_gia": "Số + mã tiền tệ, ví dụ: 500000 VND, 1 USD",
     "mat_tien": "Mặt trước / Mặt sau / Không xác định",
     "nam_phat_hanh": "Năm phát hành nếu nhìn thấy, nếu không thì ghi Không xác định",
@@ -144,6 +145,7 @@ JSON_TEMPLATE = """
 
 REQUIRED_FIELDS = [
     "quoc_gia",
+    "ma_tien_te",
     "menh_gia",
     "mat_tien",
     "nam_phat_hanh",
@@ -247,6 +249,7 @@ def clean_json(text: str) -> str:
     if not text:
         return json.dumps([{
             "quoc_gia": "Lỗi",
+            "ma_tien_te": "Lỗi",
             "menh_gia": "Lỗi",
             "mat_tien": "Lỗi",
             "nam_phat_hanh": "Lỗi",
@@ -276,6 +279,7 @@ def clean_json(text: str) -> str:
     except Exception:
         return json.dumps([{
             "quoc_gia": "Lỗi",
+            "ma_tien_te": "Lỗi",
             "menh_gia": "Lỗi",
             "mat_tien": "Lỗi",
             "nam_phat_hanh": "Lỗi",
@@ -658,6 +662,7 @@ Nếu thông tin vòng trước mâu thuẫn với ảnh, hãy ưu tiên ảnh.
 def _build_error_response(error_message: str, status: str = "Failed") -> str:
     return json.dumps([{
         "quoc_gia": "Không xác định",
+        "ma_tien_te": "Không xác định",
         "menh_gia": "Không xác định",
         "mat_tien": "Không xác định",
         "nam_phat_hanh": "Không xác định",
@@ -707,7 +712,7 @@ async def _call_gemini_once(
 # Main Agent Function
 # ============================================================
 
-async def run_agent2_llm(image_bytes: bytes, context: str = "") -> str:
+async def run_agent2_llm(image_bytes: bytes, context: str = "", debug_log: Optional[Dict] = None) -> str:
     """
     Agent 2 chính:
     - Nhận image_bytes
@@ -757,6 +762,10 @@ Không thiếu field.
                     prompt,
                     safe_img,
                 )
+
+                if debug_log is not None:
+                    debug_log["prompt_sent"] = prompt
+                    debug_log["raw_response"] = raw_text
 
                 cleaned = clean_json(raw_text)
                 valid, message, normalized_json = validate_agent2_result(cleaned)
