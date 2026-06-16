@@ -1,5 +1,7 @@
 import inspect
 
+from fastapi import UploadFile
+
 from app.models.user_model import User
 from app.services.admin_service import AdminService
 from app.services.currency_service import CurrencyService
@@ -244,6 +246,14 @@ class AdminController:
         return await AdminService.get_all_results()
 
     @staticmethod
+    async def get_result_detail(id: str):
+        # AdminService.get_result_detail có thể chưa được định nghĩa
+        if hasattr(AdminService, "get_result_detail"):
+            return await AdminService.get_result_detail(id)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=501, detail="Result detail is not implemented yet in the backend.")
+
+    @staticmethod
     async def delete_result(id: str):
         return await AdminService.delete_result(id)
 
@@ -270,6 +280,10 @@ class AdminController:
     @staticmethod
     async def update_banknote(id: str, data: dict):
         return await AdminService.update_banknote(id, data)
+
+    @staticmethod
+    async def upload_banknote_image(id: str, file: UploadFile, side: str = "front"):
+        return await AdminService.upload_banknote_image(id, file, side)
 
     @staticmethod
     async def delete_banknote(id: str):

@@ -1,14 +1,57 @@
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from beanie import PydanticObjectId
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 
 from app.models.user_model import User
 from app.models.recognition_model import RecognitionRequest
-from app.schemas.user_schema import UserUpdate, ChangePasswordRequest
+from app.models.token_usage_model import TokenUsage
+from app.schemas.user_schema import UserUpdate, ChangePasswordRequest, UserPreferencesUpdate
 from app.core.security import verify_password, get_password_hash
 from app.services.email_service import EmailService
+from app.utils.cloudinary_handler import upload_image_to_cloudinary
+from app.utils.file_handler import validate_and_read_image
+
+try:
+    from app.models.config_model import SystemConfig
+except Exception:
+    SystemConfig = None
+
+
+DEFAULT_PREFERENCES = {
+    "language": "EN",
+    "theme": "light",
+    "default_country": "Vietnam",
+    "default_currency": "VND",
+}
+
+SUCCESS_STATUSES = [
+    "success",
+    "Success",
+    "completed",
+    "Completed",
+    "High Consensus",
+    "Partial Success",
+]
+
+FAILED_STATUSES = [
+    "failed",
+    "Failed",
+    "error",
+    "Error",
+]
+
+REVIEW_STATUSES = [
+    "Needs Review",
+    "needs_review",
+    "Conflict Detected",
+    "conflict",
+    "uncertain",
+    "Needs clearer image",
+    "needs_better_image",
+    "rerun_required",
+]
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
@@ -33,6 +76,7 @@ def serialize_user(user: User) -> Dict[str, Any]:
         "phone": getattr(user, "phone", None),
         "country": getattr(user, "country", None),
         "avatar_url": getattr(user, "avatar_url", None),
+        "preferences": getattr(user, "preferences", {}) or {},
         "created_at": getattr(user, "created_at", None),
         "updated_at": getattr(user, "updated_at", None),
         "last_login_at": getattr(user, "last_login_at", None),
@@ -53,9 +97,71 @@ def serialize_history(record: RecognitionRequest) -> Dict[str, Any]:
         "task_id": getattr(record, "task_id", None),
         "processing_time_ms": getattr(record, "processing_time_ms", None),
         "error_message": getattr(record, "error_message", None),
+        "token_usage": getattr(record, "token_usage", {}) or {},
+        "system_tokens_charged": getattr(record, "system_tokens_charged", 0),
+        "balance_before": getattr(record, "balance_before", None),
+        "balance_after": getattr(record, "balance_after", None),
         "created_at": getattr(record, "created_at", None),
         "updated_at": getattr(record, "updated_at", None),
     }
+
+
+def normalize_status(value: Optional[str]) -> str:
+    return str(value or "").strip().lower()
+
+
+def is_success_status(value: Optional[str]) -> bool:
+    status_value = normalize_status(value)
+    return (
+        status_value in {"success", "completed"}
+        or "success" in status_value
+        or "complete" in status_value
+        or "high consensus" in status_value
+    )
+
+
+def is_failed_status(value: Optional[str]) -> bool:
+    status_value = normalize_status(value)
+    return status_value in {"failed", "error"} or "fail" in status_value
+
+
+def is_review_status(value: Optional[str]) -> bool:
+    status_value = normalize_status(value)
+    return (
+        not is_success_status(status_value)
+        and not is_failed_status(status_value)
+        and (
+            "review" in status_value
+            or "conflict" in status_value
+            or "partial" in status_value
+            or "uncertain" in status_value
+            or "better" in status_value
+        )
+    )
+
+
+def normalize_preferences(raw: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    preferences = {
+        **DEFAULT_PREFERENCES,
+        **(raw or {}),
+    }
+
+    preferences["language"] = str(preferences.get("language") or "EN").upper()
+    if preferences["language"] not in {"EN", "VI"}:
+        preferences["language"] = DEFAULT_PREFERENCES["language"]
+
+    preferences["theme"] = str(preferences.get("theme") or "light").lower()
+    if preferences["theme"] not in {"light", "dark", "system"}:
+        preferences["theme"] = DEFAULT_PREFERENCES["theme"]
+
+    preferences["default_country"] = str(
+        preferences.get("default_country") or DEFAULT_PREFERENCES["default_country"]
+    )
+    preferences["default_currency"] = str(
+        preferences.get("default_currency") or DEFAULT_PREFERENCES["default_currency"]
+    ).upper()
+
+    return preferences
 
 
 class UserService:
@@ -74,6 +180,194 @@ class UserService:
 
         await user.save()
         return user
+
+    @staticmethod
+    async def upload_avatar(user: User, file: UploadFile) -> User:
+        image_bytes = await validate_and_read_image(file)
+        image_url = await upload_image_to_cloudinary(image_bytes)
+
+        if not image_url:
+            raise HTTPException(
+                status_code=503,
+                detail="Avatar upload service is not configured or unavailable.",
+            )
+
+        user.avatar_url = image_url
+
+        if hasattr(user, "updated_at"):
+            user.updated_at = now_utc()
+
+        await user.save()
+        return user
+
+    @staticmethod
+    async def get_profile_stats(user: User) -> Dict[str, Any]:
+        user_id = str(user.id)
+
+        total_scans = await RecognitionRequest.find(
+            RecognitionRequest.user_id == user_id
+        ).count()
+
+        successful_scans = await RecognitionRequest.find(
+            {
+                "user_id": user_id,
+                "status": {"$in": SUCCESS_STATUSES},
+            }
+        ).count()
+
+        failed_scans = await RecognitionRequest.find(
+            {
+                "user_id": user_id,
+                "status": {"$in": FAILED_STATUSES},
+            }
+        ).count()
+
+        needs_review_scans = await RecognitionRequest.find(
+            {
+                "user_id": user_id,
+                "status": {"$in": REVIEW_STATUSES},
+            }
+        ).count()
+
+        recent_records = (
+            await RecognitionRequest.find(RecognitionRequest.user_id == user_id)
+            .sort("-created_at")
+            .limit(5)
+            .to_list()
+        )
+
+        tokens_used = 0
+
+        try:
+            usage_pipeline = [
+                {
+                    "$match": {
+                        "user_id": user_id,
+                        "system_tokens_charged": {"$gt": 0},
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": None,
+                        "tokens_used": {"$sum": "$system_tokens_charged"},
+                    }
+                },
+            ]
+            usage_result = await TokenUsage.get_motor_collection().aggregate(
+                usage_pipeline
+            ).to_list(length=1)
+            tokens_used = int((usage_result[0] or {}).get("tokens_used", 0)) if usage_result else 0
+        except Exception:
+            tokens_used = 0
+
+        if not tokens_used:
+            try:
+                history_pipeline = [
+                    {"$match": {"user_id": user_id}},
+                    {
+                        "$group": {
+                            "_id": None,
+                            "tokens_used": {"$sum": "$system_tokens_charged"},
+                        }
+                    },
+                ]
+                history_result = await RecognitionRequest.get_motor_collection().aggregate(
+                    history_pipeline
+                ).to_list(length=1)
+                tokens_used = int((history_result[0] or {}).get("tokens_used", 0)) if history_result else 0
+            except Exception:
+                tokens_used = 0
+
+        return {
+            "total_scans": total_scans,
+            "successful_scans": successful_scans,
+            "failed_scans": failed_scans,
+            "needs_review_scans": needs_review_scans,
+            "tokens_used": tokens_used,
+            "last_scan_at": getattr(recent_records[0], "created_at", None)
+            if recent_records
+            else None,
+            "recent_activity": [
+                serialize_history(record)
+                for record in recent_records
+            ],
+        }
+
+    @staticmethod
+    async def get_profile_config() -> Dict[str, Any]:
+        config = None
+
+        if SystemConfig is not None:
+            try:
+                config = await SystemConfig.find_one()
+            except Exception:
+                config = None
+
+        raw_token_cost = getattr(config, "token_cost_per_scan", 1)
+        token_cost = int(raw_token_cost if raw_token_cost is not None else 1)
+        billing_mode = getattr(config, "token_billing_mode", "fixed") or "fixed"
+        dynamic_enabled = bool(
+            getattr(config, "dynamic_ai_token_billing_enabled", False)
+        )
+
+        if billing_mode == "dynamic" and dynamic_enabled:
+            billing_note = (
+                "Dynamic billing is enabled. Actual token cost can vary by AI usage."
+            )
+        else:
+            billing_note = "Fixed default scan cost from system settings."
+
+        return {
+            "token_cost_per_scan": token_cost,
+            "currency": "VND",
+            "billing_note": billing_note,
+            "billing_mode": billing_mode,
+            "dynamic_billing_enabled": dynamic_enabled,
+        }
+
+    @staticmethod
+    async def get_preferences(user: User) -> Dict[str, str]:
+        return normalize_preferences(getattr(user, "preferences", {}) or {})
+
+    @staticmethod
+    async def update_preferences(
+        user: User,
+        data: UserPreferencesUpdate,
+    ) -> Dict[str, str]:
+        payload = data.model_dump(exclude_unset=True)
+        preferences = normalize_preferences(getattr(user, "preferences", {}) or {})
+
+        if "language" in payload and payload["language"] is not None:
+            language = str(payload["language"]).strip().upper()
+            if language not in {"EN", "VI"}:
+                raise HTTPException(status_code=400, detail="Invalid language.")
+            preferences["language"] = language
+
+        if "theme" in payload and payload["theme"] is not None:
+            theme = str(payload["theme"]).strip().lower()
+            if theme not in {"light", "dark", "system"}:
+                raise HTTPException(status_code=400, detail="Invalid theme.")
+            preferences["theme"] = theme
+
+        if "default_country" in payload and payload["default_country"] is not None:
+            country = str(payload["default_country"]).strip()
+            if not country:
+                raise HTTPException(status_code=400, detail="Invalid default country.")
+            preferences["default_country"] = country
+
+        if "default_currency" in payload and payload["default_currency"] is not None:
+            currency = str(payload["default_currency"]).strip().upper()
+            if not currency or len(currency) > 10:
+                raise HTTPException(status_code=400, detail="Invalid default currency.")
+            preferences["default_currency"] = currency
+
+        user.preferences = preferences
+
+        if hasattr(user, "updated_at"):
+            user.updated_at = now_utc()
+
+        await user.save()
+        return preferences
 
     @staticmethod
     async def change_password(user: User, data: ChangePasswordRequest) -> Dict[str, Any]:

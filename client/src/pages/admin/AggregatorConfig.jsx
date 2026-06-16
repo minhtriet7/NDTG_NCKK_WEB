@@ -3,7 +3,7 @@ import { Save, Loader2, AlertCircle, GitMerge, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAppStore } from "../../store/appStore";
 import { useAuthStore } from "../../store/authStore";
-import { getAggregatorConfig, updateAggregatorConfig } from "../../services/adminConfigService";
+import { getAggregatorConfig, updateAggregatorConfig } from "../../services/adminService";
 
 const DEFAULT_CONFIG = {
   enabled: true,
@@ -157,9 +157,7 @@ export default function AggregatorConfig() {
     <div className="max-w-4xl mx-auto space-y-6 animate-[fadeInUp_0.4s_ease-out]">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className={`text-2xl font-bold ${textMain} flex items-center gap-2`}>
-            <GitMerge className="text-teal-600" /> {t.title}
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
           <p className="mt-1 text-slate-500 max-w-2xl">{t.desc}</p>
         </div>
 
@@ -174,9 +172,9 @@ export default function AggregatorConfig() {
         </button>
       </div>
 
-      <div className={`p-6 md:p-8 rounded-3xl border shadow-sm ${cardBg}`}>
+      <div className={`p-6 md:p-8 rounded-xl border shadow-sm ${cardBg}`}>
         <form onSubmit={handleSave} className="space-y-6">
-          <label className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 cursor-pointer">
+          <label className="flex items-center justify-between gap-4 p-4 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer">
             <span className={`font-black ${textMain}`}>{t.enabled}</span>
             <input
               type="checkbox"
@@ -233,14 +231,14 @@ export default function AggregatorConfig() {
               ["require_currency_match", t.currencyMatch],
               ["allow_partial_consensus", t.partial],
             ].map(([field, label]) => (
-              <label key={field} className="flex items-center gap-3 cursor-pointer p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
+              <label key={field} className="flex items-center gap-3 cursor-pointer p-4 rounded-xl border border-slate-200 dark:border-slate-800">
                 <input type="checkbox" name={field} checked={Boolean(config[field])} onChange={handleChange} className="w-5 h-5 accent-teal-600" />
                 <span className={`text-sm font-bold ${textMain}`}>{label}</span>
               </label>
             ))}
           </div>
 
-          <div className="rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 flex gap-3 text-sm text-amber-700 dark:text-amber-300">
+          <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 flex gap-3 text-sm text-amber-700 dark:text-amber-300">
             <AlertCircle size={18} className="shrink-0 mt-0.5" />
             <p>
               Majority vote nên giữ min_consensus_ratio khoảng 0.66 để chấp nhận 2/3 agents. Weighted vote dùng khi muốn ưu tiên Agent 1 hoặc Agent 2.

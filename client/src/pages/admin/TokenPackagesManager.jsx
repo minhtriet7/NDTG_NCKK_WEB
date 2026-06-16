@@ -409,7 +409,7 @@ export default function TokenPackagesManager() {
     <div className="w-full max-w-[1440px] mx-auto space-y-6 animate-[fadeInUp_0.4s_ease-out]">
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {t.title}
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
@@ -467,7 +467,7 @@ export default function TokenPackagesManager() {
         />
       </div>
 
-      <div className={`p-4 rounded-2xl border shadow-sm ${cardClass}`}>
+      <div className={`p-4 rounded-xl border shadow-sm ${cardClass}`}>
         <div className="flex flex-col lg:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
@@ -494,7 +494,7 @@ export default function TokenPackagesManager() {
         </div>
       </div>
 
-      <div className={`rounded-3xl border shadow-sm overflow-hidden ${cardClass}`}>
+      <div className={`rounded-xl border shadow-sm overflow-hidden ${cardClass}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm whitespace-nowrap">
             <thead
@@ -524,7 +524,7 @@ export default function TokenPackagesManager() {
                   <td colSpan="6" className="text-center py-20">
                     <div className="flex flex-col items-center">
                       <div
-                        className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 ${
+                        className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 ${
                           isDark ? "bg-slate-800 text-slate-500" : "bg-slate-100 text-slate-400"
                         }`}
                       >
@@ -543,7 +543,7 @@ export default function TokenPackagesManager() {
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
                         <div
-                          className={`w-11 h-11 rounded-2xl flex items-center justify-center ${
+                          className={`w-11 h-11 rounded-xl flex items-center justify-center ${
                             isDark ? "bg-slate-800 text-teal-400" : "bg-teal-50 text-teal-600"
                           }`}
                         >
@@ -779,7 +779,7 @@ export default function TokenPackagesManager() {
                 </Field>
 
                 <label
-                  className={`flex items-center justify-between gap-4 p-4 rounded-2xl border cursor-pointer transition ${
+                  className={`flex items-center justify-between gap-4 p-4 rounded-xl border cursor-pointer transition ${
                     isDark
                       ? "bg-slate-900 border-slate-800 hover:border-teal-700"
                       : "bg-slate-50 border-slate-200 hover:border-teal-300"
@@ -839,7 +839,7 @@ export default function TokenPackagesManager() {
       {deleteModal.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
           <div
-            className={`w-full max-w-sm rounded-3xl shadow-2xl p-6 border ${
+            className={`w-full max-w-sm rounded-xl shadow-2xl p-6 border ${
               isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
             }`}
           >
@@ -852,7 +852,7 @@ export default function TokenPackagesManager() {
             </p>
 
             <div
-              className={`mt-5 p-4 rounded-2xl border ${
+              className={`mt-5 p-4 rounded-xl border ${
                 isDark ? "bg-slate-950 border-slate-800" : "bg-slate-50 border-slate-100"
               }`}
             >
@@ -907,7 +907,7 @@ function Field({ label, children }) {
 function StatCard({ isDark, label, value, icon }) {
   return (
     <div
-      className={`rounded-2xl border p-5 shadow-sm ${
+      className={`rounded-xl border p-5 shadow-sm ${
         isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
       }`}
     >
@@ -929,7 +929,7 @@ function SkeletonRow() {
     <tr>
       <td className="px-5 py-4">
         <div className="flex gap-3 items-center">
-          <div className="w-11 h-11 rounded-2xl bg-slate-200 dark:bg-slate-800 animate-pulse" />
+          <div className="w-11 h-11 rounded-xl bg-slate-200 dark:bg-slate-800 animate-pulse" />
           <div className="space-y-2">
             <div className="w-32 h-3 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
             <div className="w-44 h-3 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />

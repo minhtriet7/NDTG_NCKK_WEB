@@ -17,6 +17,7 @@ from app.services.evidence_ranker_service import (
     rank_lens_evidence,
 )
 from app.services.lens_parser_service import extract_lens_evidence_from_driver
+from app.utils.link_validator import filter_alive_links
 
 
 MAX_CHROME_CONCURRENCY = 2
@@ -103,31 +104,43 @@ class Agent3LensV2(BaseAgent):
         max_exact_matches = int(getattr(config, "max_exact_matches", 5) or 5)
         timeout_seconds = int(getattr(config, "request_timeout_seconds", 20) or 20)
 
-        chrome_service = ChromeDriver()
-        driver = None
+        lens_url = self._build_lens_url(
+            image_url=image_url,
+            language_code=str(getattr(config, "language_code", "vi") or "vi"),
+            country_code=str(getattr(config, "country_code", "vn") or "vn"),
+        )
+
         evidence: List[Dict[str, Any]] = []
+        max_retries = 3
 
-        try:
-            driver = chrome_service.get_driver()
+        for attempt in range(max_retries):
+            chrome_service = ChromeDriver()
+            driver = None
+            try:
+                print(f"[{self.agent_name}] Selenium Attempt {attempt + 1}/{max_retries} ...")
+                driver = chrome_service.get_driver()
 
-            lens_url = self._build_lens_url(
-                image_url=image_url,
-                language_code=str(getattr(config, "language_code", "vi") or "vi"),
-                country_code=str(getattr(config, "country_code", "vn") or "vn"),
-            )
+                driver.get(lens_url)
+                self._wait_for_lens_page(driver, timeout_seconds=timeout_seconds)
 
-            driver.get(lens_url)
-            self._wait_for_lens_page(driver, timeout_seconds=timeout_seconds)
+                evidence = extract_lens_evidence_from_driver(
+                    driver=driver,
+                    max_visual_matches=max_visual_matches,
+                    max_exact_matches=max_exact_matches,
+                    max_text_results=max_results,
+                )
 
-            evidence = extract_lens_evidence_from_driver(
-                driver=driver,
-                max_visual_matches=max_visual_matches,
-                max_exact_matches=max_exact_matches,
-                max_text_results=max_results,
-            )
-
-        finally:
-            chrome_service.cleanup(driver)
+                if evidence:
+                    evidence = asyncio.run(filter_alive_links(evidence))
+                    print(f"[{self.agent_name}] Attempt {attempt + 1} Succeeded! Found {len(evidence)} evidence(s) (alive).")
+                    break
+                else:
+                    print(f"[{self.agent_name}] Attempt {attempt + 1} Failed: No evidence found (Proxy might be dead or blocked).")
+            except Exception as e:
+                print(f"[{self.agent_name}] Attempt {attempt + 1} Error: {e}")
+            finally:
+                if chrome_service:
+                    chrome_service.cleanup(driver)
 
         if not evidence:
             return self._partial_response(

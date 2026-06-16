@@ -88,82 +88,88 @@ export default function UserGuide() {
   }[lang || "EN"];
 
   return (
-    <div
-      className={`max-w-4xl mx-auto font-sans space-y-8 py-6 px-4 transition-colors ${
-        isDark ? "text-slate-100" : "text-slate-900"
-      }`}
-    >
-      <div>
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-50 dark:bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-100 dark:border-teal-500/20 text-xs font-black uppercase tracking-wider mb-4">
-          <BookOpen className="w-4 h-4" />
-          Handbook
-        </div>
+    <div className="page-inner py-8 px-4 sm:px-6 lg:px-8 relative overflow-hidden min-h-screen">
+      <div className="page-orb-indigo top-0 right-0 opacity-20"></div>
+      <div className="page-orb-indigo bottom-40 left-0 opacity-20"></div>
 
-        <h2 className="text-3xl font-extrabold text-slate-900 dark:text-white">
-          {t.title}
-        </h2>
-        <p className="text-slate-500 dark:text-slate-400 mt-2">
-          {t.subtitle}
-        </p>
-      </div>
-
-      <div className="space-y-5">
-        {t.steps.map((step, index) => {
-          const Icon = step.icon;
-
-          return (
-            <div
-              key={step.title}
-              className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex gap-4 transition-colors"
-            >
-              <div className="w-11 h-11 bg-teal-50 dark:bg-teal-500/10 text-teal-600 dark:text-teal-300 rounded-xl flex items-center justify-center shrink-0 font-black">
-                {index + 1}
-              </div>
-
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <Icon className="w-5 h-5 text-teal-600 dark:text-teal-300" />
-                  <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                    {step.title}
-                  </h4>
-                </div>
-                <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
-                  {step.desc}
-                </p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="bg-slate-900 dark:bg-slate-950 rounded-3xl p-6 border border-slate-800 text-white shadow-sm">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-white/10 text-teal-300 flex items-center justify-center">
-            <Clock className="w-5 h-5" />
+      <div className="max-w-4xl mx-auto space-y-8 relative z-10">
+        <div>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-500/20 text-xs font-black uppercase tracking-wider mb-4">
+            <BookOpen className="w-4 h-4" />
+            Handbook
           </div>
-          <h3 className="text-xl font-black">{t.tipsTitle}</h3>
+
+          <h2 className="text-3xl font-extrabold text-slate-900 dark:text-white">
+            {t.title}
+          </h2>
+          <p className="text-slate-500 dark:text-slate-400 mt-2">
+            {t.subtitle}
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {t.tips.map((tip) => (
-            <div
-              key={tip}
-              className="flex items-start gap-2 bg-white/5 rounded-2xl p-4 border border-white/10 text-sm text-slate-300"
-            >
-              <ShieldCheck className="w-4 h-4 text-teal-300 shrink-0 mt-0.5" />
-              <span>{tip}</span>
+        <div className="space-y-5">
+          {t.steps.map((step, index) => {
+            const Icon = step.icon;
+
+            return (
+              <div
+                key={step.title}
+                className="card-base p-6 flex gap-4 transition-all duration-300 hover:shadow-md hover:border-indigo-500"
+              >
+                <div className="w-11 h-11 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 rounded-xl flex items-center justify-center shrink-0 font-black">
+                  {index + 1}
+                </div>
+
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Icon className="w-5 h-5 text-indigo-600 dark:text-indigo-300" />
+                    <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                      {step.title}
+                    </h4>
+                  </div>
+                  <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">
+                    {step.desc}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="card-base p-6 shadow-sm overflow-hidden relative">
+          <div className="absolute inset-0 bg-gradient-to-br from-indigo-900/10 to-transparent z-0 pointer-events-none"></div>
+          <div className="relative z-10">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 flex items-center justify-center">
+                <Clock className="w-5 h-5" />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 dark:text-white">{t.tipsTitle}</h3>
             </div>
-          ))}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {t.tips.map((tip) => (
+                <div
+                  key={tip}
+                  className="flex items-start gap-2 bg-slate-50/50 dark:bg-slate-950/20 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 text-sm text-slate-600 dark:text-slate-300"
+                >
+                  <ShieldCheck className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5" />
+                  <span>{tip}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <a
+            href="/recognize"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:-translate-y-0.5 transition-all"
+          >
+            <ScanLine className="w-5 h-5" />
+            {t.cta}
+          </a>
         </div>
       </div>
-
-      <a
-        href="/recognize"
-        className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold transition"
-      >
-        <ScanLine className="w-5 h-5" />
-        {t.cta}
-      </a>
     </div>
   );
 }

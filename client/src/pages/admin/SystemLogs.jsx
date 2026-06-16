@@ -171,7 +171,7 @@ export default function SystemLogs() {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
         <div>
-          <h1 className={`text-3xl font-black tracking-tight ${isDark?"text-white":"text-slate-900"}`}>{t.title}</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
           <p className="text-sm text-slate-500 mt-1 max-w-2xl">{t.sub}</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
@@ -183,26 +183,26 @@ export default function SystemLogs() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className={`p-5 rounded-2xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+        <div className={`p-5 rounded-xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t.statTot}</span><Activity className="text-blue-500" size={18}/></div>
           <span className={`text-2xl font-black ${isDark?"text-white":"text-slate-900"}`}>{kpis.tot}</span>
         </div>
-        <div className={`p-5 rounded-2xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+        <div className={`p-5 rounded-xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t.statErr}</span><AlertCircle className="text-rose-500" size={18}/></div>
           <span className="text-2xl font-black text-rose-500">{kpis.err}</span>
         </div>
-        <div className={`p-5 rounded-2xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+        <div className={`p-5 rounded-xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t.statWarn}</span><AlertTriangle className="text-amber-500" size={18}/></div>
           <span className="text-2xl font-black text-amber-500">{kpis.wrn}</span>
         </div>
-        <div className={`p-5 rounded-2xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+        <div className={`p-5 rounded-xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t.statLast}</span><Terminal className="text-slate-500" size={18}/></div>
           <span className={`text-lg font-bold ${isDark?"text-slate-300":"text-slate-700"} truncate block`}>{kpis.lastErr ? new Date(kpis.lastErr).toLocaleTimeString() : "N/A"}</span>
         </div>
       </div>
 
       {/* Filter Bar */}
-      <div className={`p-4 rounded-2xl border shadow-sm flex flex-wrap gap-4 items-center justify-between ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+      <div className={`p-4 rounded-xl border shadow-sm flex flex-wrap gap-4 items-center justify-between ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
         <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[300px]">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -230,7 +230,7 @@ export default function SystemLogs() {
       </div>
 
       {/* Main Content Area */}
-      <div className={`rounded-3xl border shadow-sm overflow-hidden h-[65vh] flex flex-col ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+      <div className={`rounded-xl border shadow-sm overflow-hidden h-[65vh] flex flex-col ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
         {loading && logs.items.length === 0 ? (
           <div className="flex-1 flex items-center justify-center"><div className="animate-spin text-teal-500"><RefreshCcw size={32}/></div></div>
         ) : logs.items.length === 0 ? (

@@ -182,184 +182,182 @@ export default function Info() {
   const t = content[lang || "EN"] || content.EN;
 
   return (
-    <div
-      className={`max-w-6xl mx-auto font-sans space-y-16 py-12 px-4 sm:px-6 lg:px-8 antialiased overflow-hidden relative ${
-        isDark ? "text-slate-100" : "text-slate-800"
-      }`}
-    >
-      <div className="absolute top-0 right-0 w-96 h-96 bg-teal-400 rounded-full blur-[120px] opacity-10 animate-pulse pointer-events-none"></div>
-      <div className="absolute bottom-40 left-0 w-96 h-96 bg-indigo-500 rounded-full blur-[120px] opacity-10 animate-pulse duration-[6000ms] pointer-events-none"></div>
+    <div className="page-inner py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden min-h-screen">
+      <div className="page-orb-indigo top-0 right-0 opacity-20"></div>
+      <div className="page-orb-indigo bottom-40 left-0 opacity-20"></div>
 
-      <section className="text-center space-y-6 relative z-10 animate-[fadeInUp_0.8s_ease-out]">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-50 dark:bg-teal-500/10 border border-teal-100 dark:border-teal-500/20 text-teal-700 dark:text-teal-300 text-sm font-bold shadow-sm">
-          <HelpCircle className="w-4 h-4" />
-          <span>{t.badge}</span>
-        </div>
-        <h1 className="text-5xl md:text-6xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-          {t.heroTitleA} <br className="hidden md:block" />
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#009688] to-blue-600">
-            {t.heroTitleB}
-          </span>
-        </h1>
-        <p className="text-lg md:text-xl text-slate-600 dark:text-slate-400 max-w-3xl mx-auto leading-relaxed">
-          {t.heroDesc}
-        </p>
-      </section>
-
-      <section className="relative z-10 space-y-10 pt-8">
-        <div className="flex flex-col md:flex-row items-center gap-4 text-center md:text-left justify-center md:justify-start">
-          <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-inner">
-            <BrainCircuit className="w-8 h-8 text-slate-600 dark:text-slate-300" />
+      <div className="max-w-6xl mx-auto space-y-16 relative z-10">
+        <section className="text-center space-y-6 animate-[fadeInUp_0.8s_ease-out]">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-550/10 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-700 dark:text-indigo-300 text-sm font-bold shadow-sm">
+            <HelpCircle className="w-4 h-4" />
+            <span>{t.badge}</span>
           </div>
-          <h2 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-            {t.clusterTitle}
-          </h2>
-        </div>
+          <h1 className="text-5xl md:text-6xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+            {t.heroTitleA} <br className="hidden md:block" />
+            <span className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent">
+              {t.heroTitleB}
+            </span>
+          </h1>
+          <p className="text-lg md:text-xl text-slate-655 dark:text-slate-400 max-w-3xl mx-auto leading-relaxed">
+            {t.heroDesc}
+          </p>
+        </section>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {t.agents.map((agent, index) => (
-            <div
-              key={agent.name}
-              className="bg-white dark:bg-slate-900 p-8 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1.5 group flex flex-col relative overflow-hidden"
-            >
-              <div
-                className={`absolute top-0 right-0 w-32 h-32 ${agent.bg} rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110`}
-              ></div>
-
-              <div className="flex items-center justify-between mb-8 relative z-10">
-                <div
-                  className={`w-14 h-14 ${agent.bg} ${agent.color} ${agent.border} rounded-2xl flex items-center justify-center border shadow-sm`}
-                >
-                  <agent.icon className="w-7 h-7" />
-                </div>
-                <div className="text-right">
-                  <div className={`text-3xl font-black ${agent.color}`}>
-                    {agent.power}
-                  </div>
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                    {t.baseAccuracy}
-                  </div>
-                </div>
-              </div>
-              <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3 tracking-tight relative z-10">
-                {agent.name}
-              </h3>
-              <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed flex-1 relative z-10">
-                {agent.desc}
-              </p>
-
-              <div className="w-full h-px bg-slate-100 dark:bg-slate-800 my-5 relative z-10"></div>
-              <div
-                className={`text-xs font-mono font-semibold ${agent.color} bg-slate-50 dark:bg-slate-950 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800 relative z-10`}
-              >
-                // {t.operational} / Node_{index + 1}
-              </div>
+        <section className="space-y-10 pt-8">
+          <div className="flex flex-col md:flex-row items-center gap-4 text-center md:text-left justify-center md:justify-start">
+            <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-inner">
+              <BrainCircuit className="w-8 h-8 text-slate-600 dark:text-slate-300" />
             </div>
-          ))}
-        </div>
-
-        <div className="bg-slate-900 p-8 md:p-10 rounded-3xl border border-slate-800 shadow-2xl relative overflow-hidden group transform transition-all duration-300 hover:border-teal-700">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-teal-900/40 via-slate-900 to-slate-900 opacity-80 z-0"></div>
-          <div className="relative z-10 grid md:grid-cols-[1fr,auto] gap-8 items-center">
-            <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-400 rounded-full border border-amber-500/20 text-xs font-bold uppercase tracking-wider mb-4">
-                <Award className="w-4 h-4" /> {t.aggregatorBadge}
-              </div>
-              <h3 className="text-3xl font-extrabold text-white tracking-tight mb-3">
-                {t.aggregatorTitle}
-              </h3>
-              <p className="text-slate-300 text-sm md:text-base max-w-3xl leading-relaxed">
-                {t.aggregatorDesc}
-              </p>
-            </div>
-            <Award className="w-24 h-24 text-amber-500/20 group-hover:scale-110 transition-transform duration-500 hidden md:block" />
+            <h2 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              {t.clusterTitle}
+            </h2>
           </div>
-        </div>
-      </section>
 
-      <section className="relative z-10 space-y-12 pt-12">
-        <div className="text-center max-w-2xl mx-auto space-y-3">
-          <h2 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-            {t.pipelineTitle}
-          </h2>
-          <p className="text-slate-600 dark:text-slate-400">{t.pipelineDesc}</p>
-        </div>
-
-        <div className="relative max-w-4xl mx-auto">
-          <div className="absolute left-8 md:left-1/2 md:-translate-x-1/2 top-4 bottom-4 w-1 bg-slate-100 dark:bg-slate-800 rounded-full"></div>
-
-          <div className="space-y-8">
-            {t.steps.map((step, index) => (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {t.agents.map((agent, index) => (
               <div
-                key={step.title}
-                className={`flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-8 ${
-                  index % 2 === 1 ? "md:flex-row-reverse" : ""
-                } group relative`}
+                key={agent.name}
+                className="card-base p-8 transition-all duration-300 hover:shadow-xl hover:-translate-y-1.5 group flex flex-col relative overflow-hidden"
               >
-                <div className="absolute left-8 md:left-1/2 -translate-x-1/2 w-4 h-4 bg-teal-500 rounded-full border-4 border-white dark:border-slate-950 shadow-sm z-10 hidden md:block"></div>
-
                 <div
-                  className={`w-full md:w-1/2 ${
-                    index % 2 === 0
-                      ? "md:pr-12 md:text-right"
-                      : "md:pl-12 md:text-left"
-                  } pl-16 md:pl-0`}
-                >
-                  <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm group-hover:shadow-md group-hover:border-teal-300 dark:group-hover:border-teal-700 transition-all duration-300 relative">
-                    <div className="flex items-center gap-3 mb-3 md:hidden">
-                      <step.icon className="w-5 h-5 text-teal-600" />
-                      <h4 className="text-lg font-bold text-slate-900 dark:text-white">
-                        {step.title}
-                      </h4>
+                  className={`absolute top-0 right-0 w-32 h-32 ${agent.bg} rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110`}
+                ></div>
+
+                <div className="flex items-center justify-between mb-8 relative z-10">
+                  <div
+                    className={`w-14 h-14 ${agent.bg} ${agent.color} ${agent.border} rounded-2xl flex items-center justify-center border shadow-sm`}
+                  >
+                    <agent.icon className="w-7 h-7" />
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-3xl font-black ${agent.color}`}>
+                      {agent.power}
                     </div>
-                    <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-2 hidden md:block">
-                      {index % 2 !== 0 && (
-                        <step.icon className="w-5 h-5 text-teal-600 inline mr-2" />
-                      )}
-                      {step.title}
-                      {index % 2 === 0 && (
-                        <step.icon className="w-5 h-5 text-teal-600 inline ml-2" />
-                      )}
-                    </h4>
-                    <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
-                      {step.text}
-                    </p>
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                      {t.baseAccuracy}
+                    </div>
                   </div>
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-3 tracking-tight relative z-10">
+                  {agent.name}
+                </h3>
+                <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed flex-1 relative z-10">
+                  {agent.desc}
+                </p>
+
+                <div className="w-full h-px bg-slate-100 dark:bg-slate-800 my-5 relative z-10"></div>
+                <div
+                  className={`text-xs font-mono font-semibold ${agent.color} bg-slate-50 dark:bg-slate-950/40 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800 relative z-10`}
+                >
+                  // {t.operational} / Node_{index + 1}
                 </div>
               </div>
             ))}
           </div>
-        </div>
-      </section>
 
-      <section className="relative z-10 text-center py-16 bg-slate-900 rounded-[2.5rem] shadow-2xl overflow-hidden mt-16 group">
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
-        <div className="absolute inset-0 bg-gradient-to-t from-teal-900/80 to-transparent z-0"></div>
-
-        <div className="relative z-10 space-y-6 px-4">
-          <Zap className="w-12 h-12 text-teal-400 mx-auto animate-pulse" />
-          <h3 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
-            {t.ctaTitle}
-          </h3>
-          <p className="text-slate-300 text-base max-w-2xl mx-auto">
-            {t.ctaDesc}
-          </p>
-          <div className="flex flex-col sm:flex-row justify-center gap-4 pt-6">
-            <Link
-              to="/directory"
-              className="flex items-center justify-center gap-2 bg-slate-800 text-white border border-slate-700 px-8 py-3.5 rounded-xl font-bold hover:bg-slate-700 transition active:scale-95 text-sm"
-            >
-              {t.explore}
-            </Link>
-            <Link
-              to="/recognize"
-              className="flex items-center justify-center gap-2 bg-[#009688] text-white px-8 py-3.5 rounded-xl font-bold hover:bg-teal-700 transition active:scale-95 text-sm shadow-lg shadow-teal-900/50"
-            >
-              <ScanLine className="w-5 h-5" /> {t.scan}
-            </Link>
+          <div className="card-base p-8 md:p-10 shadow-2xl relative overflow-hidden group transform transition-all duration-300 hover:border-indigo-500">
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-indigo-900/20 via-transparent to-transparent opacity-80 z-0"></div>
+            <div className="relative z-10 grid md:grid-cols-[1fr,auto] gap-8 items-center">
+              <div>
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-400 rounded-full border border-amber-500/20 text-xs font-bold uppercase tracking-wider mb-4">
+                  <Award className="w-4 h-4" /> {t.aggregatorBadge}
+                </div>
+                <h3 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-3">
+                  {t.aggregatorTitle}
+                </h3>
+                <p className="text-slate-600 dark:text-slate-300 text-sm md:text-base max-w-3xl leading-relaxed">
+                  {t.aggregatorDesc}
+                </p>
+              </div>
+              <Award className="w-24 h-24 text-amber-500/20 group-hover:scale-110 transition-transform duration-500 hidden md:block" />
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+
+        <section className="space-y-12 pt-12">
+          <div className="text-center max-w-2xl mx-auto space-y-3">
+            <h2 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              {t.pipelineTitle}
+            </h2>
+            <p className="text-slate-600 dark:text-slate-400">{t.pipelineDesc}</p>
+          </div>
+
+          <div className="relative max-w-4xl mx-auto">
+            <div className="absolute left-8 md:left-1/2 md:-translate-x-1/2 top-4 bottom-4 w-1 bg-slate-100 dark:bg-slate-800 rounded-full"></div>
+
+            <div className="space-y-8">
+              {t.steps.map((step, index) => (
+                <div
+                  key={step.title}
+                  className={`flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-8 ${
+                    index % 2 === 1 ? "md:flex-row-reverse" : ""
+                  } group relative`}
+                >
+                  <div className="absolute left-8 md:left-1/2 -translate-x-1/2 w-4 h-4 bg-indigo-500 rounded-full border-4 border-white dark:border-slate-950 shadow-sm z-10 hidden md:block"></div>
+
+                  <div
+                    className={`w-full md:w-1/2 ${
+                      index % 2 === 0
+                        ? "md:pr-12 md:text-right"
+                        : "md:pl-12 md:text-left"
+                    } pl-16 md:pl-0`}
+                  >
+                    <div className="card-base p-6 group-hover:shadow-md group-hover:border-indigo-500 transition-all duration-300 relative">
+                      <div className="flex items-center gap-3 mb-3 md:hidden">
+                        <step.icon className="w-5 h-5 text-indigo-600" />
+                        <h4 className="text-lg font-bold text-slate-900 dark:text-white">
+                          {step.title}
+                        </h4>
+                      </div>
+                      <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-2 hidden md:block">
+                        {index % 2 !== 0 && (
+                          <step.icon className="w-5 h-5 text-indigo-600 inline mr-2" />
+                        )}
+                        {step.title}
+                        {index % 2 === 0 && (
+                          <step.icon className="w-5 h-5 text-indigo-600 inline ml-2" />
+                        )}
+                      </h4>
+                      <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
+                        {step.text}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="text-center py-16 card-base shadow-2xl overflow-hidden mt-16 group relative">
+          <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-indigo-900/10 to-transparent z-0"></div>
+
+          <div className="relative z-10 space-y-6 px-4">
+            <Zap className="w-12 h-12 text-indigo-400 mx-auto animate-pulse" />
+            <h3 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              {t.ctaTitle}
+            </h3>
+            <p className="text-slate-600 dark:text-slate-300 text-base max-w-2xl mx-auto">
+              {t.ctaDesc}
+            </p>
+            <div className="flex flex-col sm:flex-row justify-center gap-4 pt-6">
+              <Link
+                to="/directory"
+                className="flex items-center justify-center gap-2 bg-slate-800 text-white border border-slate-700 px-8 py-3.5 rounded-xl font-bold hover:bg-slate-700 transition active:scale-95 text-sm"
+              >
+                {t.explore}
+              </Link>
+              <Link
+                to="/recognize"
+                className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-8 py-3.5 rounded-xl font-bold hover:bg-indigo-500 transition active:scale-95 text-sm shadow-lg shadow-indigo-500/20 hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:-translate-y-0.5 transition-all"
+              >
+                <ScanLine className="w-5 h-5" /> {t.scan}
+              </Link>
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

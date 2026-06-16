@@ -134,7 +134,7 @@ export default function AiModelConfig() {
             [field]: type === "number" ? Number(e.target.value) : e.target.value,
           })
         }
-        className={`w-full h-12 px-4 rounded-2xl border outline-none text-sm font-semibold ${inputClass}`}
+        className={`w-full h-12 px-4 rounded-xl border outline-none text-sm font-semibold ${inputClass}`}
       />
     </div>
   );
@@ -146,7 +146,7 @@ export default function AiModelConfig() {
           <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400 mb-2">
             Agent 1 ML/DL
           </p>
-          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {t.title}
           </h1>
           <p className="text-sm md:text-base text-slate-500 dark:text-slate-400 mt-2 max-w-2xl">
@@ -177,9 +177,9 @@ export default function AiModelConfig() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className={`rounded-3xl border shadow-sm p-6 space-y-5 ${cardClass}`}>
+        <div className={`rounded-xl border shadow-sm p-6 space-y-5 ${cardClass}`}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
               <Cpu size={18} />
             </div>
             <h2 className="text-xl font-black text-slate-900 dark:text-white">{t.modelPaths}</h2>
@@ -190,9 +190,9 @@ export default function AiModelConfig() {
           <Field label={t.classesPath} field="res_classes_path" />
         </div>
 
-        <div className={`rounded-3xl border shadow-sm p-6 space-y-5 ${cardClass}`}>
+        <div className={`rounded-xl border shadow-sm p-6 space-y-5 ${cardClass}`}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-teal-50 dark:bg-teal-900/30 flex items-center justify-center text-teal-600 dark:text-teal-400">
+            <div className="w-10 h-10 rounded-xl bg-teal-50 dark:bg-teal-900/30 flex items-center justify-center text-teal-600 dark:text-teal-400">
               <SlidersHorizontal size={18} />
             </div>
             <h2 className="text-xl font-black text-slate-900 dark:text-white">{t.parameters}</h2>
@@ -201,7 +201,7 @@ export default function AiModelConfig() {
           <button
             type="button"
             onClick={() => setForm({ ...form, enabled: !form.enabled })}
-            className={`w-full p-4 rounded-2xl border text-left flex items-center justify-between gap-4 transition-colors ${
+            className={`w-full p-4 rounded-xl border text-left flex items-center justify-between gap-4 transition-colors ${
               form.enabled
                 ? "border-teal-300 bg-teal-50/50 dark:bg-teal-900/20 dark:border-teal-800"
                 : "border-slate-200 dark:border-slate-800"
@@ -224,7 +224,7 @@ export default function AiModelConfig() {
             <select
               value={form.device}
               onChange={(e) => setForm({ ...form, device: e.target.value })}
-              className={`w-full h-12 px-4 rounded-2xl border outline-none text-sm font-bold ${inputClass}`}
+              className={`w-full h-12 px-4 rounded-xl border outline-none text-sm font-bold ${inputClass}`}
             >
               <option value="auto">Auto</option>
               <option value="cpu">CPU</option>

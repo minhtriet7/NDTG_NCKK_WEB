@@ -182,7 +182,7 @@ export default function Transactions() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+        <div className="card-base p-4 shadow-sm">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
             Total
           </p>
@@ -191,7 +191,7 @@ export default function Transactions() {
           </p>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+        <div className="card-base p-4 shadow-sm">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
             Completed
           </p>
@@ -200,7 +200,7 @@ export default function Transactions() {
           </p>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+        <div className="card-base p-4 shadow-sm">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
             Tokens
           </p>
@@ -209,7 +209,7 @@ export default function Transactions() {
           </p>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+        <div className="card-base p-4 shadow-sm">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
             Amount
           </p>
@@ -226,7 +226,7 @@ export default function Transactions() {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="card-base shadow-sm overflow-hidden">
         <div className="hidden md:grid p-6 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-400 uppercase tracking-wider grid-cols-6 gap-4">
           <span>{t.reference}</span>
           <span>{t.packageName}</span>
@@ -314,7 +314,7 @@ export default function Transactions() {
                       {t.tokens}
                     </p>
                     <span className="inline-flex items-center gap-1 font-bold text-slate-900">
-                      <CreditCard className="w-4 h-4 text-teal-600" />
+                      <CreditCard className="w-4 h-4 text-indigo-600" />
                       +{tx.tokens_added || tx.tokens || 0}
                     </span>
                   </div>

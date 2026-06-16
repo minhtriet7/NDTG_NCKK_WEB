@@ -14,9 +14,10 @@
     "mockSub": "Multi-Agent Engine",
     "mockUpload": "Upload Banknote Image",
     "mockUploadSub": "JPG, PNG, WEBP supported",
-    "mockAgent1": "ML/DL Agent",
+    "mockAgent1": "ChatGPT Vision Agent",
     "mockAgent2": "LLM Agent",
     "mockAgent3": "Visual Search",
+    "mockAgent4": "Collaborator",
     "mockAgg": "Aggregator Decision",
     "mockAggSub": "Majority vote in progress...",
     "mockJson": "Structured output",
@@ -26,18 +27,54 @@
     "howTitle": "How It Works",
     "howSub": "Four clear steps from image upload to a structured, consensus-based result.",
     "steps": [
-      { "num": "01", "title": "Upload banknote image", "desc": "Drag and drop or select a photo of any Southeast Asian banknote." },
-      { "num": "02", "title": "Agents analyze independently", "desc": "ML/DL model, LLM API, and Visual Search each produce their own result in parallel." },
-      { "num": "03", "title": "Aggregator compares results", "desc": "Majority voting determines the final answer; conflicts are flagged for review." },
-      { "num": "04", "title": "Review result and export JSON", "desc": "View denomination, country, material, consensus status, and download structured data." }
+      {
+        "num": "01",
+        "title": "Upload banknote image",
+        "desc": "Drag and drop or select a photo of any Southeast Asian banknote."
+      },
+      {
+        "num": "02",
+        "title": "Agents analyze independently",
+        "desc": "ChatGPT Vision, LLM API, and Visual Search each produce their own result in parallel."
+      },
+      {
+        "num": "03",
+        "title": "Aggregator compares results",
+        "desc": "Majority voting determines the final answer; conflicts are flagged for review."
+      },
+      {
+        "num": "04",
+        "title": "Review result and export JSON",
+        "desc": "View denomination, country, material, consensus status, and download structured data."
+      }
     ],
     "agentsTitle": "The Agent System",
     "agentsSub": "Each agent operates independently. The aggregator decides the final result.",
     "agents": [
-      { "label": "Agent 1", "name": "ML / DL Model", "desc": "Detects visual patterns, denomination clues, and cropped banknote regions.", "accent": "teal" },
-      { "label": "Agent 2", "name": "LLM API", "desc": "Reads visible text and reasons over country, currency, material, and description.", "accent": "violet" },
-      { "label": "Agent 3", "name": "Visual Search", "desc": "Compares the uploaded image with external visual references when available.", "accent": "blue" },
-      { "label": "Aggregator", "name": "Majority Voting", "desc": "Applies majority voting and marks conflicts when results do not agree.", "accent": "amber" }
+      {
+        "label": "Agent 1",
+        "name": "ChatGPT Vision",
+        "desc": "Analyzes visual patterns to identify the banknote denomination, country, and details.",
+        "accent": "teal"
+      },
+      {
+        "label": "Agent 2",
+        "name": "LLM API",
+        "desc": "Reads visible text and reasons over country, currency, material, and description.",
+        "accent": "violet"
+      },
+      {
+        "label": "Agent 3",
+        "name": "Visual Search",
+        "desc": "Compares the uploaded image with external visual references when available.",
+        "accent": "blue"
+      },
+      {
+        "label": "Aggregator",
+        "name": "Majority Voting",
+        "desc": "Applies majority voting and marks conflicts when results do not agree.",
+        "accent": "amber"
+      }
     ],
     "resultTitle": "Sample Output",
     "resultSub": "The final result includes denomination, origin, material, consensus status, and a structured JSON export.",
@@ -53,9 +90,10 @@
     "seaTitle": "Southeast Asia Focus",
     "seaSub": "Optimised for the currencies most commonly encountered across the region.",
     "ctaTitle": "Ready to analyze a banknote?",
-    "ctaSub": "Upload an image and get a structured result in seconds — no setup required.",
+    "ctaSub": "Upload an image and get a structured, consensus-based result in seconds — no setup required.",
     "ctaMain": "Start Scan",
-    "ctaSecond": "Buy Tokens"
+    "ctaSecond": "View Pricing",
+    "ctaLabel": "Get Started"
   },
   "stats": {
     "label1": "Total Scans",
@@ -68,6 +106,10 @@
     "product": "Product",
     "support": "Support",
     "legal": "Legal",
+    "platform": "Platform",
+    "company": "Company",
+    "allRightsReserved": "All rights reserved.",
+    "systemsOperational": "All systems operational",
     "links": {
       "workspace": "Workspace",
       "directory": "Directory",
@@ -75,7 +117,96 @@
       "guide": "User Guide",
       "feedback": "Feedback",
       "privacy": "Privacy Policy",
-      "terms": "Terms of Service"
+      "terms": "Terms of Service",
+      "exchange": "Currency Exchange",
+      "about": "About Us",
+      "contact": "Contact",
+      "dataDeletion": "Data Deletion",
+      "aiDisclaimer": "AI Disclaimer"
     }
+  },
+  "landing": {
+    "hero_badge": "ENTERPRISE COMPUTER VISION",
+    "hero_title_1": "Verify banknotes with",
+    "hero_title_2": "multi-agent",
+    "hero_title_3": "intelligence.",
+    "hero_desc": "An advanced AI workflow combining visual cropping, LLM reasoning, and multimodal search to establish absolute ground truth.",
+    "btn_start": "Start Workspace",
+    "btn_docs": "Explore Directory",
+    "video_label": "Platform Demo",
+    "video_title": "How Banknote AI Works",
+    "video_desc": "Watch our multi-agent pipeline identify, analyze, and verify a banknote in real-time. Full transparency at every step.",
+    "video_status_active": "AI System: Scanning & Analyzing",
+    "video_status_paused": "AI System: Paused",
+    "hero_card_verified": "Verified",
+    "hero_card_suspicious": "Suspicious",
+    "hero_card_confidence": "Confidence",
+    "hero_card_agents": "Agents",
+    "hero_card_system_label": "Live verification results",
+    "agents_label": "System Architecture",
+    "agents_title": "The Architecture",
+    "agents_desc": "A redundant, independent verification pipeline designed for zero-trust environments. Each agent operates autonomously before consensus.",
+    "curr_label": "Coverage",
+    "curr_title": "Supported Currencies",
+    "curr_desc": "Out-of-the-box support for major global currencies, powered by extensive LLM knowledge graphs.",
+    "workflow_label": "Pipeline",
+    "workflow_title": "Pipeline Flow",
+    "workflow_desc": "A deterministic workflow ensuring hallucination resistance through structural redundancy.",
+    "stats_section_label": "Platform Metrics",
+    "stats_label_1": "Analyses Performed",
+    "stats_detail_1": "and growing daily",
+    "stats_label_2": "Consensus Accuracy",
+    "stats_detail_2": "3-agent majority vote",
+    "stats_label_3": "Global Currencies",
+    "stats_detail_3": "across major economies",
+    "stats_label_4": "Average Latency",
+    "stats_detail_4": "end-to-end pipeline",
+    "stats_footnote": "Metrics updated in real-time from production telemetry."
+  },
+  "header": {
+    "home": "Home",
+    "dir": "Directory",
+    "ex": "Exchange",
+    "workspace": "Workspace",
+    "history": "History",
+    "pricing": "Pricing",
+    "login": "Log in",
+    "signup": "Sign up",
+    "logoutSuccess": "Logged out successfully!",
+    "confirm": "Log out",
+    "logoutConfirmTitle": "Confirm Logout",
+    "logoutConfirmDesc": "Are you sure you want to log out of your account?",
+    "cancel": "Cancel"
+  },
+  "exchange": {
+    "title": "Market Exchange Converter",
+    "subtitle": "Convert supported currencies using the latest rates cached by BanknoteAI.",
+    "source": "Source",
+    "provider": "Provider",
+    "active": "Active currencies",
+    "lastUpdated": "Last updated",
+    "amtFrom": "Amount & From",
+    "convertedTo": "Converted To",
+    "scanBtn": "Scan a Banknote",
+    "btnRefresh": "Refresh",
+    "info": "Rates are for informational purposes only.",
+    "staleWarn": "Rates may be outdated. Please verify before using them for real transactions.",
+    "noRates": "No market rates configured.",
+    "fresh": "Fresh",
+    "stale": "Stale",
+    "loadError": "Unable to load exchange rates."
+  },
+  "directory": {
+    "title": "Banknote Directory",
+    "subtitle": "Browse supported regional banknotes. Explore detailed metadata and AI compatibility.",
+    "searchPlaceholder": "Search by country, currency code (e.g., VND, THB)...",
+    "noResults": "No banknotes match your search criteria.",
+    "material": "Material",
+    "series": "Series",
+    "features": "Key Features",
+    "btnScan": "Scan Similar Note",
+    "noImage": "Image not available",
+    "reload": "Reload",
+    "error": "Unable to load banknote directory."
   }
 }

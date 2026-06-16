@@ -166,15 +166,11 @@ export default function CurrencyConverter() {
 
   if ((!ratesData || Object.keys(ratesData.rates || {}).length <= 1) && !isFetching) {
     return (
-      <div
-        className={`min-h-screen p-10 text-center ${
-          isDark ? "bg-slate-950 text-slate-400" : "bg-slate-50 text-slate-500"
-        }`}
-      >
+      <div className="page-inner p-10 text-center font-sans">
         <p className="font-bold text-xl">{error || t.noRates}</p>
         <button
           onClick={fetchRates}
-          className="mt-4 px-4 py-2 bg-teal-600 text-white rounded-lg"
+          className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg"
         >
           <RefreshCw className="inline w-4 h-4 mr-2" /> {t.btnRefresh}
         </button>
@@ -183,12 +179,9 @@ export default function CurrencyConverter() {
   }
 
   return (
-    <div
-      className={`min-h-screen p-6 md:p-10 font-sans transition-colors duration-300 ${
-        isDark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"
-      }`}
-    >
-      <div className="max-w-4xl mx-auto space-y-8">
+    <div className="page-inner pt-6 relative pb-24 font-sans transition-colors duration-300">
+      <div className="page-orb-indigo top-0 right-[-10%]" />
+      <div className="max-w-4xl mx-auto space-y-8 relative z-10">
         <div className="text-center space-y-3">
           <h1 className="text-3xl font-bold tracking-tight">{t.title}</h1>
           <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
@@ -236,18 +229,14 @@ export default function CurrencyConverter() {
           </div>
         )}
 
-        <div
-          className={`p-6 md:p-10 rounded-3xl shadow-sm border relative overflow-hidden ${
-            isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
-          }`}
-        >
+        <div className="card-base p-6 md:p-10 rounded-3xl relative overflow-hidden">
           <div className="flex flex-col md:flex-row items-center gap-6 relative z-10">
             <div className="w-full md:w-2/5 space-y-2">
               <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
                 {t.amtFrom}
               </label>
               <div
-                className={`flex border rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-teal-500/50 ${
+                className={`flex border rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500/50 ${
                   isDark ? "bg-slate-950 border-slate-700" : "bg-slate-50 border-slate-200"
                 }`}
               >
@@ -277,11 +266,11 @@ export default function CurrencyConverter() {
                 setFromCurr(toCurr);
                 setToCurr(fromCurr);
               }}
-              className={`p-4 rounded-full shadow-sm hover:border-teal-500 transition-all z-10 border ${
+              className={`p-4 rounded-full shadow-sm hover:border-indigo-500 transition-all z-10 border ${
                 isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
               }`}
             >
-              <ArrowRightLeft className="w-5 h-5 text-slate-400 hover:text-teal-500" />
+              <ArrowRightLeft className="w-5 h-5 text-slate-400 hover:text-indigo-500" />
             </button>
 
             <div className="w-full md:w-2/5 space-y-2">
@@ -295,7 +284,7 @@ export default function CurrencyConverter() {
               >
                 <div
                   className={`w-full p-4 font-mono text-lg font-bold flex items-center overflow-x-auto ${
-                    isDark ? "text-teal-400 bg-slate-900" : "text-teal-700 bg-slate-100"
+                    isDark ? "text-indigo-400 bg-slate-900" : "text-indigo-700 bg-slate-100"
                   }`}
                 >
                   {calculateResult()}
@@ -341,7 +330,7 @@ export default function CurrencyConverter() {
               </button>
               <button
                 onClick={() => navigate("/recognize")}
-                className="px-6 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-semibold rounded-xl text-sm transition-all shadow-sm active:scale-95"
+                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition-all shadow-sm active:scale-95"
               >
                 {t.scanBtn}
               </button>
@@ -359,12 +348,12 @@ export default function CurrencyConverter() {
                 setFromCurr(parts[1]);
                 setToCurr(parts[3]);
               }}
-              className={`p-4 border rounded-2xl shadow-sm flex items-center justify-between cursor-pointer hover:border-teal-500 transition-colors ${
+              className={`p-4 border rounded-2xl shadow-sm flex items-center justify-between cursor-pointer hover:border-indigo-500 transition-colors ${
                 isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
               }`}
             >
               <span className="text-sm font-semibold">{pair}</span>
-              <TrendingUp className="w-4 h-4 text-teal-500" />
+              <TrendingUp className="w-4 h-4 text-indigo-500" />
             </div>
           ))}
         </div>

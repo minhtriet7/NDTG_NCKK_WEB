@@ -8,6 +8,33 @@ export async function updateMe(payload) {
   return await api.put("/users/me", payload);
 }
 
+export async function uploadAvatar(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return await api.post("/users/me/avatar", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+}
+
+export async function getProfileStats() {
+  return await api.get("/users/me/stats");
+}
+
+export async function getProfileConfig() {
+  return await api.get("/users/me/profile-config");
+}
+
+export async function getPreferences() {
+  return await api.get("/users/me/preferences");
+}
+
+export async function updatePreferences(payload) {
+  return await api.put("/users/me/preferences", payload);
+}
+
 export async function changePassword(payload) {
   return await api.put("/users/me/password", payload);
 }

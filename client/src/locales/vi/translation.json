@@ -14,9 +14,10 @@
     "mockSub": "Lõi đa tác tử",
     "mockUpload": "Tải ảnh tiền giấy",
     "mockUploadSub": "Hỗ trợ JPG, PNG, WEBP",
-    "mockAgent1": "Tác tử ML/DL",
+    "mockAgent1": "Tác tử ChatGPT Vision",
     "mockAgent2": "Tác tử LLM",
     "mockAgent3": "Tìm kiếm trực quan",
+    "mockAgent4": "Cộng tác",
     "mockAgg": "Quyết định tổng hợp",
     "mockAggSub": "Đang biểu quyết đa số...",
     "mockJson": "Đầu ra có cấu trúc",
@@ -26,18 +27,54 @@
     "howTitle": "Cách hoạt động",
     "howSub": "Bốn bước rõ ràng từ tải ảnh đến kết quả có cấu trúc dựa trên đồng thuận.",
     "steps": [
-      { "num": "01", "title": "Tải ảnh tiền giấy", "desc": "Kéo thả hoặc chọn ảnh bất kỳ tờ tiền Đông Nam Á nào." },
-      { "num": "02", "title": "Các tác tử phân tích độc lập", "desc": "Mô hình ML/DL, LLM API và Tìm kiếm trực quan hoạt động song song, mỗi tác tử cho ra kết quả riêng." },
-      { "num": "03", "title": "Bộ tổng hợp so sánh kết quả", "desc": "Biểu quyết đa số xác định kết quả cuối; xung đột được gắn cờ để xem xét." },
-      { "num": "04", "title": "Xem kết quả và xuất JSON", "desc": "Xem mệnh giá, quốc gia, chất liệu, trạng thái đồng thuận và tải dữ liệu có cấu trúc." }
+      {
+        "num": "01",
+        "title": "Tải ảnh tiền giấy",
+        "desc": "Kéo thả hoặc chọn ảnh bất kỳ tờ tiền Đông Nam Á nào."
+      },
+      {
+        "num": "02",
+        "title": "Các tác tử phân tích độc lập",
+        "desc": "ChatGPT Vision, LLM API và Tìm kiếm trực quan hoạt động song song, mỗi tác tử cho ra kết quả riêng."
+      },
+      {
+        "num": "03",
+        "title": "Bộ tổng hợp so sánh kết quả",
+        "desc": "Biểu quyết đa số xác định kết quả cuối; xung đột được gắn cờ để xem xét."
+      },
+      {
+        "num": "04",
+        "title": "Xem kết quả và xuất JSON",
+        "desc": "Xem mệnh giá, quốc gia, chất liệu, trạng thái đồng thuận và tải dữ liệu có cấu trúc."
+      }
     ],
     "agentsTitle": "Hệ thống tác tử",
     "agentsSub": "Mỗi tác tử hoạt động độc lập. Bộ tổng hợp đưa ra kết quả cuối cùng.",
     "agents": [
-      { "label": "Tác tử 1", "name": "Mô hình ML/DL", "desc": "Phân tích đặc trưng hình ảnh, dấu hiệu mệnh giá và vùng tiền được cắt.", "accent": "teal" },
-      { "label": "Tác tử 2", "name": "LLM API", "desc": "Đọc thông tin hiển thị và suy luận về quốc gia, tiền tệ, chất liệu, mô tả.", "accent": "violet" },
-      { "label": "Tác tử 3", "name": "Tìm kiếm trực quan", "desc": "Đối chiếu ảnh tải lên với nguồn tham chiếu trực quan khi có dữ liệu.", "accent": "blue" },
-      { "label": "Bộ tổng hợp", "name": "Biểu quyết đa số", "desc": "Áp dụng biểu quyết đa số và đánh dấu cần xem lại khi kết quả không thống nhất.", "accent": "amber" }
+      {
+        "label": "Tác tử 1",
+        "name": "ChatGPT Vision",
+        "desc": "Nhận diện hình ảnh để phân tích mệnh giá, quốc gia và thuộc tính chi tiết của tờ tiền.",
+        "accent": "teal"
+      },
+      {
+        "label": "Tác tử 2",
+        "name": "LLM API",
+        "desc": "Đọc thông tin hiển thị và suy luận về quốc gia, tiền tệ, chất liệu, mô tả.",
+        "accent": "violet"
+      },
+      {
+        "label": "Tác tử 3",
+        "name": "Tìm kiếm trực quan",
+        "desc": "Đối chiếu ảnh tải lên với nguồn tham chiếu trực quan khi có dữ liệu.",
+        "accent": "blue"
+      },
+      {
+        "label": "Bộ tổng hợp",
+        "name": "Biểu quyết đa số",
+        "desc": "Áp dụng biểu quyết đa số và đánh dấu cần xem lại khi kết quả không thống nhất.",
+        "accent": "amber"
+      }
     ],
     "resultTitle": "Kết quả mẫu",
     "resultSub": "Kết quả cuối bao gồm mệnh giá, xuất xứ, chất liệu, trạng thái đồng thuận và xuất JSON có cấu trúc.",
@@ -53,9 +90,10 @@
     "seaTitle": "Trọng tâm Đông Nam Á",
     "seaSub": "Tối ưu hoá cho các đồng tiền phổ biến nhất trong khu vực.",
     "ctaTitle": "Sẵn sàng nhận diện một tờ tiền?",
-    "ctaSub": "Tải ảnh lên và nhận kết quả có cấu trúc trong vài giây — không cần cài đặt.",
+    "ctaSub": "Tải ảnh lên và nhận kết quả có cấu trúc, đồng thuận trong vài giây — không cần cài đặt.",
     "ctaMain": "Bắt đầu quét",
-    "ctaSecond": "Mua token"
+    "ctaSecond": "Xem bảng giá",
+    "ctaLabel": "Bắt Đầu"
   },
   "stats": {
     "label1": "Lượt nhận diện",
@@ -68,6 +106,10 @@
     "product": "Sản phẩm",
     "support": "Hỗ trợ",
     "legal": "Pháp lý",
+    "platform": "Nền tảng",
+    "company": "Công ty",
+    "allRightsReserved": "Bản quyền đã được bảo hộ.",
+    "systemsOperational": "Mọi hệ thống hoạt động ổn định",
     "links": {
       "workspace": "Không gian làm việc",
       "directory": "Danh mục tiền",
@@ -75,7 +117,96 @@
       "guide": "Hướng dẫn",
       "feedback": "Gửi phản hồi",
       "privacy": "Chính sách bảo mật",
-      "terms": "Điều khoản dịch vụ"
+      "terms": "Điều khoản dịch vụ",
+      "exchange": "Tỷ giá thị trường",
+      "about": "Về chúng tôi",
+      "contact": "Liên hệ",
+      "dataDeletion": "Yêu cầu xóa dữ liệu",
+      "aiDisclaimer": "Miễn trừ trách nhiệm AI"
     }
+  },
+  "landing": {
+    "hero_badge": "THỊ GIÁC MÁY TÍNH DOANH NGHIỆP",
+    "hero_title_1": "Xác thực tiền giấy bằng",
+    "hero_title_2": "trí tuệ đa tác tử",
+    "hero_title_3": "chính xác.",
+    "hero_desc": "Quy trình AI tiên tiến kết hợp cắt ảnh tự động, phân tích LLM và tìm kiếm đa phương thức để xác thực độ chính xác tuyệt đối.",
+    "btn_start": "Mở Không gian làm việc",
+    "btn_docs": "Khám phá danh mục",
+    "video_label": "Minh họa nền tảng",
+    "video_title": "Banknote AI Hoạt Động Thế Nào?",
+    "video_desc": "Theo dõi quy trình nhận diện, phân tích và xác thực tiền giấy của chúng tôi trong thời gian thực.",
+    "video_status_active": "Hệ thống AI: Đang quét & phân tích",
+    "video_status_paused": "Hệ thống AI: Tạm dừng",
+    "hero_card_verified": "Xác thực",
+    "hero_card_suspicious": "Ngờ vực",
+    "hero_card_confidence": "Độ tin cậy",
+    "hero_card_agents": "Tác tử",
+    "hero_card_system_label": "Kết quả xác thực trực tiếp",
+    "agents_label": "Kiến Trúc Hệ Thống",
+    "agents_title": "Kiến Trúc Hệ Thống",
+    "agents_desc": "Hệ thống đường ống xác thực độc lập, đa tầng được thiết kế cho môi trường độ tin cậy cao.",
+    "curr_label": "Phạm vi hỗ trợ",
+    "curr_title": "Hỗ Trợ Đa Tiền Tệ",
+    "curr_desc": "Sẵn sàng hỗ trợ các loại tiền tệ phổ biến trên thế giới, được vận hành bởi mạng lưới tri thức LLM sâu rộng.",
+    "workflow_label": "Quy trình",
+    "workflow_title": "Quy Trình Xử Lý",
+    "workflow_desc": "Quy trình xác định đảm bảo khả năng chống ảo giác thông qua sự dự phòng cấu trúc.",
+    "stats_section_label": "Chỉ Số Nền Tảng",
+    "stats_label_1": "Phân Tích Đã Thực Hiện",
+    "stats_detail_1": "và vẫn đang tăng hàng ngày",
+    "stats_label_2": "Độ Chính Xác Đồng Thuận",
+    "stats_detail_2": "biểu quyết đa số 3 tác tử",
+    "stats_label_3": "Tiền Tệ Toàn Cầu",
+    "stats_detail_3": "hỗ trợ nhiều quốc gia",
+    "stats_label_4": "Độ Trễ Trung Bình",
+    "stats_detail_4": "toàn bộ quy trình xử lý",
+    "stats_footnote": "Chỉ số được cập nhật thời gian thực từ hệ thống vận hành."
+  },
+  "header": {
+    "home": "Trang chủ",
+    "dir": "Danh mục",
+    "ex": "Tỷ giá",
+    "workspace": "Không gian làm việc",
+    "history": "Lịch sử",
+    "pricing": "Bảng giá",
+    "login": "Đăng nhập",
+    "signup": "Đăng ký",
+    "logoutSuccess": "Đăng xuất thành công!",
+    "confirm": "Đăng xuất",
+    "logoutConfirmTitle": "Xác nhận Đăng xuất",
+    "logoutConfirmDesc": "Bạn có chắc chắn muốn đăng xuất khỏi tài khoản?",
+    "cancel": "Hủy"
+  },
+  "exchange": {
+    "title": "Quy đổi Tỷ giá Thị trường",
+    "subtitle": "Quy đổi các đồng tiền bằng tỷ giá mới nhất được lưu trong BanknoteAI.",
+    "source": "Nguồn",
+    "provider": "Nhà cung cấp",
+    "active": "Tiền tệ đang bật",
+    "lastUpdated": "Cập nhật lần cuối",
+    "amtFrom": "Số lượng & Từ",
+    "convertedTo": "Thành tiền",
+    "scanBtn": "Quét Tiền Giấy",
+    "btnRefresh": "Làm mới",
+    "info": "Tỷ giá chỉ mang tính chất tham khảo.",
+    "staleWarn": "Tỷ giá có thể đã cũ. Vui lòng kiểm tra trước khi dùng cho giao dịch thực tế.",
+    "noRates": "Chưa có tỷ giá thị trường được cấu hình.",
+    "fresh": "Mới",
+    "stale": "Cũ",
+    "loadError": "Không thể tải tỷ giá."
+  },
+  "directory": {
+    "title": "Từ Điển Tiền Giấy",
+    "subtitle": "Tra cứu các loại tiền tệ được hệ thống AI hỗ trợ. Xem chi tiết thông số và hình ảnh gốc.",
+    "searchPlaceholder": "Tìm theo quốc gia, mã tiền tệ (VD: VND, THB)...",
+    "noResults": "Không tìm thấy tờ tiền nào phù hợp với từ khóa.",
+    "material": "Chất liệu",
+    "series": "Năm phát hành",
+    "features": "Đặc điểm nhận dạng",
+    "btnScan": "Quét tờ tiền tương tự",
+    "noImage": "Chưa có hình ảnh gốc",
+    "reload": "Tải lại",
+    "error": "Không thể tải danh mục tiền giấy."
   }
 }

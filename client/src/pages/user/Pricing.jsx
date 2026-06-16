@@ -390,8 +390,9 @@ export default function Pricing() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-24 font-sans text-slate-900 dark:text-slate-100 transition-colors duration-300">
-      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 pt-10 pb-10 mb-8 transition-colors">
+    <div className="page-inner pt-6 relative pb-24 font-sans transition-colors duration-300">
+      <div className="page-orb-indigo top-0 right-[-10%]" />
+      <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 pt-10 pb-10 mb-8 transition-colors relative z-10">
         <div className="max-w-7xl mx-auto px-4 md:px-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div className="max-w-2xl">
             <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-2 transition-colors">
@@ -403,7 +404,7 @@ export default function Pricing() {
           </div>
 
           <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 flex items-center gap-5 w-full md:w-auto shadow-sm transition-colors">
-            <div className="w-12 h-12 bg-teal-100 dark:bg-teal-900/50 rounded-full flex items-center justify-center text-teal-600 dark:text-teal-400 transition-colors">
+            <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/50 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400 transition-colors">
               <Coins size={24} />
             </div>
 
@@ -422,7 +423,7 @@ export default function Pricing() {
             <div className="ml-auto md:ml-4 border-l border-slate-200 dark:border-slate-700 pl-5 transition-colors">
               <button
                 onClick={() => navigate("/recognize")}
-                className="text-sm font-semibold text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 transition-colors whitespace-nowrap"
+                className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors whitespace-nowrap"
               >
                 {t.toWorkspace} &rarr;
               </button>
@@ -431,7 +432,7 @@ export default function Pricing() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 md:px-8 grid grid-cols-1 xl:grid-cols-3 gap-8">
+      <div className="max-w-7xl mx-auto px-4 md:px-8 grid grid-cols-1 xl:grid-cols-3 gap-8 relative z-10">
         <div className="xl:col-span-2 space-y-8">
           <div>
             <div className="flex items-center justify-between gap-3 mb-4">
@@ -493,12 +494,12 @@ export default function Pricing() {
                       onClick={() => setSelectedPackage(pkg)}
                       className={`relative cursor-pointer transition-all duration-200 rounded-3xl p-6 bg-white dark:bg-slate-900 flex flex-col ${
                         isSelected
-                          ? "ring-2 ring-teal-500 dark:ring-teal-400 border-transparent shadow-md scale-[1.02] z-10"
-                          : "border border-slate-200 dark:border-slate-800 shadow-sm hover:border-teal-300 dark:hover:border-teal-700"
+                          ? "ring-2 ring-indigo-500 dark:ring-indigo-400 border-transparent shadow-md scale-[1.02] z-10"
+                          : "border border-slate-200 dark:border-slate-800 shadow-sm hover:border-indigo-300 dark:hover:border-indigo-700"
                       }`}
                     >
                       {isHighlighted && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-teal-500 text-white text-[10px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-full shadow-sm whitespace-nowrap">
+                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-indigo-500 text-white text-[10px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-full shadow-sm whitespace-nowrap">
                           {pkg.badge || t.bestValue}
                         </div>
                       )}
@@ -532,7 +533,7 @@ export default function Pricing() {
                           >
                             <CheckCircle2
                               size={16}
-                              className="text-teal-500 dark:text-teal-400 shrink-0 mt-0.5 transition-colors"
+                              className="text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5 transition-colors"
                             />
                             <span>{feature}</span>
                           </li>
@@ -542,7 +543,7 @@ export default function Pricing() {
                       <div
                         className={`w-full py-3 rounded-xl text-center font-bold text-sm transition-colors ${
                           isSelected
-                            ? "bg-teal-600 dark:bg-teal-500 text-white shadow-sm"
+                            ? "bg-indigo-600 dark:bg-indigo-500 text-white shadow-sm"
                             : "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"
                         }`}
                       >
@@ -565,8 +566,8 @@ export default function Pricing() {
                 onClick={() => setSelectedGateway("sepay")}
                 className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
                   selectedGateway === "sepay"
-                    ? "border-teal-500 bg-teal-50/50 dark:bg-teal-900/20 shadow-sm ring-1 ring-teal-500 dark:ring-teal-400"
-                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-teal-300 dark:hover:border-teal-700"
+                    ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20 shadow-sm ring-1 ring-indigo-500 dark:ring-indigo-400"
+                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700"
                 }`}
               >
                 <div className="w-10 h-10 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
@@ -584,7 +585,7 @@ export default function Pricing() {
                 {selectedGateway === "sepay" && (
                   <CheckCircle2
                     size={16}
-                    className="absolute top-3 right-3 text-teal-600 dark:text-teal-400 transition-colors"
+                    className="absolute top-3 right-3 text-indigo-600 dark:text-indigo-400 transition-colors"
                   />
                 )}
               </button>
@@ -593,8 +594,8 @@ export default function Pricing() {
                 onClick={() => setSelectedGateway("bank_transfer")}
                 className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
                   selectedGateway === "bank_transfer"
-                    ? "border-teal-500 bg-teal-50/50 dark:bg-teal-900/20 shadow-sm ring-1 ring-teal-500 dark:ring-teal-400"
-                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-teal-300 dark:hover:border-teal-700"
+                    ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20 shadow-sm ring-1 ring-indigo-500 dark:ring-indigo-400"
+                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700"
                 }`}
               >
                 <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
@@ -612,7 +613,7 @@ export default function Pricing() {
                 {selectedGateway === "bank_transfer" && (
                   <CheckCircle2
                     size={16}
-                    className="absolute top-3 right-3 text-teal-600 dark:text-teal-400 transition-colors"
+                    className="absolute top-3 right-3 text-indigo-600 dark:text-indigo-400 transition-colors"
                   />
                 )}
               </button>
@@ -679,7 +680,7 @@ export default function Pricing() {
         <div className="xl:col-span-1">
           <div className="sticky top-6 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 md:p-8 transition-colors">
             <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-6 flex items-center gap-2 transition-colors">
-              <Receipt size={20} className="text-teal-600 dark:text-teal-400" />
+              <Receipt size={20} className="text-indigo-600 dark:text-indigo-400" />
               {t.summary}
             </h2>
 
@@ -735,7 +736,7 @@ export default function Pricing() {
                     <span className="text-slate-900 dark:text-white font-bold transition-colors">
                       {t.total}
                     </span>
-                    <span className="text-3xl font-black text-teal-600 dark:text-teal-400 tracking-tight transition-colors text-right">
+                    <span className="text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight transition-colors text-right">
                       {formatPrice(selectedPackage.price_vnd)}
                     </span>
                   </div>
@@ -749,7 +750,7 @@ export default function Pricing() {
                       ? "bg-amber-600 text-white hover:bg-amber-700"
                       : selectedGateway === "vnpay"
                         ? "bg-blue-600 text-white hover:bg-blue-700"
-                        : "bg-slate-900 dark:bg-teal-600 text-white hover:bg-slate-800 dark:hover:bg-teal-500"
+                        : "bg-slate-900 dark:bg-indigo-600 text-white hover:bg-slate-800 dark:hover:bg-indigo-500"
                   }`}
                 >
                   {isCheckoutLoading ? (
@@ -769,7 +770,7 @@ export default function Pricing() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 md:px-8 mt-24">
+      <div className="max-w-7xl mx-auto px-4 md:px-8 mt-24 relative z-10">
         <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-8 text-center transition-colors">
           {t.howItWorks}
         </h2>
@@ -785,7 +786,7 @@ export default function Pricing() {
               key={item.step}
               className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col items-center text-center transition-colors"
             >
-              <div className="w-10 h-10 bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 font-black rounded-full flex items-center justify-center mb-4 border border-teal-100 dark:border-teal-800/50 transition-colors">
+              <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 font-black rounded-full flex items-center justify-center mb-4 border border-indigo-100 dark:border-indigo-800/50 transition-colors">
                 {item.step}
               </div>
               <h3 className="font-bold text-slate-900 dark:text-white mb-2 transition-colors">
@@ -844,7 +845,7 @@ export default function Pricing() {
                           tx.payment_gateway ||
                           (lang === "VI" ? "Nạp token" : "Token recharge")}
                       </td>
-                      <td className="px-6 py-4 text-teal-600 dark:text-teal-400 font-bold transition-colors">
+                      <td className="px-6 py-4 text-indigo-600 dark:text-indigo-400 font-bold transition-colors">
                         +{tx.tokens_added || 0}
                       </td>
                       <td className="px-6 py-4">{formatPrice(tx.amount)}</td>

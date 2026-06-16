@@ -168,7 +168,7 @@ export default function FeedbacksManager() {
   return (
     <div className="w-full max-w-[1440px] mx-auto space-y-6 animate-[fadeInUp_0.4s_ease-out]">
       <div className="border-b border-slate-200 dark:border-slate-800 pb-4">
-        <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
         <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">{t.subtitle}</p>
       </div>
 
@@ -180,14 +180,14 @@ export default function FeedbacksManager() {
           { label: t.statResolved, val: kpis.resolved, icon: <CheckCircle2 size={16} className="text-emerald-500"/> },
           { label: t.statHigh, val: kpis.high, icon: <ShieldAlert size={16} className="text-rose-500"/> }
         ].map((k, i) => (
-          <div key={i} className={`p-4 rounded-2xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+          <div key={i} className={`p-4 rounded-xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
             <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{k.label}</span>{k.icon}</div>
             <span className={`text-xl font-black ${isDark ? "text-white" : "text-slate-900"}`}>{k.val}</span>
           </div>
         ))}
       </div>
 
-      <div className={`p-4 rounded-2xl border shadow-sm flex flex-wrap gap-3 ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+      <div className={`p-4 rounded-xl border shadow-sm flex flex-wrap gap-3 ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
           <input type="text" placeholder={t.searchPlaceholder} value={search} onChange={e => setSearch(e.target.value)} onKeyDown={handleSearchSubmit} className={`w-full pl-9 pr-4 py-2 border rounded-xl text-sm focus:outline-none focus:border-teal-500 ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200"}`}/>
@@ -198,7 +198,7 @@ export default function FeedbacksManager() {
         <button onClick={handleReset} className={`p-2.5 border rounded-xl transition ${isDark ? "text-slate-400 bg-slate-950 border-slate-800 hover:text-rose-400" : "text-slate-400 bg-slate-50 border-slate-200 hover:text-rose-600"}`}><RotateCcw size={16} /></button>
       </div>
 
-      <div className={`rounded-3xl border shadow-sm overflow-hidden ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+      <div className={`rounded-xl border shadow-sm overflow-hidden ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm whitespace-nowrap">
             <thead className={`uppercase text-[10px] font-bold tracking-wider border-b ${isDark ? "bg-slate-950/50 text-slate-500 border-slate-800" : "bg-slate-50 text-slate-500 border-slate-100"}`}>
@@ -256,7 +256,7 @@ export default function FeedbacksManager() {
 
       {replyModal.open && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <form onSubmit={submitReply} className={`w-full max-w-md rounded-3xl shadow-2xl p-6 border ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+          <form onSubmit={submitReply} className={`w-full max-w-md rounded-xl shadow-2xl p-6 border ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
             <h3 className={`text-xl font-black mb-4 flex items-center gap-2 ${isDark ? "text-white" : "text-slate-900"}`}><Send size={20} className="text-teal-500"/> Send Reply</h3>
             <textarea required rows="4" value={replyModal.msg} onChange={(e) => setReplyModal(m => ({ ...m, msg: e.target.value }))} placeholder="Type your response to the user..." className={`w-full px-4 py-3 rounded-xl border text-sm focus:outline-none mb-4 resize-none ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200 text-slate-900"}`}/>
             <select value={replyModal.nextStatus} onChange={(e) => setReplyModal(m => ({ ...m, nextStatus: e.target.value }))} className={`w-full px-4 py-3 rounded-xl border text-sm focus:outline-none mb-6 ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200 text-slate-900"}`}><option value="reviewing">Set to Reviewing</option><option value="resolved">Set to Resolved</option><option value="closed">Set to Closed</option></select>

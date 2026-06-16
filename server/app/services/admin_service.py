@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from beanie import PydanticObjectId
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 
 from app.models.user_model import User
 from app.models.recognition_model import RecognitionRequest
@@ -16,6 +16,8 @@ from app.models.currency_model import CurrencyRate, CurrencyRateSyncLog
 
 from app.services.currency_service import CurrencyService
 from app.services.payment_service import PaymentService
+from app.utils.cloudinary_handler import upload_image_to_cloudinary
+from app.utils.file_handler import validate_and_read_image
 
 
 def to_object_id(value: str) -> PydanticObjectId:
@@ -917,6 +919,46 @@ class AdminService:
 
         await banknote.save()
         return serialize_banknote(banknote)
+
+    @staticmethod
+    async def upload_banknote_image(
+        banknote_id: str,
+        file: UploadFile,
+        side: str = "front",
+    ) -> Dict[str, Any]:
+        banknote = await Banknote.get(to_object_id(banknote_id))
+
+        if not banknote:
+            raise HTTPException(status_code=404, detail="Banknote not found.")
+
+        normalized_side = str(side or "front").strip().lower()
+        if normalized_side not in {"front", "back"}:
+            raise HTTPException(status_code=400, detail="Image side must be 'front' or 'back'.")
+
+        image_bytes = await validate_and_read_image(file)
+        image_url = await upload_image_to_cloudinary(image_bytes)
+
+        if not image_url:
+            raise HTTPException(
+                status_code=503,
+                detail="Image upload service is not configured or unavailable.",
+            )
+
+        if normalized_side == "back":
+            banknote.back_image_url = image_url
+        else:
+            banknote.front_image_url = image_url
+
+        if hasattr(banknote, "updated_at"):
+            banknote.updated_at = now_utc()
+
+        await banknote.save()
+
+        return {
+            **serialize_banknote(banknote),
+            "uploaded_image_url": image_url,
+            "side": normalized_side,
+        }
 
     @staticmethod
     async def delete_banknote(banknote_id: str) -> Dict[str, Any]:

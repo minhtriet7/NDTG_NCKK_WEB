@@ -344,9 +344,7 @@ export default function BanknotesManager() {
     <div className="space-y-6 animate-[fadeInUp_0.3s_ease-out]">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
-          <h1 className={`text-2xl font-bold ${textMain} flex items-center gap-2`}>
-            <Database className="text-teal-600" /> {t.title}
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
           <p className="text-sm text-slate-500 mt-1">{t.subtitle}</p>
         </div>
 
@@ -380,7 +378,7 @@ export default function BanknotesManager() {
         <StatCard label={t.countries} value={stats.countries} isDark={isDark} icon={<Database size={18} />} />
       </div>
 
-      <div className={`p-4 rounded-3xl border shadow-sm flex flex-col md:flex-row gap-3 ${cardBg}`}>
+      <div className={`p-4 rounded-xl border shadow-sm flex flex-col md:flex-row gap-3 ${cardBg}`}>
         <div className="relative flex-1">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -406,7 +404,7 @@ export default function BanknotesManager() {
         </select>
       </div>
 
-      <div className={`rounded-3xl border shadow-sm overflow-hidden ${cardBg}`}>
+      <div className={`rounded-xl border shadow-sm overflow-hidden ${cardBg}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm whitespace-nowrap">
             <thead
@@ -451,6 +449,10 @@ export default function BanknotesManager() {
                             src={note.front_image_url}
                             alt="note"
                             className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2' ry='2'/><circle cx='8.5' cy='8.5' r='1.5'/><polyline points='21 15 16 10 5 21'/></svg>";
+                            }}
                           />
                         ) : (
                           <span className="text-[10px] text-slate-400">No Img</span>
@@ -706,7 +708,7 @@ export default function BanknotesManager() {
 function StatCard({ label, value, icon, isDark }) {
   return (
     <div
-      className={`p-5 rounded-3xl border shadow-sm ${
+      className={`p-5 rounded-xl border shadow-sm ${
         isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
       }`}
     >

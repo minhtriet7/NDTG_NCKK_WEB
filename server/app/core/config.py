@@ -156,5 +156,15 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    def __init__(self, **values):
+        super().__init__(**values)
+        if self.FRONTEND_URL:
+            if isinstance(self.ALLOW_ORIGINS, list):
+                if self.FRONTEND_URL not in self.ALLOW_ORIGINS:
+                    self.ALLOW_ORIGINS.append(self.FRONTEND_URL)
+            elif isinstance(self.ALLOW_ORIGINS, str):
+                if self.FRONTEND_URL != self.ALLOW_ORIGINS:
+                    self.ALLOW_ORIGINS = [self.ALLOW_ORIGINS, self.FRONTEND_URL]
+
 
 settings = Settings()

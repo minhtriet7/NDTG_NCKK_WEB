@@ -1,18 +1,49 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import LegalLayout from '../../layouts/LegalLayout';
+import { getPage } from "../../services/adminService";
 
 export default function TermsOfService() {
+  const { i18n } = useTranslation();
+  const isVi = i18n.language === 'vi' || i18n.language?.startsWith('vi');
+
+  const [content, setContent] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchContent = async () => {
+      try {
+        const data = await getPage('terms');
+        setContent(data);
+      } catch (err) {
+        console.error("Failed to load Terms of Service:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchContent();
+  }, []);
+
   return (
-    <div className="max-w-4xl mx-auto px-6 py-20 min-h-screen bg-background text-foreground">
-      <h1 className="text-4xl font-black mb-8 text-primary">Terms of Service</h1>
-      <div className="prose prose-slate dark:prose-invert max-w-none text-foreground opacity-80 space-y-4">
-        <p className="font-bold">Effective Date: January 1, 2026</p>
-        <h2 className="text-2xl font-bold mt-8 mb-4 text-foreground">1. Acceptance of Terms</h2>
-        <p>By accessing and using BanknoteAI Workspace, you agree to be bound by these Terms of Service. If you do not agree with any part of these terms, you may not use our service.</p>
-        <h2 className="text-2xl font-bold mt-8 mb-4 text-foreground">2. Service Usage & Tokens</h2>
-        <p>You agree to use our tokens responsibly and not abuse the API. Each banknote scan consumes a specific amount of tokens as described on our pricing page.</p>
-        <h2 className="text-2xl font-bold mt-8 mb-4 text-foreground">3. Liability</h2>
-        <p>Our analysis results, driven by Machine Learning and Large Language Models, are provided as-is. We do not guarantee 100% accuracy and are not liable for any financial decisions made based on our aggregator outputs.</p>
-      </div>
-    </div>
+    <LegalLayout title={isVi ? (content?.title_vi || "Điều khoản Dịch vụ") : (content?.title_en || "Terms of Service")}>
+      {loading ? (
+        <div className="animate-pulse space-y-4">
+          <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-full"></div>
+          <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-5/6"></div>
+          <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-full"></div>
+          <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-4/6"></div>
+        </div>
+      ) : content ? (
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {isVi ? content.content_vi : content.content_en}
+        </ReactMarkdown>
+      ) : (
+        <div className="text-center py-20 text-slate-500">
+          {isVi ? "Nội dung đang được cập nhật." : "Content is being updated."}
+        </div>
+      )}
+    </LegalLayout>
   );
 }

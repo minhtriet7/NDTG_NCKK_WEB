@@ -1,32 +1,60 @@
 @import "tailwindcss";
-
-/* Ensure no other @imports are here */
-/* Ensure the font import is completely removed from this file */
+@plugin "@tailwindcss/typography";
 
 @variant dark (&:where(.dark, .dark *));
 
 @theme {
   --font-sans: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
-  --color-primary: #3157F6;
+  --color-primary: #6366F1;
   --color-background: var(--bg-color);
   --color-surface: var(--surface-color);
   --color-foreground: var(--text-color);
   --color-border-theme: var(--border-color);
 }
 
+/* ─── DESIGN TOKENS ───────────────────────────────────────────────────────── */
+
 :root {
-  --bg-color: #f8fafc;
-  --surface-color: #ffffff;
-  --text-color: #0f172a;
-  --border-color: #e2e8f0;
+  /* Standard backgrounds */
+  --bg-color:       #F9F9FB;
+  --surface-color:  #ffffff;
+  --text-color:     #09090B;
+  --border-color:   #E4E4E7;
+
+  /* Adaptive section backgrounds (dark-feel sections) */
+  --section-deep:   #f0f4ff;   /* light: soft indigo tint */
+  --section-mid:    #eef2ff;   /* light: slightly lighter indigo */
+  --section-alt:    #F9F9FB;   /* light: standard */
+
+  /* Text on deep sections (light mode) */
+  --on-deep-title:  #09090B;
+  --on-deep-body:   #4F4F56;
+  --on-deep-muted:  #71717A;
+
+  /* Glass card (light mode) */
+  --glass-bg:       rgba(255, 255, 255, 0.75);
+  --glass-border:   rgba(228, 228, 231, 0.85);
 }
 
 .dark {
-  --bg-color: #020617;
-  --surface-color: #0f172a;
-  --text-color: #f8fafc;
-  --border-color: #1e293b;
+  --bg-color:       #09090B;
+  --surface-color:  #18181B;
+  --text-color:     #FAFAFA;
+  --border-color:   #27272A;
+
+  --section-deep:   #0C0C0E;
+  --section-mid:    #141416;
+  --section-alt:    #18181B;
+
+  --on-deep-title:  #FAFAFA;
+  --on-deep-body:   #D4D4D8;
+  --on-deep-muted:  #71717A;
+
+  --glass-bg:       rgba(24, 24, 27, 0.65);
+  --glass-border:   rgba(255, 255, 255, 0.04);
 }
+
+/* ─── BASE ────────────────────────────────────────────────────────────────── */
 
 body {
   font-family: "Plus Jakarta Sans", "Inter", sans-serif;
@@ -34,72 +62,321 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Thêm animation chuyển tab cho Auth */
-@keyframes slideFadeIn {
-  from {
-    opacity: 0;
-    transform: translateX(10px);
+/* ─── KEYFRAME ANIMATIONS ─────────────────────────────────────────────────── */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+  50%       { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0.15); }
+}
+
+@keyframes breathing-glow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(99, 102, 241, 0.2), inset 0 0 15px rgba(99, 102, 241, 0.05);
+    border-color: rgba(99, 102, 241, 0.35);
   }
-  to {
-    opacity: 1;
-    transform: translateX(0);
+  50% {
+    box-shadow: 0 0 35px rgba(99, 102, 241, 0.45), inset 0 0 20px rgba(99, 102, 241, 0.1);
+    border-color: rgba(139, 92, 246, 0.65);
   }
 }
 
-.tab-animate {
-  animation: slideFadeIn 0.4s ease-out forwards;
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeInDown {
-  from {
-    opacity: 0;
-    transform: translateY(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
 }
 
 @keyframes textGradient {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
-/* Đường cong gia tốc cao cấp (Apple/Stripe Style) */
-.cubic-bezier-auth {
-  transition-timing-function: cubic-bezier(0.76, 0, 0.24, 1);
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideFadeIn {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInStagger {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes countUp {
+  from { opacity: 0; transform: scale(0.85) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes revealLine {
+  from { transform: scaleX(0); opacity: 0; }
+  to   { transform: scaleX(1); opacity: 1; }
 }
 
 @keyframes formFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-.form-content-animate {
-  animation: formFadeIn 0.5s cubic-bezier(0.76, 0, 0.24, 1) forwards;
+@keyframes scanLine {
+  0%   { top: 0%; opacity: 0.8; }
+  50%  { opacity: 1; }
+  100% { top: 100%; opacity: 0.8; }
+}
+
+@keyframes terminalBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+@keyframes progressFill {
+  from { width: 0%; }
+  to   { width: var(--fill-width, 100%); }
+}
+
+/* ─── UTILITY CLASSES ─────────────────────────────────────────────────────── */
+
+/* Stagger entrance (page load) */
+.animate-float        { animation: float 6s ease-in-out infinite; }
+.animate-pulse-glow   { animation: pulse-glow 2s ease-in-out infinite; }
+.animate-breathing-glow { animation: breathing-glow 2.8s ease-in-out infinite; }
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2.2s infinite;
+}
+.animate-scan-line    { animation: scanLine 2s ease-in-out infinite; }
+.animate-stagger      { animation: fadeInStagger 0.5s ease-out forwards; }
+.animate-count-up     { animation: countUp 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+.animate-slide-up     { animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-reveal-line  { animation: revealLine 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-terminal-blink { animation: terminalBlink 1s step-end infinite; }
+
+/* Scroll-reveal: initial hidden state, JS adds `.revealed` */
+.scroll-reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.65s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.scroll-reveal.revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+.scroll-reveal-left {
+  opacity: 0;
+  transform: translateX(-28px);
+  transition: opacity 0.65s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.scroll-reveal-left.revealed {
+  opacity: 1;
+  transform: translateX(0);
+}
+.scroll-reveal-right {
+  opacity: 0;
+  transform: translateX(28px);
+  transition: opacity 0.65s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.scroll-reveal-right.revealed {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Stagger delays */
+.stagger-1 { animation-delay: 0.08s; opacity: 0; }
+.stagger-2 { animation-delay: 0.16s; opacity: 0; }
+.stagger-3 { animation-delay: 0.24s; opacity: 0; }
+.stagger-4 { animation-delay: 0.32s; opacity: 0; }
+.stagger-5 { animation-delay: 0.40s; opacity: 0; }
+
+.reveal-delay-1 { transition-delay: 0.05s; }
+.reveal-delay-2 { transition-delay: 0.12s; }
+.reveal-delay-3 { transition-delay: 0.19s; }
+.reveal-delay-4 { transition-delay: 0.26s; }
+
+/* ─── SECTION BACKGROUND UTILITIES ───────────────────────────────────────── */
+
+.section-deep  { background-color: var(--section-deep); }
+.section-mid   { background-color: var(--section-mid); }
+.section-alt   { background-color: var(--section-alt); }
+
+/* Text on adaptive dark/light sections */
+.on-deep-title { color: var(--on-deep-title); }
+.on-deep-body  { color: var(--on-deep-body); }
+.on-deep-muted { color: var(--on-deep-muted); }
+
+/* ─── GLASSMORPHISM ───────────────────────────────────────────────────────── */
+
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+}
+
+/* Dark-only glass (hero terminal mockup etc.) */
+.glass-card-dark {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card-light {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+/* ─── GLOW EFFECTS ────────────────────────────────────────────────────────── */
+
+.glow-indigo  { box-shadow: 0 0 20px rgba(99, 102, 241, 0.25), 0 0 60px rgba(99, 102, 241, 0.08); }
+.glow-emerald { box-shadow: 0 0 20px rgba(16, 185, 129, 0.25), 0 0 60px rgba(16, 185, 129, 0.08); }
+.glow-amber   { box-shadow: 0 0 20px rgba(245, 158, 11, 0.25), 0 0 60px rgba(245, 158, 11, 0.08); }
+.glow-cyan    { box-shadow: 0 0 20px rgba(6, 182, 212, 0.25),  0 0 60px rgba(6, 182, 212, 0.08); }
+
+/* ─── GRADIENT TEXT ───────────────────────────────────────────────────────── */
+
+.gradient-text-brand {
+  background: linear-gradient(135deg, #6366F1 0%, #A855F7 50%, #EC4899 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: textGradient 5s linear infinite;
+}
+
+.gradient-text-indigo {
+  background: linear-gradient(135deg, #818CF8, #A78BFA, #7C3AED);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-static {
+  background: linear-gradient(135deg, #6366F1, #A855F7);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── BENTO CARD ──────────────────────────────────────────────────────────── */
+
+.bento-card {
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.bento-card:hover {
+  transform: translateY(-3px);
+}
+
+/* ─── UPLOAD ZONE ─────────────────────────────────────────────────────────── */
+
+.upload-zone-idle {
+  border: 2px dashed rgba(99, 102, 241, 0.3);
+  transition: all 0.3s ease;
+}
+.upload-zone-idle:hover {
+  border-color: rgba(99, 102, 241, 0.6);
+  animation: breathing-glow 2.5s ease-in-out infinite;
+}
+.upload-zone-dragging {
+  border: 2px dashed rgba(99, 102, 241, 0.8);
+  animation: breathing-glow 1.5s ease-in-out infinite;
+  background: rgba(99, 102, 241, 0.05);
+  transform: scale(1.01);
+}
+
+/* ─── TERMINAL LOG ────────────────────────────────────────────────────────── */
+
+.terminal-log {
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', 'Courier New', monospace;
+  font-size: 0.8rem;
+  line-height: 1.65;
+}
+
+/* ─── TYPOGRAPHY UTILITIES ────────────────────────────────────────────────── */
+
+.tab-animate      { animation: slideFadeIn 0.4s ease-out forwards; }
+.form-content-animate { animation: formFadeIn 0.5s cubic-bezier(0.76, 0, 0.24, 1) forwards; }
+.cubic-bezier-auth { transition-timing-function: cubic-bezier(0.76, 0, 0.24, 1); }
+
+/* ─── HIDE SCROLLBAR ──────────────────────────────────────────────────────── */
+
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ─── CONNECTOR LINE (pipeline) ───────────────────────────────────────────── */
+
+.pipeline-connector {
+  background: linear-gradient(90deg, rgba(99,102,241,0.6), rgba(168,85,247,0.6));
+  height: 1px;
+  flex: 1;
+}
+
+.dark .pipeline-connector {
+  background: linear-gradient(90deg, rgba(99,102,241,0.4), rgba(168,85,247,0.4));
+}
+
+/* ─── PROGRESS BAR ────────────────────────────────────────────────────────── */
+
+.progress-bar-fill {
+  animation: progressFill 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ─── SHARED PAGE UTILITIES ────────────────────────────────────────────────── */
+
+/* Page wrapper standard — áp dụng cho tất cả inner pages */
+.page-inner {
+  min-height: 100vh;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+}
+
+/* Standard card (thay thế bg-white dark:bg-slate-900) */
+.card-base {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: 1.25rem;
+}
+
+/* Primary button standard */
+.btn-primary {
+  @apply bg-indigo-600 hover:bg-indigo-500 text-white font-bold 
+         px-5 py-2.5 rounded-xl transition-all
+         hover:shadow-[0_0_20px_rgba(99,102,241,0.4)]
+         hover:-translate-y-0.5;
+}
+
+/* Subtle gradient orb decorator (dùng lại trên inner pages) */
+.page-orb-indigo {
+  position: absolute;
+  width: 480px; height: 480px;
+  border-radius: 9999px;
+  background: rgba(99,102,241,0.08);
+  filter: blur(100px);
+  pointer-events: none;
 }

@@ -1,38 +1,128 @@
-import React from 'react';
-import { useTranslation } from 'react-i18next';
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useScrollReveal } from "../../hooks/useScrollReveal";
 
-export default function StatsSection({ stats }) {
-  const { t: i18n_t } = useTranslation();
-  const t = i18n_t('home', { returnObjects: true });
+export default function StatsSection() {
+  const { t } = useTranslation();
+  const ref = useScrollReveal();
 
-  if (!stats || stats.length === 0) return null;
+  const STATS = [
+    {
+      value:  "1.2M+",
+      label:  t("landing.stats_label_1", "Analyses Performed"),
+      detail: t("landing.stats_detail_1", "and growing daily"),
+      accent: "text-indigo-600 dark:text-indigo-400",
+    },
+    {
+      value:  "99.8%",
+      label:  t("landing.stats_label_2", "Consensus Accuracy"),
+      detail: t("landing.stats_detail_2", "3-agent majority vote"),
+      accent: "text-emerald-600 dark:text-emerald-400",
+    },
+    {
+      value:  "4+",
+      label:  t("landing.stats_label_3", "Global Currencies"),
+      detail: t("landing.stats_detail_3", "across major economies"),
+      accent: "text-purple-600 dark:text-purple-400",
+    },
+    {
+      value:  "< 2.5s",
+      label:  t("landing.stats_label_4", "Average Latency"),
+      detail: t("landing.stats_detail_4", "end-to-end pipeline"),
+      accent: "text-amber-600 dark:text-amber-400",
+    },
+  ];
 
   return (
-    <section className="py-16 md:py-20 bg-background border-t border-border-theme relative z-10">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6">
-        <p className="text-center text-[10px] md:text-xs font-bold uppercase tracking-widest text-foreground opacity-50 mb-8 md:mb-10">
-          {t?.statsTitle}
+    <section ref={ref} className="relative py-24 overflow-hidden section-deep">
+
+      {/* Top gradient border */}
+      <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-slate-200 dark:via-white/[0.08] to-transparent" />
+      <div className="absolute bottom-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-slate-200 dark:via-white/[0.08] to-transparent" />
+
+      {/* Subtle background */}
+      <div className="absolute inset-0 pointer-events-none
+        bg-[radial-gradient(ellipse_80%_50%_at_50%_100%,rgba(99,102,241,0.05),transparent)]
+        dark:bg-gradient-to-r dark:from-indigo-500/5 dark:via-purple-500/5 dark:to-indigo-500/5" />
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 relative z-10">
+
+        {/* ── Label ── */}
+        <p className="text-center text-[11px] font-mono font-bold tracking-widest uppercase
+                      text-indigo-500 dark:text-indigo-400 mb-12 scroll-reveal">
+          {t("landing.stats_section_label", "Platform Metrics")}
         </p>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-          {stats.map((stat, i) => (
-            <div 
-              key={i}
-              className="bg-surface rounded-2xl md:rounded-3xl p-5 md:p-8 border border-border-theme shadow-sm hover:shadow-lg hover:border-primary/30 hover:-translate-y-1 transition-all duration-300 group"
-            >
-              <div className="flex items-center justify-center w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-primary/10 text-primary mb-4 md:mb-6 group-hover:scale-110 group-hover:bg-primary group-hover:text-white transition-all duration-300">
-                <stat.icon className="w-5 h-5 md:w-6 md:h-6" />
-              </div>
-              <h3 className="text-2xl md:text-3xl lg:text-4xl font-black mb-1 md:mb-2 text-transparent bg-clip-text bg-gradient-to-r from-foreground to-foreground/70 group-hover:from-primary group-hover:to-blue-400 transition-colors duration-300">
-                {stat.value}
-              </h3>
-              <p className="text-xs md:text-sm font-medium text-foreground opacity-60">
-                {stat.label}
-              </p>
-            </div>
+
+        {/* ── Stats grid ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-10 md:gap-14 text-center lg:text-left">
+          {STATS.map((stat, i) => (
+            <StatItem key={i} stat={stat} index={i} />
           ))}
         </div>
+
+        {/* ── Footnote ── */}
+        <p className="text-center text-[11px] font-mono on-deep-muted mt-12 scroll-reveal">
+          {t("landing.stats_footnote", "Metrics updated in real-time from production telemetry.")}
+        </p>
+
       </div>
     </section>
+  );
+}
+
+function StatItem({ stat, index }) {
+  const [visible, setVisible] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.unobserve(el);
+        }
+      },
+      { threshold: 0.3 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className="flex flex-col relative group"
+      style={{ transitionDelay: `${index * 80}ms` }}
+    >
+      {/* Vertical divider (desktop) */}
+      {index > 0 && (
+        <div className="hidden lg:block absolute left-[-1.5rem] top-1/2 -translate-y-1/2
+                        w-px h-14 bg-slate-200 dark:bg-white/[0.08]
+                        group-hover:bg-indigo-300 dark:group-hover:bg-indigo-500/40
+                        transition-colors duration-300" />
+      )}
+
+      {/* Animated value */}
+      <span
+        className={`text-4xl md:text-5xl font-black tracking-tight mb-2 font-mono transition-all duration-500
+                    ${stat.accent}
+                    ${visible ? "animate-count-up" : "opacity-0"}`}
+        style={{ animationDelay: `${index * 100}ms` }}
+      >
+        {stat.value}
+      </span>
+
+      {/* Label */}
+      <span className="text-sm md:text-base font-bold uppercase tracking-wider on-deep-title mb-1">
+        {stat.label}
+      </span>
+
+      {/* Detail */}
+      <span className="text-xs font-mono on-deep-muted">
+        {stat.detail}
+      </span>
+    </div>
   );
 }

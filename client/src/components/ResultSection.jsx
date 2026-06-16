@@ -7,8 +7,8 @@ export default function ResultSection({ result }) {
   const isDark = theme === 'dark';
 
   const t = {
-    EN: { final: "Final Result", conf: "Confidence", yolo: "YOLO Agent", gemini: "Gemini Agent" },
-    VI: { final: "Kết quả Cuối cùng", conf: "Độ tin cậy", yolo: "Tác tử YOLO", gemini: "Tác tử Gemini" }
+    EN: { final: "Final Result", conf: "Confidence", yolo: "ChatGPT Agent", gemini: "Gemini Agent" },
+    VI: { final: "Kết quả Cuối cùng", conf: "Độ tin cậy", yolo: "Tác tử ChatGPT", gemini: "Tác tử Gemini" }
   }[lang];
 
   if (!result) return null;
@@ -45,7 +45,7 @@ export default function ResultSection({ result }) {
           </div>
           <div className="flex justify-between items-end">
             <div>
-              <p className="text-xs text-slate-500 uppercase font-semibold">Bounding Box</p>
+              <p className="text-xs text-slate-500 uppercase font-semibold">Visual Details</p>
               <p className={`font-mono mt-1 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>{result.yolo?.label || 'N/A'}</p>
             </div>
             <div className={`text-xl font-bold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{result.yolo?.confidence || 0}%</div>

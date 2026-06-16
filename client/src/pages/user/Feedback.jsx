@@ -512,13 +512,10 @@ export default function Feedback() {
   };
 
   return (
-    <div
-      className={`min-h-screen pb-24 font-sans transition-colors duration-300 ${
-        isDark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"
-      }`}
-    >
+    <div className="page-inner pt-6 relative pb-24 font-sans transition-colors duration-300">
+      <div className="page-orb-indigo top-0 right-[10%]" />
       <div
-        className={`border-b pt-10 pb-10 mb-8 ${
+        className={`border-b pt-10 pb-10 mb-8 relative z-10 ${
           isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-200"
         }`}
       >
@@ -528,8 +525,8 @@ export default function Feedback() {
               <div
                 className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${
                   isDark
-                    ? "bg-teal-500/10 border-teal-500/20 text-teal-300"
-                    : "bg-teal-50 border-teal-100 text-teal-600"
+                    ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-300"
+                    : "bg-indigo-50 border-indigo-100 text-indigo-600"
                 }`}
               >
                 <MessageSquare size={28} />
@@ -572,7 +569,7 @@ export default function Feedback() {
                 onClick={() => navigate("/workspace")}
                 className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white ${
                   isDark
-                    ? "bg-teal-600 hover:bg-teal-500"
+                    ? "bg-indigo-600 hover:bg-indigo-500"
                     : "bg-slate-900 hover:bg-slate-800"
                 }`}
               >
@@ -584,7 +581,7 @@ export default function Feedback() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 md:px-8">
+      <div className="max-w-6xl mx-auto px-4 md:px-8 relative z-10">
         <div
           className={`flex gap-2 mb-6 border-b pb-px ${
             isDark ? "border-slate-800" : "border-slate-200"
@@ -595,8 +592,8 @@ export default function Feedback() {
             className={`flex items-center gap-2 px-5 py-3 font-bold text-sm transition-all border-b-2 rounded-t-xl ${
               activeTab === "new"
                 ? isDark
-                  ? "border-teal-400 text-teal-300 bg-teal-500/10"
-                  : "border-teal-600 text-teal-700 bg-teal-50/70"
+                  ? "border-indigo-400 text-indigo-300 bg-indigo-500/10"
+                  : "border-indigo-600 text-indigo-700 bg-indigo-50/70"
                 : isDark
                   ? "border-transparent text-slate-400 hover:text-white hover:bg-slate-900"
                   : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100"
@@ -611,8 +608,8 @@ export default function Feedback() {
             className={`flex items-center gap-2 px-5 py-3 font-bold text-sm transition-all border-b-2 rounded-t-xl ${
               activeTab === "history"
                 ? isDark
-                  ? "border-teal-400 text-teal-300 bg-teal-500/10"
-                  : "border-teal-600 text-teal-700 bg-teal-50/70"
+                  ? "border-indigo-400 text-indigo-300 bg-indigo-500/10"
+                  : "border-indigo-600 text-indigo-700 bg-indigo-50/70"
                 : isDark
                   ? "border-transparent text-slate-400 hover:text-white hover:bg-slate-900"
                   : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100"
@@ -646,7 +643,7 @@ export default function Feedback() {
               >
                 {submitted ? (
                   <div className="py-20 text-center">
-                    <CheckCircle2 className="w-20 h-20 text-teal-500 mx-auto mb-6" />
+                    <CheckCircle2 className="w-20 h-20 text-indigo-500 mx-auto mb-6" />
                     <h2
                       className={`text-2xl font-bold mb-2 ${
                         isDark ? "text-white" : "text-slate-900"
@@ -831,7 +828,7 @@ export default function Feedback() {
                         disabled={isLoading}
                         className={`inline-flex justify-center items-center gap-2 px-8 py-3.5 text-white rounded-xl font-bold transition-all disabled:opacity-70 disabled:cursor-not-allowed shadow-sm active:scale-95 ${
                           isDark
-                            ? "bg-teal-600 hover:bg-teal-500"
+                            ? "bg-indigo-600 hover:bg-indigo-500"
                             : "bg-slate-900 hover:bg-slate-800"
                         }`}
                       >
@@ -880,8 +877,8 @@ export default function Feedback() {
 function inputClass(isDark) {
   return `w-full px-4 py-3.5 rounded-xl border outline-none transition-all font-semibold ${
     isDark
-      ? "bg-slate-950 border-slate-700 text-white placeholder:text-slate-500 focus:border-teal-400 focus:ring-4 focus:ring-teal-500/10"
-      : "bg-slate-50 border-slate-200 text-slate-700 placeholder:text-slate-400 focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10"
+      ? "bg-slate-950 border-slate-700 text-white placeholder:text-slate-500 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10"
+      : "bg-slate-50 border-slate-200 text-slate-700 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
   }`;
 }
 
@@ -1027,7 +1024,7 @@ function RelatedScanCard({
 
       {showJson && (
         <div className="mx-6 mb-6 bg-slate-900 rounded-2xl p-5 border border-slate-800 overflow-auto max-h-80">
-          <pre className="text-xs text-teal-300 whitespace-pre-wrap">
+          <pre className="text-xs text-indigo-300 whitespace-pre-wrap">
             {JSON.stringify(scanResult, null, 2)}
           </pre>
         </div>
@@ -1092,7 +1089,7 @@ function GuideCard({ t, isDark }) {
       <div className="flex items-center gap-3 mb-4">
         <div
           className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
-            isDark ? "bg-teal-500/10 text-teal-300" : "bg-teal-50 text-teal-600"
+            isDark ? "bg-indigo-500/10 text-indigo-300" : "bg-indigo-50 text-indigo-600"
           }`}
         >
           <ClipboardCheck size={20} />
@@ -1109,7 +1106,7 @@ function GuideCard({ t, isDark }) {
       >
         {items.map((item, index) => (
           <li key={index} className="flex items-start gap-3">
-            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-teal-500 shrink-0" />
+            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
             <span>{item}</span>
           </li>
         ))}
@@ -1181,7 +1178,7 @@ function RecentFeedbackPreview({
 
         <button
           onClick={() => setActiveTab("history")}
-          className="text-sm font-bold text-teal-600 hover:underline"
+          className="text-sm font-bold text-indigo-600 hover:underline"
         >
           {t.myTickets}
         </button>
@@ -1250,7 +1247,7 @@ function FeedbackHistory({
 
       {isFetchingHistory ? (
         <div className="py-20 text-center flex flex-col items-center">
-          <Loader2 className="w-8 h-8 animate-spin text-teal-600 mb-4" />
+          <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mb-4" />
           <p
             className={`font-medium ${isDark ? "text-slate-400" : "text-slate-500"}`}
           >

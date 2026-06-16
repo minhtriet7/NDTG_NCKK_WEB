@@ -33,6 +33,15 @@ def serialize_user(user: User) -> Dict[str, Any]:
 
 class AuthService:
     @staticmethod
+    async def request_password_reset(email: str) -> Dict[str, Any]:
+        if email:
+            await User.find_one(User.email == email)
+
+        return {
+            "message": "If this email is registered, password reset instructions will be sent.",
+        }
+
+    @staticmethod
     async def register_user(data: UserRegister) -> Dict[str, Any]:
         existing_user = await User.find_one(User.email == data.email)
 

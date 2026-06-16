@@ -77,7 +77,7 @@ def _format_result_detail(result: dict):
             "estimated_usd": "N/A",
         },
         "agents": {
-            "ml_dl": _extract_agent(agent_results, "YOLO"),
+            "ml_dl": _extract_agent(agent_results, "OpenAI"),
             "llm_api": _extract_agent(agent_results, "LLM"),
             "visual_search": _extract_agent(agent_results, "Lens"),
         },

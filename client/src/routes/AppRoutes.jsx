@@ -1,8 +1,9 @@
-import React from "react";
+
 import { Routes, Route, Navigate } from "react-router-dom";
 
 // Common
 import ScrollToTop from "../components/common/ScrollToTop.jsx";
+import GlobalTaskTracker from "../components/common/GlobalTaskTracker.jsx";
 
 // Layouts
 import MainLayout from "../layouts/MainLayout.jsx";
@@ -36,10 +37,17 @@ import UserGuide from "../pages/user/UserGuide.jsx";
 import Info from "../pages/user/Info.jsx";
 import SepayCheckout from "../pages/user/SepayCheckout.jsx";
 import Checkout from "../pages/user/Checkout.jsx";
+import PaymentReturn from "../pages/user/PaymentReturn.jsx";
 
 // Pages - Legal
+import About from "../pages/legal/About.jsx";
 import PrivacyPolicy from "../pages/legal/PrivacyPolicy.jsx";
 import TermsOfService from "../pages/legal/TermsOfService.jsx";
+import DataDeletion from "../pages/legal/DataDeletion.jsx";
+import Support from "../pages/legal/Support.jsx";
+import Contact from "../pages/legal/Contact.jsx";
+import AiDisclaimer from "../pages/legal/AiDisclaimer.jsx";
+
 
 // Pages - Admin
 import Dashboard from "../pages/admin/Dashboard.jsx";
@@ -58,6 +66,7 @@ import SystemLogs from "../pages/admin/SystemLogs.jsx";
 import TokenPackagesManager from "../pages/admin/TokenPackagesManager.jsx";
 import TransactionsManager from "../pages/admin/TransactionsManager.jsx";
 import Settings from "../pages/admin/Settings.jsx";
+import PagesManager from "../pages/admin/PagesManager.jsx";
 
 // Error Components
 import NotFound404 from "../errors/NotFound404.jsx";
@@ -69,6 +78,7 @@ export default function AppRoutes() {
   return (
     <>
       <ScrollToTop />
+      <GlobalTaskTracker />
       <Routes>
         {/* ===================================================== */}
         {/* PUBLIC + USER APP LAYOUT */}
@@ -83,8 +93,20 @@ export default function AppRoutes() {
           <Route path="/directory" element={<BanknoteDirectory />} />
 
           {/* Legal */}
-          <Route path="/privacy" element={<PrivacyPolicy />} />
-          <Route path="/terms" element={<TermsOfService />} />
+          <Route path="/privacy" element={<Navigate to="/legal/privacy" replace />} />
+          <Route path="/privacy-policy" element={<Navigate to="/legal/privacy" replace />} />
+          <Route path="/terms-of-service" element={<Navigate to="/legal/terms" replace />} />
+          
+          <Route path="/legal/privacy" element={<PrivacyPolicy />} />
+          <Route path="/legal/terms" element={<TermsOfService />} />
+          <Route path="/legal/data-deletion" element={<DataDeletion />} />
+          <Route path="/legal/ai-disclaimer" element={<AiDisclaimer />} />
+          
+          <Route path="/about" element={<About />} />
+          <Route path="/legal/about" element={<Navigate to="/about" replace />} />
+          <Route path="/support" element={<Support />} />
+          <Route path="/contact" element={<Contact />} />
+
 
           {/* Alias tỷ giá */}
           <Route path="/currency-converter" element={<CurrencyConverter />} />
@@ -113,6 +135,8 @@ export default function AppRoutes() {
             <Route path="/feedback" element={<Feedback />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/sepay-checkout" element={<SepayCheckout />} />
+            <Route path="/payment/success" element={<PaymentReturn status="success" />} />
+            <Route path="/payment/failed" element={<PaymentReturn status="failed" />} />
           </Route>
         </Route>
 
@@ -148,6 +172,7 @@ export default function AppRoutes() {
             <Route path="/admin/dashboard" element={<Dashboard />} />
             <Route path="/admin/logs" element={<SystemLogs />} />
             <Route path="/admin/settings" element={<Settings />} />
+            <Route path="/admin/pages" element={<PagesManager />} />
 
             {/* User & Payments */}
             <Route path="/admin/users" element={<UsersManager />} />

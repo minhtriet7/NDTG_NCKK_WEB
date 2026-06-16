@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from pydantic.functional_validators import BeforeValidator
-from typing import Optional, Annotated
+from typing import Any, Dict, Optional, Annotated
 from datetime import datetime
 
 
@@ -33,6 +33,7 @@ class UserResponse(BaseModel):
     phone: Optional[str] = None
     country: Optional[str] = None
     avatar_url: Optional[str] = None
+    preferences: Dict[str, Any] = Field(default_factory=dict)
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -60,3 +61,10 @@ class UserUpdate(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: Optional[str] = None
     new_password: str = Field(..., min_length=6)
+
+
+class UserPreferencesUpdate(BaseModel):
+    language: Optional[str] = None
+    theme: Optional[str] = None
+    default_country: Optional[str] = None
+    default_currency: Optional[str] = None

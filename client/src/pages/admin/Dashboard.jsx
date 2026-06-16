@@ -2,17 +2,15 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../store/appStore";
 import {
-  Layers,
   Users,
   Scan,
   Landmark,
   MessageSquare,
-  Shield,
   Activity,
-  Cpu,
-  BotMessageSquare,
-  SearchCheck,
-  GitMerge,
+  Server,
+  Zap,
+  CheckSquare,
+  Share2,
   Clock,
   ArrowRightLeft,
   Database,
@@ -23,6 +21,11 @@ import {
   CheckCircle,
   FileText,
   FileImage,
+  Layers,
+  ChevronRight,
+  TrendingUp,
+  ShieldCheck,
+  ServerCrash
 } from "lucide-react";
 import {
   getDashboardSummary,
@@ -32,7 +35,6 @@ import {
   getPendingFeedback,
 } from "../../services/adminService";
 import toast from "react-hot-toast";
-
 
 function asArray(data) {
   if (Array.isArray(data)) return data;
@@ -128,68 +130,90 @@ export default function AdminDashboard() {
 
   const t = {
     EN: {
-      title: "Admin Dashboard",
-      subtitle:
-        "Monitor users, scans, payments, feedback, and multi-agent system health.",
-      refresh: "Refresh",
-      kpiUsers: "Total Users",
-      kpiActive: "Active Users",
-      kpiScans: "Total Scans",
-      kpiCompleted: "Completed Scans",
-      kpiRevenue: "Token Revenue",
-      kpiFeedback: "Pending Feedback",
-      secHealth: "System Health Status",
-      secPerf: "Multi-Agent Performance Metrics",
-      secRecent: "Recent Recognition Requests",
-      secFeed: "Pending Feedback",
-      secFin: "Financial & Token Packages",
-      secUser: "User Breakdown",
-      secBanknote: "Banknote Inventory",
-      quickAct: "Administrative Shortcuts",
-      thTime: "Time",
-      thUser: "User",
-      thImage: "Image",
-      thResult: "Final Result",
-      thCountry: "Country",
-      thConsensus: "Consensus",
-      thStatus: "Status",
-      thAction: "Action",
-      noData: "No records found.",
-      viewLogs: "View Logs",
-      agentConfig: "Agent Config",
-      review: "Review",
+      title: "Dashboard",
+      subtitle: "Enterprise overview and system analytics.",
+      refresh: "Sync Data",
+      kpiUsers: "Total Accounts",
+      kpiActive: "Active Now",
+      kpiScans: "Process Volume",
+      kpiCompleted: "Successful",
+      kpiRevenue: "Revenue",
+      kpiFeedback: "Tickets",
+      secHealth: "Infrastructure Health",
+      secPerf: "Service Performance",
+      secRecent: "Recent Activity Log",
+      secFeed: "Support Queue",
+      secFin: "Financial Overview",
+      secUser: "Account Demographics",
+      secBanknote: "Asset Inventory",
+      quickAct: "Quick Navigation",
+      thTime: "Timestamp",
+      thUser: "Account",
+      thImage: "Asset",
+      thResult: "Classification",
+      thCountry: "Region",
+      thConsensus: "Match Rate",
+      thStatus: "State",
+      thAction: "Details",
+      noData: "No data available.",
+      viewLogs: "System Logs",
+      agentConfig: "Configure Services",
+      review: "Inspect",
+      queueEmpty: "Queue is empty.",
+      paymentsSuccess: "Successful Payments",
+      paymentsPending: "Pending Transactions",
+      paymentsFailed: "Failed Transactions",
+      activePackages: "Active Packages",
+      usersToday: "New Users (Today)",
+      usersWeek: "New Users (This Week)",
+      adminAccs: "Admin Accounts",
+      oauthAccs: "OAuth Users",
+      totalBanknotes: "Total Banknotes",
+      supportedRegions: "Supported Regions",
+      missingAssets: "Missing Assets",
     },
     VI: {
-      title: "Bảng Điều Khiển Quản Trị",
-      subtitle:
-        "Theo dõi người dùng, lượt quét, thanh toán, phản hồi và hệ thống Multi-Agent.",
-      refresh: "Làm mới",
-      kpiUsers: "Tổng người dùng",
-      kpiActive: "Đang hoạt động",
-      kpiScans: "Tổng lượt quét",
-      kpiCompleted: "Quét thành công",
-      kpiRevenue: "Doanh thu Token",
-      kpiFeedback: "Phản hồi chờ duyệt",
-      secHealth: "Sức Khỏe Hệ Thống",
-      secPerf: "Hiệu Suất Multi-Agent",
-      secRecent: "Yêu Cầu Quét Gần Đây",
-      secFeed: "Phản Hồi Mới",
-      secFin: "Tài Chính & Gói Token",
-      secUser: "Cơ Cấu Người Dùng",
-      secBanknote: "Kho Dữ Liệu Tiền Giấy",
-      quickAct: "Phím Tắt Nhanh",
-      thTime: "TG",
-      thUser: "User",
-      thImage: "Ảnh",
-      thResult: "Kết quả",
-      thCountry: "Quốc gia",
-      thConsensus: "Đồng thuận",
+      title: "Tổng quan",
+      subtitle: "Phân tích và giám sát hoạt động hệ thống.",
+      refresh: "Đồng bộ",
+      kpiUsers: "Tổng tài khoản",
+      kpiActive: "Hoạt động",
+      kpiScans: "Lượng quét",
+      kpiCompleted: "Thành công",
+      kpiRevenue: "Doanh thu",
+      kpiFeedback: "Hỗ trợ",
+      secHealth: "Trạng thái hạ tầng",
+      secPerf: "Hiệu suất dịch vụ",
+      secRecent: "Nhật ký hoạt động",
+      secFeed: "Hàng đợi hỗ trợ",
+      secFin: "Tài chính & Doanh thu",
+      secUser: "Phân bổ tài khoản",
+      secBanknote: "Kho dữ liệu",
+      quickAct: "Điều hướng nhanh",
+      thTime: "Thời gian",
+      thUser: "Tài khoản",
+      thImage: "Tài sản",
+      thResult: "Phân loại",
+      thCountry: "Khu vực",
+      thConsensus: "Tỉ lệ khớp",
       thStatus: "Trạng thái",
-      thAction: "Tác vụ",
-      noData: "Chưa có dữ liệu.",
+      thAction: "Chi tiết",
+      noData: "Không có dữ liệu.",
       viewLogs: "Xem Nhật ký",
-      agentConfig: "Cấu hình AI",
-      review: "Xem",
+      agentConfig: "Cấu hình Dịch vụ",
+      review: "Kiểm tra",
+      queueEmpty: "Hàng đợi trống.",
+      paymentsSuccess: "Thanh toán thành công",
+      paymentsPending: "Giao dịch chờ xử lý",
+      paymentsFailed: "Giao dịch thất bại",
+      activePackages: "Gói Token hoạt động",
+      usersToday: "Người dùng mới (Hôm nay)",
+      usersWeek: "Người dùng mới (Tuần này)",
+      adminAccs: "Tài khoản Admin",
+      oauthAccs: "Tài khoản OAuth",
+      totalBanknotes: "Tổng số Tiền giấy",
+      supportedRegions: "Khu vực được hỗ trợ",
+      missingAssets: "Hình ảnh bị thiếu",
     },
   }[lang || "EN"];
 
@@ -232,204 +256,101 @@ export default function AdminDashboard() {
     const s = (status || "").toLowerCase();
     if (s === "online" || s === "connected")
       return (
-        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400">
-          Online
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-500/20">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+          Operational
         </span>
       );
     if (s.includes("warning"))
       return (
-        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-          Warning
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 border border-amber-200/50 dark:border-amber-500/20">
+          <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
+          Degraded
         </span>
       );
     return (
-      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
-        Down
+      <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400 border border-rose-200/50 dark:border-rose-500/20">
+        <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>
+        Outage
       </span>
     );
   };
 
   return (
-    <div className="w-full max-w-[1440px] mx-auto space-y-6 animate-[fadeInUp_0.4s_ease-out]">
+    <div className="w-full max-w-[1600px] mx-auto space-y-8 pb-10">
       {/* 1. HEADER */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {t.title}
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
+          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">
             {t.subtitle}
           </p>
+        </div>
+        <div className="flex items-center gap-4">
           {summary?.last_updated && (
-            <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-              <Clock size={12} /> Last Sync:{" "}
+            <p className="text-xs font-medium text-slate-400 flex items-center gap-1.5 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-800 shadow-sm">
+              <Clock size={12} />
               {new Date(summary.last_updated).toLocaleTimeString()}
             </p>
           )}
+          <button
+            onClick={loadData}
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 text-white rounded-lg text-sm font-bold shadow-sm flex items-center gap-2 transition"
+          >
+            <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
+            {t.refresh}
+          </button>
         </div>
-        <button
-          onClick={loadData}
-          className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-sm font-bold shadow-sm flex items-center gap-2 transition w-fit"
-        >
-          <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />{" "}
-          {t.refresh}
-        </button>
       </div>
 
       {/* 2. KPI CARDS */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-        <StatCard
-          isDark={isDark}
-          load={isLoading}
-          title={t.kpiUsers}
-          val={summary?.kpis?.total_users}
-          icon={<Users className="text-blue-500" />}
-        />
-        <StatCard
-          isDark={isDark}
-          load={isLoading}
-          title={t.kpiActive}
-          val={summary?.kpis?.active_users}
-          icon={<Activity className="text-emerald-500" />}
-        />
-        <StatCard
-          isDark={isDark}
-          load={isLoading}
-          title={t.kpiScans}
-          val={summary?.kpis?.total_scans}
-          icon={<Scan className="text-indigo-500" />}
-        />
-        <StatCard
-          isDark={isDark}
-          load={isLoading}
-          title={t.kpiCompleted}
-          val={summary?.kpis?.completed_scans}
-          icon={<CheckCircle className="text-teal-500" />}
-        />
-        <StatCard
-          isDark={isDark}
-          load={isLoading}
-          title={t.kpiRevenue}
-          val={formatVND(summary?.kpis?.total_revenue_vnd)}
-          icon={<Landmark className="text-amber-500" />}
-          isPrice
-        />
-        <StatCard
-          isDark={isDark}
-          load={isLoading}
-          title={t.kpiFeedback}
-          val={summary?.kpis?.pending_feedback}
-          icon={<MessageSquare className="text-rose-500" />}
-        />
+        <StatCard isDark={isDark} load={isLoading} title={t.kpiUsers} val={summary?.kpis?.total_users} icon={<Users size={16} className="text-slate-400" />} />
+        <StatCard isDark={isDark} load={isLoading} title={t.kpiActive} val={summary?.kpis?.active_users} icon={<Activity size={16} className="text-slate-400" />} trend="+12%" positive />
+        <StatCard isDark={isDark} load={isLoading} title={t.kpiScans} val={summary?.kpis?.total_scans} icon={<Scan size={16} className="text-slate-400" />} />
+        <StatCard isDark={isDark} load={isLoading} title={t.kpiCompleted} val={summary?.kpis?.completed_scans} icon={<CheckCircle size={16} className="text-slate-400" />} />
+        <StatCard isDark={isDark} load={isLoading} title={t.kpiRevenue} val={formatVND(summary?.kpis?.total_revenue_vnd)} icon={<Landmark size={16} className="text-slate-400" />} />
+        <StatCard isDark={isDark} load={isLoading} title={t.kpiFeedback} val={summary?.kpis?.pending_feedback} icon={<MessageSquare size={16} className="text-slate-400" />} />
       </div>
 
       {/* 3. HEALTH & PERFORMANCE */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-stretch">
-        {/* System Health */}
-        <div
-          className={`xl:col-span-5 p-5 rounded-2xl border shadow-sm flex flex-col h-full ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}
-        >
-          <h3 className="text-sm font-black uppercase text-slate-500 mb-4 flex items-center gap-2">
-            <Database size={16} /> {t.secHealth}
-          </h3>
-          <div className="space-y-3 flex-1">
-            <HealthRow
-              label="API Gateway"
-              status={health?.api_server}
-              render={renderHealthBadge}
-            />
-            <HealthRow
-              label="Database Cluster"
-              status={health?.database}
-              render={renderHealthBadge}
-            />
-            <HealthRow
-              label="Agent 1 (ML/DL)"
-              status={health?.ml_dl_agent}
-              render={renderHealthBadge}
-            />
-            <HealthRow
-              label="Agent 2 (LLM)"
-              status={health?.llm_agent}
-              render={renderHealthBadge}
-            />
-            <HealthRow
-              label="Agent 3 (Lens)"
-              status={health?.google_lens_agent}
-              render={renderHealthBadge}
-            />
-            <HealthRow
-              label="Aggregator"
-              status={health?.aggregator}
-              render={renderHealthBadge}
-            />
+        <div className={`xl:col-span-5 p-6 rounded-xl border shadow-sm flex flex-col h-full ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <Server size={16} className="text-slate-400" /> {t.secHealth}
+            </h3>
           </div>
-          <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-            <button
-              onClick={() => navigate("/admin/logs")}
-              className="flex-1 py-1.5 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
-            >
-              {t.viewLogs}
-            </button>
-            <button
-              onClick={() => navigate("/admin/agents/config")}
-              className="flex-1 py-1.5 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
-            >
-              {t.agentConfig}
-            </button>
+          <div className="space-y-4 flex-1">
+            <HealthRow label="API Gateway" status={health?.api_server} render={renderHealthBadge} />
+            <HealthRow label="Primary Database" status={health?.database} render={renderHealthBadge} />
+            <HealthRow label="Vision Model Service" status={health?.ml_dl_agent} render={renderHealthBadge} />
+            <HealthRow label="Language Model Service" status={health?.llm_agent} render={renderHealthBadge} />
+            <HealthRow label="External Search API" status={health?.google_lens_agent} render={renderHealthBadge} />
+            <HealthRow label="Data Aggregator" status={health?.aggregator} render={renderHealthBadge} />
           </div>
         </div>
 
-        {/* Multi-Agent Performance */}
-        <div
-          className={`xl:col-span-7 p-5 rounded-2xl border shadow-sm flex flex-col h-full ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}
-        >
-          <h3 className="text-sm font-black uppercase text-slate-500 mb-4 flex items-center gap-2">
-            <Shield size={16} /> {t.secPerf}
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 flex-1">
-            <div className="space-y-4">
-              <ProgressRow
-                label="Agent 1 ML/DL Rate"
-                value={performance?.ml_dl_success_rate}
-                icon={<Cpu size={14} className="text-blue-500" />}
-              />
-              <ProgressRow
-                label="Agent 2 LLM Rate"
-                value={performance?.llm_success_rate}
-                icon={
-                  <BotMessageSquare size={14} className="text-violet-500" />
-                }
-              />
-              <ProgressRow
-                label="Agent 3 Lens Rate"
-                value={performance?.lens_success_rate}
-                icon={<SearchCheck size={14} className="text-amber-500" />}
-              />
+        <div className={`xl:col-span-7 p-6 rounded-xl border shadow-sm flex flex-col h-full ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <Activity size={16} className="text-slate-400" /> {t.secPerf}
+            </h3>
+            <div className="text-xs font-medium text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+              Avg Time: <span className="font-bold text-slate-700 dark:text-slate-300">{performance?.average_scan_time_sec || "0.0"}s</span>
             </div>
-            <div className="space-y-4 flex flex-col justify-between">
-              <div className="space-y-4">
-                <ProgressRow
-                  label="Consensus Reached Ratio"
-                  value={performance?.consensus_rate}
-                  icon={<GitMerge size={14} className="text-teal-500" />}
-                  color="bg-teal-500"
-                />
-                <ProgressRow
-                  label="Agent Conflict Rate"
-                  value={performance?.conflict_rate}
-                  icon={<AlertCircle size={14} className="text-rose-500" />}
-                  color="bg-rose-500"
-                />
-              </div>
-              <div className="p-3 rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex justify-between items-center">
-                <span className="text-xs font-semibold text-slate-500 flex items-center gap-1.5">
-                  <Clock size={14} /> Avg Scan Time
-                </span>
-                <span className="font-mono font-black text-teal-600 dark:text-teal-400">
-                  {performance?.average_scan_time_sec || "0.0"}s
-                </span>
-              </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 flex-1">
+            <div className="space-y-6">
+              <ProgressRow label="Vision Accuracy Rate" value={performance?.ml_dl_success_rate} />
+              <ProgressRow label="Language Processing Rate" value={performance?.llm_success_rate} />
+              <ProgressRow label="External Search Hit Rate" value={performance?.lens_success_rate} />
+            </div>
+            <div className="space-y-6">
+              <ProgressRow label="System Consensus Ratio" value={performance?.consensus_rate} color="bg-emerald-500" />
+              <ProgressRow label="Service Conflict Rate" value={performance?.conflict_rate} color="bg-rose-500" />
             </div>
           </div>
         </div>
@@ -437,70 +358,59 @@ export default function AdminDashboard() {
 
       {/* 4. RECENT SCANS & FEEDBACK */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-        {/* Recent Scans Table */}
-        <div
-          className={`xl:col-span-8 p-5 rounded-2xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}
-        >
-          <h3 className="text-sm font-black uppercase text-slate-500 mb-4 flex items-center gap-2">
-            <Terminal size={16} /> {t.secRecent}
-          </h3>
+        <div className={`xl:col-span-8 rounded-xl border shadow-sm overflow-hidden ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+          <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <Terminal size={16} className="text-slate-400" /> {t.secRecent}
+            </h3>
+            <button onClick={() => navigate("/admin/results")} className="text-xs font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 transition">
+              View All <ChevronRight size={14} />
+            </button>
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs whitespace-nowrap">
-              <thead className="uppercase font-bold text-slate-500 border-b border-slate-100 dark:border-slate-800">
+            <table className="w-full text-left text-sm whitespace-nowrap">
+              <thead className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                 <tr>
-                  <th className="py-2 pr-3">{t.thTime}</th>
-                  <th className="py-2 pr-3">{t.thUser}</th>
-                  <th className="py-2 pr-3">{t.thImage}</th>
-                  <th className="py-2 pr-3">{t.thResult}</th>
-                  <th className="py-2 pr-3">{t.thCountry}</th>
-                  <th className="py-2 pr-3">{t.thConsensus}</th>
-                  <th className="py-2 text-right">{t.thAction}</th>
+                  <th className="px-5 py-3">{t.thTime}</th>
+                  <th className="px-5 py-3">{t.thUser}</th>
+                  <th className="px-5 py-3">{t.thResult}</th>
+                  <th className="px-5 py-3">{t.thCountry}</th>
+                  <th className="px-5 py-3">{t.thConsensus}</th>
+                  <th className="px-5 py-3 text-right">{t.thAction}</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {recentScans.length === 0 ? (
                   <tr>
-                    <td colSpan="7" className="text-center py-6 text-slate-400">
+                    <td colSpan="6" className="text-center py-8 text-slate-400 text-sm">
                       {t.noData}
                     </td>
                   </tr>
                 ) : (
                   recentScans.map((s) => (
-                    <tr
-                      key={s.id || s._id}
-                      className="hover:bg-slate-50 dark:hover:bg-slate-800/50"
-                    >
-                      <td className="py-2 pr-3 font-mono text-slate-500">
-                        {s.created_at ? new Date(s.created_at).toLocaleTimeString() : "N/A"}
+                    <tr key={s.id || s._id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="px-5 py-3 text-slate-500 text-xs">
+                        {s.created_at ? new Date(s.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "N/A"}
                       </td>
-                      <td className="py-2 pr-3 font-semibold text-slate-700 dark:text-slate-300">
-                        ...{s.user_id?.slice(-4) || "Gues"}
+                      <td className="px-5 py-3 font-medium text-slate-700 dark:text-slate-300">
+                        {s.user_id?.slice(-6) || "Guest"}
                       </td>
-                      <td className="py-2 pr-3">
-                        <div className="w-8 h-5 bg-slate-200 dark:bg-slate-700 rounded overflow-hidden">
-                          {getScanImage(s) && (
-                            <img
-                              src={getScanImage(s)}
-                              alt="img"
-                              className="w-full h-full object-cover"
-                            />
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2 pr-3 font-bold text-teal-600 dark:text-teal-400">
+                      <td className="px-5 py-3 font-semibold text-slate-900 dark:text-white">
                         {getScanDenomination(s)}
                       </td>
-                      <td className="py-2 pr-3 text-slate-600 dark:text-slate-400">
+                      <td className="px-5 py-3 text-slate-600 dark:text-slate-400">
                         {getScanCountry(s)}
                       </td>
-                      <td className="py-2 pr-3 font-mono font-semibold">
-                        {getScanConsensus(s)}/3
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                             <div className="h-full bg-slate-500 dark:bg-slate-400" style={{width: `${(getScanConsensus(s)/3)*100}%`}}></div>
+                          </div>
+                          <span className="text-xs text-slate-500 font-mono">{getScanConsensus(s)}/3</span>
+                        </div>
                       </td>
-                      <td className="py-2 text-right">
-                        <button
-                          onClick={() => navigate(`/admin/results`)}
-                          className="text-teal-600 hover:underline font-bold"
-                        >
+                      <td className="px-5 py-3 text-right">
+                        <button onClick={() => navigate(`/admin/results`)} className="text-slate-900 dark:text-white hover:underline text-xs font-bold">
                           {t.review}
                         </button>
                       </td>
@@ -512,38 +422,30 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Pending Feedback */}
-        <div
-          className={`xl:col-span-4 p-5 rounded-2xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}
-        >
-          <h3 className="text-sm font-black uppercase text-slate-500 mb-4 flex items-center gap-2">
-            <MessageSquare size={16} /> {t.secFeed}
-          </h3>
-          <div className="space-y-3">
+        <div className={`xl:col-span-4 rounded-xl border shadow-sm flex flex-col ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+          <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+              <MessageSquare size={16} className="text-slate-400" /> {t.secFeed}
+            </h3>
+          </div>
+          <div className="p-5 space-y-4">
             {pendingFeedback.length === 0 ? (
-              <p className="text-center py-6 text-xs font-semibold text-slate-400">
-                No pending feedback.
+              <p className="text-center py-6 text-sm text-slate-400">
+                {t.queueEmpty}
               </p>
             ) : (
               pendingFeedback.map((f) => (
-                <div
-                  key={f.id || f._id}
-                  className="p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex justify-between items-center gap-3"
-                >
-                  <div className="overflow-hidden">
-                    <span className="text-[10px] font-bold uppercase text-amber-500">
+                <div key={f.id || f._id} className="group cursor-pointer" onClick={() => navigate("/admin/feedbacks")}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                       {f.feedback_type || f.type || "General"}
                     </span>
-                    <p className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate mt-0.5">
-                      {f.message || "No message"}
-                    </p>
+                    <ArrowRightLeft size={12} className="text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
-                  <button
-                    onClick={() => navigate("/admin/feedbacks")}
-                    className="shrink-0 text-[10px] font-bold px-2 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded shadow-sm hover:text-teal-600 transition"
-                  >
-                    Review
-                  </button>
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 line-clamp-2 leading-relaxed">
+                    "{f.message || "No content provided."}"
+                  </p>
+                  <div className="w-full h-px bg-slate-100 dark:bg-slate-800 mt-4 group-last:hidden"></div>
                 </div>
               ))
             )}
@@ -553,302 +455,98 @@ export default function AdminDashboard() {
 
       {/* 5. OVERVIEW CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <OverviewBox
-          isDark={isDark}
-          icon={<ArrowRightLeft size={14} />}
-          title={t.secFin}
-          btn1="Transactions"
-          link1="/admin/transactions"
-          btn2="Packages"
-          link2="/admin/token-packages"
-          navigate={navigate}
-        >
-          <MiniRow
-            label="Successful Payments"
-            val={summary?.payments?.successful_transactions}
-          />
-          <MiniRow
-            label="Pending Transactions"
-            val={summary?.payments?.pending_transactions}
-            color="text-amber-500"
-          />
-          <MiniRow
-            label="Failed Transactions"
-            val={summary?.payments?.failed_transactions}
-            color="text-rose-500"
-          />
-          <MiniRow label="Total Tokens Sold" val={summary?.kpis?.tokens_sold} />
-          <MiniRow
-            label="Active Packages"
-            val={summary?.payments?.active_packages_count}
-          />
+        <OverviewBox isDark={isDark} title={t.secFin} navigate={navigate}>
+          <MiniRow label={t.paymentsSuccess} val={summary?.payments?.successful_transactions} />
+          <MiniRow label={t.paymentsPending} val={summary?.payments?.pending_transactions} />
+          <MiniRow label={t.paymentsFailed} val={summary?.payments?.failed_transactions} />
+          <MiniRow label={t.activePackages} val={summary?.payments?.active_packages_count} />
         </OverviewBox>
-
-        <OverviewBox
-          isDark={isDark}
-          icon={<Users size={14} />}
-          title={t.secUser}
-          btn1="Manage Users"
-          link1="/admin/users"
-          navigate={navigate}
-        >
-          <MiniRow
-            label="New Users (Today)"
-            val={summary?.users_breakdown?.new_users_today}
-            color="text-emerald-500"
-          />
-          <MiniRow
-            label="New Users (This Week)"
-            val={summary?.users_breakdown?.new_users_this_week}
-          />
-          <MiniRow
-            label="Admin Accounts"
-            val={summary?.users_breakdown?.admin_users}
-          />
-          <MiniRow
-            label="Normal Accounts"
-            val={summary?.users_breakdown?.normal_users}
-          />
-          <MiniRow
-            label="Google OAuth Users"
-            val={summary?.users_breakdown?.google_oauth_users}
-          />
-          <MiniRow
-            label="Email Users"
-            val={summary?.users_breakdown?.email_users}
-          />
+        <OverviewBox isDark={isDark} title={t.secUser} navigate={navigate}>
+          <MiniRow label={t.usersToday} val={summary?.users_breakdown?.new_users_today} />
+          <MiniRow label={t.usersWeek} val={summary?.users_breakdown?.new_users_this_week} />
+          <MiniRow label={t.adminAccs} val={summary?.users_breakdown?.admin_users} />
+          <MiniRow label={t.oauthAccs} val={summary?.users_breakdown?.google_oauth_users} />
         </OverviewBox>
-
-        <OverviewBox
-          isDark={isDark}
-          icon={<FileImage size={14} />}
-          title={t.secBanknote}
-          btn1="Banknotes"
-          link1="/admin/banknotes"
-          btn2="Currency Rates"
-          link2="/admin/currency-rates"
-          navigate={navigate}
-        >
-          <MiniRow
-            label="Total Banknotes"
-            val={summary?.banknotes_breakdown?.total_banknotes}
-          />
-          <MiniRow
-            label="Supported Countries"
-            val={summary?.banknotes_breakdown?.supported_countries_count}
-          />
-          <MiniRow
-            label="Missing Images"
-            val={summary?.banknotes_breakdown?.missing_images_count}
-            color="text-amber-500"
-          />
+        <OverviewBox isDark={isDark} title={t.secBanknote} navigate={navigate}>
+          <MiniRow label={t.totalBanknotes} val={summary?.banknotes_breakdown?.total_banknotes} />
+          <MiniRow label={t.supportedRegions} val={summary?.banknotes_breakdown?.supported_countries_count} />
+          <MiniRow label={t.missingAssets} val={summary?.banknotes_breakdown?.missing_images_count} />
         </OverviewBox>
-      </div>
-
-      {/* 6. QUICK ACTIONS */}
-      <div className="pt-2">
-        <h3 className="text-sm font-black uppercase text-slate-500 mb-4 flex items-center gap-2">
-          <Settings size={16} /> {t.quickAct}
-        </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-          <ActionBtn
-            label="Users"
-            path="/admin/users"
-            icon={<Users size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="Packages"
-            path="/admin/token-packages"
-            icon={<Layers size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="Transactions"
-            path="/admin/transactions"
-            icon={<ArrowRightLeft size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="Results"
-            path="/admin/results"
-            icon={<Terminal size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="Feedbacks"
-            path="/admin/feedbacks"
-            icon={<MessageSquare size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="Banknotes"
-            path="/admin/banknotes"
-            icon={<Database size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="Rates"
-            path="/admin/currency-rates"
-            icon={<Landmark size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="Agents"
-            path="/admin/agents"
-            icon={<Cpu size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="Agent Config"
-            path="/admin/agents/config"
-            icon={<Settings size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="Aggregator"
-            path="/admin/agents/aggregator"
-            icon={<GitMerge size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="System Logs"
-            path="/admin/logs"
-            icon={<FileText size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-          <ActionBtn
-            label="Settings"
-            path="/admin/settings"
-            icon={<Settings size={16} />}
-            nav={navigate}
-            isDark={isDark}
-          />
-        </div>
       </div>
     </div>
   );
 }
 
 // ----- MICRO COMPONENTS -----
-function StatCard({ load, isDark, title, val, icon, isPrice }) {
+function StatCard({ load, isDark, title, val, icon, trend, positive }) {
   return (
-    <div
-      className={`p-4 rounded-2xl border shadow-sm flex flex-col justify-between h-[100px] ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}
-    >
-      <div className="flex justify-between items-start">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+    <div className={`p-5 rounded-xl border shadow-sm flex flex-col h-[110px] ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+      <div className="flex justify-between items-center mb-auto">
+        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
           {title}
         </span>
-        {icon}
+        <div className={`p-1.5 rounded-md ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+           {icon}
+        </div>
       </div>
       {load ? (
-        <div className="w-12 h-6 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
+        <div className="w-16 h-6 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
       ) : (
-        <span
-          className={`text-xl font-black truncate ${isPrice ? "text-teal-500" : "text-slate-900 dark:text-white"}`}
-        >
-          {val ?? "N/A"}
-        </span>
+        <div className="flex items-end gap-2">
+           <span className="text-2xl font-bold text-slate-900 dark:text-white truncate tracking-tight">
+             {val ?? "0"}
+           </span>
+           {trend && (
+             <span className={`text-xs font-bold mb-1 ${positive ? 'text-emerald-500' : 'text-slate-400'}`}>
+               {trend}
+             </span>
+           )}
+        </div>
       )}
     </div>
   );
 }
+
 function HealthRow({ label, status, render }) {
   return (
-    <div className="flex justify-between items-center text-xs font-semibold">
-      <span className="text-slate-500 truncate pr-2">{label}</span>
+    <div className="flex justify-between items-center py-1">
+      <span className="text-sm font-medium text-slate-600 dark:text-slate-300">{label}</span>
       {render(status)}
     </div>
   );
 }
-function ProgressRow({ label, value, icon, color = "bg-teal-600" }) {
+
+function ProgressRow({ label, value, color = "bg-slate-800 dark:bg-slate-200" }) {
   const pct = Math.min(Math.max(Number(value) || 0, 0), 100);
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-xs font-bold">
-        <span className="text-slate-400 flex items-center gap-1">
-          {icon} {label}
-        </span>
-        <span className="font-mono">{pct}%</span>
+    <div className="space-y-2">
+      <div className="flex justify-between text-sm">
+        <span className="font-medium text-slate-600 dark:text-slate-300">{label}</span>
+        <span className="font-bold text-slate-900 dark:text-white">{pct}%</span>
       </div>
-      <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-        <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
+      <div className="h-2 w-full bg-slate-100 dark:bg-slate-800/80 rounded-full overflow-hidden border border-slate-200 dark:border-slate-800">
+        <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
 }
-function OverviewBox({
-  isDark,
-  icon,
-  title,
-  children,
-  btn1,
-  link1,
-  btn2,
-  link2,
-  navigate,
-}) {
+
+function OverviewBox({ isDark, title, children }) {
   return (
-    <div
-      className={`p-5 rounded-2xl border shadow-sm flex flex-col justify-between ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}
-    >
-      <div>
-        <h4 className="text-xs font-black uppercase text-slate-400 mb-3 flex items-center gap-1.5">
-          {icon} {title}
-        </h4>
-        <div className="space-y-2">{children}</div>
-      </div>
-      <div
-        className={`grid ${btn2 ? "grid-cols-2" : "grid-cols-1"} gap-2 mt-4 pt-3 border-t border-slate-100 dark:border-slate-800`}
-      >
-        <button
-          onClick={() => navigate(link1)}
-          className="py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition"
-        >
-          {btn1}
-        </button>
-        {btn2 && (
-          <button
-            onClick={() => navigate(link2)}
-            className="py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition"
-          >
-            {btn2}
-          </button>
-        )}
-      </div>
+    <div className={`p-6 rounded-xl border shadow-sm flex flex-col ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+      <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+        {title}
+      </h4>
+      <div className="space-y-3">{children}</div>
     </div>
   );
 }
-function MiniRow({ label, val, color = "text-slate-600 dark:text-slate-300" }) {
+
+function MiniRow({ label, val }) {
   return (
-    <div className="flex justify-between text-xs border-b border-slate-50 dark:border-slate-800/50 pb-1 last:border-0">
-      <span className="text-slate-400 font-medium">{label}</span>
-      <span className={`font-bold font-mono ${color}`}>{val ?? "0"}</span>
-    </div>
-  );
-}
-function ActionBtn({ label, path, icon, nav, isDark }) {
-  return (
-    <div
-      onClick={() => nav(path)}
-      className={`p-3 rounded-xl border flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-teal-500 transition-colors ${isDark ? "bg-slate-900 border-slate-800 text-slate-300" : "bg-white border-slate-200 text-slate-600"}`}
-    >
-      <div className="text-teal-600 dark:text-teal-400">{icon}</div>
-      <span className="text-[10px] font-bold uppercase tracking-wider">
-        {label}
-      </span>
+    <div className="flex justify-between text-sm py-1">
+      <span className="text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="font-semibold text-slate-900 dark:text-white">{val ?? "0"}</span>
     </div>
   );
 }

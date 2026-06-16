@@ -159,7 +159,10 @@ def normalize_agent_vote(agent_result: Dict[str, Any]) -> Dict[str, Any]:
         
     vote_key = None
     if country and currency_code and amount is not None:
-        vote_key = (country, currency_code, amount)
+        c_str = str(country).strip().lower()
+        curr_str = str(currency_code).strip().lower()
+        amt_str = str(amount).strip().lower()
+        vote_key = (c_str, curr_str, amt_str)
         
     return {
         "country": country,

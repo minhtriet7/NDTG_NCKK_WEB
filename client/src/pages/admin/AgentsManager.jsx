@@ -132,8 +132,8 @@ export default function AgentsManager() {
   const fallbackAgents = [
     {
       key: "agent_1_ml_dl",
-      name: "Agent 1 ML/DL",
-      role: "YOLO + RES Classifier",
+      name: "Agent 1 ChatGPT Vision",
+      role: "ChatGPT GPT-4o Vision Classifier",
       status: "unknown",
       last_run_at: null,
       latency_ms: null,
@@ -260,7 +260,7 @@ export default function AgentsManager() {
           <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400 mb-2">
             AI Agents
           </p>
-          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {t.title}
           </h1>
           <p className="text-sm md:text-base text-slate-500 dark:text-slate-400 mt-2 max-w-2xl">
@@ -287,7 +287,7 @@ export default function AgentsManager() {
         ].map((item) => {
           const Icon = item.icon;
           return (
-            <div key={item.label} className={`p-5 rounded-3xl border shadow-sm ${cardClass}`}>
+            <div key={item.label} className={`p-5 rounded-xl border shadow-sm ${cardClass}`}>
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="text-xs font-black text-slate-400 uppercase tracking-wider mb-3">
@@ -295,7 +295,7 @@ export default function AgentsManager() {
                   </div>
                   <div className={`text-3xl font-black ${item.tone}`}>{item.value}</div>
                 </div>
-                <div className="w-10 h-10 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+                <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400">
                   <Icon size={18} />
                 </div>
               </div>
@@ -304,7 +304,7 @@ export default function AgentsManager() {
         })}
       </div>
 
-      <div className={`rounded-3xl border shadow-sm overflow-hidden ${cardClass}`}>
+      <div className={`rounded-xl border shadow-sm overflow-hidden ${cardClass}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm whitespace-nowrap">
             <thead className="uppercase text-[10px] font-black tracking-wider text-slate-500 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">

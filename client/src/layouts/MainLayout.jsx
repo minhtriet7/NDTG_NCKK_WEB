@@ -4,6 +4,7 @@ import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
 import { useAppStore } from '../store/appStore';
 import { useAuthStore } from '../store/authStore';
+import SEO from '../components/SEO';
 
 export default function MainLayout() {
   const { initTheme } = useAppStore();
@@ -21,6 +22,7 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-screen flex flex-col font-sans transition-colors duration-300 bg-background text-foreground">
+      <SEO isApp={true} />
       
       <Header />
       

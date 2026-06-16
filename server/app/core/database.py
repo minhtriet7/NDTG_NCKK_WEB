@@ -19,7 +19,7 @@ from app.models.config_model import SystemConfig
 from app.models.banknote_model import Banknote
 from app.models.recognition_model import RecognitionRequest
 from app.models.email_log_model import EmailLog
-
+from app.models.page_model import Page
 
 
 logger = get_logger(__name__)
@@ -47,6 +47,7 @@ async def init_db():
             RecognitionRequest,
             TokenUsage,
             EmailLog,
+            Page,
         ],
     )
 

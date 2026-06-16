@@ -449,7 +449,7 @@ const loadData = async () => {
             Recognition Data
           </p>
 
-          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {t.title}
           </h1>
 
@@ -519,7 +519,7 @@ const loadData = async () => {
           return (
             <div
               key={item.label}
-              className={`p-5 rounded-3xl border shadow-sm ${cardClass}`}
+              className={`p-5 rounded-xl border shadow-sm ${cardClass}`}
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -531,7 +531,7 @@ const loadData = async () => {
                   </div>
                 </div>
 
-                <div className="w-10 h-10 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+                <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400">
                   <Icon size={18} />
                 </div>
               </div>
@@ -541,7 +541,7 @@ const loadData = async () => {
       </div>
 
       <div
-        className={`p-4 rounded-3xl border shadow-sm flex flex-col xl:flex-row gap-3 ${cardClass}`}
+        className={`p-4 rounded-xl border shadow-sm flex flex-col xl:flex-row gap-3 ${cardClass}`}
       >
         <div className="relative flex-1">
           <Search
@@ -557,14 +557,14 @@ const loadData = async () => {
             onKeyDown={(e) => {
               if (e.key === "Enter") loadData();
             }}
-            className={`w-full h-12 pl-11 pr-4 rounded-2xl border outline-none text-sm transition-colors ${inputClass}`}
+            className={`w-full h-12 pl-11 pr-4 rounded-xl border outline-none text-sm transition-colors ${inputClass}`}
           />
         </div>
 
         <select
           value={filterSource}
           onChange={(e) => setFilterSource(e.target.value)}
-          className={`h-12 px-4 rounded-2xl border outline-none font-bold text-sm min-w-[170px] ${inputClass}`}
+          className={`h-12 px-4 rounded-xl border outline-none font-bold text-sm min-w-[170px] ${inputClass}`}
         >
           <option value="all">{t.sourceAll}</option>
          <option value="market">{t.sourceMarket}</option>
@@ -575,7 +575,7 @@ const loadData = async () => {
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className={`h-12 px-4 rounded-2xl border outline-none font-bold text-sm min-w-[170px] ${inputClass}`}
+          className={`h-12 px-4 rounded-xl border outline-none font-bold text-sm min-w-[170px] ${inputClass}`}
         >
           <option value="all">{t.statusAll}</option>
           <option value="active">{t.active}</option>
@@ -585,7 +585,7 @@ const loadData = async () => {
         <select
           value={filterFreshness}
           onChange={(e) => setFilterFreshness(e.target.value)}
-          className={`h-12 px-4 rounded-2xl border outline-none font-bold text-sm min-w-[170px] ${inputClass}`}
+          className={`h-12 px-4 rounded-xl border outline-none font-bold text-sm min-w-[170px] ${inputClass}`}
         >
           <option value="all">{t.freshnessAll}</option>
           <option value="fresh">{t.fresh}</option>
@@ -594,14 +594,14 @@ const loadData = async () => {
 
         <button
           onClick={resetFilters}
-          className={`h-12 px-4 rounded-2xl border font-bold text-sm ${cardClass} text-slate-600 dark:text-slate-300 hover:border-rose-300 transition-colors`}
+          className={`h-12 px-4 rounded-xl border font-bold text-sm ${cardClass} text-slate-600 dark:text-slate-300 hover:border-rose-300 transition-colors`}
         >
           Reset
         </button>
       </div>
 
       <div
-        className={`rounded-3xl border shadow-sm overflow-hidden ${cardClass}`}
+        className={`rounded-xl border shadow-sm overflow-hidden ${cardClass}`}
       >
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm whitespace-nowrap">
@@ -633,7 +633,7 @@ const loadData = async () => {
                 <tr>
                   <td colSpan="8" className="px-6 py-16">
                     <div className="flex flex-col items-center justify-center text-center">
-                      <div className="w-14 h-14 rounded-3xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-4">
+                      <div className="w-14 h-14 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-4">
                         <Database size={24} />
                       </div>
 
@@ -659,7 +659,7 @@ const loadData = async () => {
                     >
                       <td className="px-6 py-5">
                         <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 font-black">
+                          <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 font-black">
                             {String(rate.target_currency || "?").slice(0, 1)}
                           </div>
 
@@ -785,7 +785,7 @@ const loadData = async () => {
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-6">
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 bg-slate-50 dark:bg-slate-950">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-slate-50 dark:bg-slate-950">
                 <div className="text-[10px] font-black uppercase text-slate-400 mb-1">
                   {t.marketRate}
                 </div>
@@ -794,7 +794,7 @@ const loadData = async () => {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 bg-slate-50 dark:bg-slate-950">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 bg-slate-50 dark:bg-slate-950">
                 <div className="text-[10px] font-black uppercase text-slate-400 mb-1">
                   {t.effectiveRate}
                 </div>
@@ -805,7 +805,7 @@ const loadData = async () => {
             </div>
 
             {formData.is_base && (
-              <div className="mb-5 rounded-2xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 p-4">
+              <div className="mb-5 rounded-xl border border-blue-200 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-950/30 p-4">
                 <div className="font-black text-sm text-blue-700 dark:text-blue-300">
                   {t.baseCurrency}
                 </div>
@@ -817,7 +817,7 @@ const loadData = async () => {
 
             <form onSubmit={handleSave} className="space-y-4">
               <label
-                className={`flex items-center justify-between p-4 border rounded-2xl transition-colors ${
+                className={`flex items-center justify-between p-4 border rounded-xl transition-colors ${
                   formData.is_base
                     ? "opacity-50 cursor-not-allowed border-slate-200 dark:border-slate-800"
                     : "cursor-pointer hover:border-amber-500 border-slate-200 dark:border-slate-800"
@@ -864,12 +864,12 @@ const loadData = async () => {
                         manual_rate: e.target.value,
                       })
                     }
-                    className={`w-full h-12 px-4 rounded-2xl border outline-none font-mono font-black text-sm ${inputClass}`}
+                    className={`w-full h-12 px-4 rounded-xl border outline-none font-mono font-black text-sm ${inputClass}`}
                   />
                 </div>
               )}
 
-              <label className="flex items-center justify-between p-4 border border-slate-200 dark:border-slate-800 rounded-2xl cursor-pointer hover:border-teal-500 transition-colors">
+              <label className="flex items-center justify-between p-4 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer hover:border-teal-500 transition-colors">
                 <div>
                   <p className="text-sm font-black text-slate-900 dark:text-white">
                     {t.activeTitle}
@@ -895,7 +895,7 @@ const loadData = async () => {
               <button
                 type="submit"
                 disabled={isSaving}
-                className="w-full h-12 bg-teal-600 hover:bg-teal-500 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-60 transition-colors"
+                className="w-full h-12 bg-teal-600 hover:bg-teal-500 text-white font-black rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-60 transition-colors"
               >
                 {isSaving ? (
                   <>
@@ -953,7 +953,7 @@ const loadData = async () => {
                 logs.map((log, index) => (
                   <div
                     key={getId(log) || index}
-                    className={`p-4 rounded-2xl border ${
+                    className={`p-4 rounded-xl border ${
                       isDark
                         ? "bg-slate-900 border-slate-800"
                         : "bg-slate-50 border-slate-200"

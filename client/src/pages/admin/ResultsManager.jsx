@@ -85,7 +85,7 @@ function normalizeAgentOutputs(record) {
     };
 
     return {
-      ml_dl: findAgent(["yolo", "ml", "agent_1"]),
+      ml_dl: findAgent(["yolo", "ml", "agent_1", "openai", "chatgpt"]),
       llm_api: findAgent(["llm", "gemini", "agent_2"]),
       visual_search: findAgent(["lens", "visual", "agent_3"]),
     };
@@ -470,7 +470,7 @@ export default function ResultsManager() {
     <div className="space-y-6 animate-[fadeInUp_0.3s_ease-out]">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
-          <h1 className={`text-2xl font-bold ${textMain}`}>{t.title}</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
           <p className="text-sm text-slate-500 mt-1">{t.subtitle}</p>
         </div>
 
@@ -491,7 +491,7 @@ export default function ResultsManager() {
         <KpiCard label="Failed" value={kpis.failed} className={cardBg} textMain="text-rose-600" />
       </div>
 
-      <div className={`p-4 rounded-3xl border shadow-sm flex flex-col md:flex-row gap-4 ${cardBg}`}>
+      <div className={`p-4 rounded-xl border shadow-sm flex flex-col md:flex-row gap-4 ${cardBg}`}>
         <div className="relative flex-1">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -518,7 +518,7 @@ export default function ResultsManager() {
         </select>
       </div>
 
-      <div className={`rounded-3xl border shadow-sm overflow-hidden ${cardBg}`}>
+      <div className={`rounded-xl border shadow-sm overflow-hidden ${cardBg}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm whitespace-nowrap">
             <thead
@@ -568,6 +568,10 @@ export default function ResultsManager() {
                             src={result.image_url}
                             alt="note"
                             className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2' ry='2'/><circle cx='8.5' cy='8.5' r='1.5'/><polyline points='21 15 16 10 5 21'/></svg>";
+                            }}
                           />
                         ) : (
                           <span className="text-[10px]">No Img</span>
@@ -619,7 +623,7 @@ export default function ResultsManager() {
       {selectedScan && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
           <div
-            className={`w-full max-w-5xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden ${cardBg}`}
+            className={`w-full max-w-5xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden ${cardBg}`}
           >
             <div
               className={`px-6 py-4 border-b flex justify-between items-center ${
@@ -641,19 +645,23 @@ export default function ResultsManager() {
 
             <div className="p-6 overflow-y-auto space-y-6">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="bg-slate-100 dark:bg-slate-950 rounded-2xl flex items-center justify-center min-h-[220px] border border-slate-200 dark:border-slate-800 overflow-hidden p-2">
+                <div className="bg-slate-100 dark:bg-slate-950 rounded-xl flex items-center justify-center min-h-[220px] border border-slate-200 dark:border-slate-800 overflow-hidden p-2">
                   {selectedScan.image_url ? (
                     <img
                       src={selectedScan.image_url}
                       alt="scan"
                       className="max-h-[220px] object-contain rounded-xl"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2' ry='2'/><circle cx='8.5' cy='8.5' r='1.5'/><polyline points='21 15 16 10 5 21'/></svg>";
+                      }}
                     />
                   ) : (
                     <span className="text-slate-400">No Image</span>
                   )}
                 </div>
 
-                <div className="lg:col-span-2 bg-slate-900 rounded-2xl p-6 text-white shadow-inner">
+                <div className="lg:col-span-2 bg-slate-900 rounded-xl p-6 text-white shadow-inner">
                   <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">
                     Final Decision
                   </h4>
@@ -690,7 +698,7 @@ export default function ResultsManager() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <AgentCard
                     isDark={isDark}
-                    title="YOLO / ML"
+                    title="ChatGPT Vision"
                     icon={<Cpu size={16} />}
                     data={selectedAgents.ml_dl}
                     finalDenom={selectedScan.denomination}
@@ -759,7 +767,7 @@ export default function ResultsManager() {
                   JSON Payload
                 </h4>
 
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
                   <pre className="text-xs text-teal-300 font-mono overflow-auto max-h-[300px] whitespace-pre-wrap">
                     {JSON.stringify(selectedScan.raw || selectedScan, null, 2)}
                   </pre>
@@ -786,7 +794,7 @@ export default function ResultsManager() {
 
 function KpiCard({ label, value, className, textMain }) {
   return (
-    <div className={`p-5 rounded-3xl border shadow-sm ${className}`}>
+    <div className={`p-5 rounded-xl border shadow-sm ${className}`}>
       <p className="text-xs font-bold text-slate-500 uppercase">{label}</p>
       <p className={`text-2xl font-black mt-2 ${textMain}`}>{value}</p>
     </div>
@@ -806,7 +814,7 @@ function AgentCard({ title, icon, data, finalDenom, isDark }) {
   if (!data) {
     return (
       <div
-        className={`p-4 rounded-2xl border border-dashed flex flex-col items-center justify-center text-center min-h-[140px] ${
+        className={`p-4 rounded-xl border border-dashed flex flex-col items-center justify-center text-center min-h-[140px] ${
           isDark
             ? "bg-slate-900 border-slate-700 text-slate-500"
             : "bg-white border-slate-200 text-slate-400"
@@ -826,7 +834,7 @@ function AgentCard({ title, icon, data, finalDenom, isDark }) {
 
   return (
     <div
-      className={`p-4 rounded-2xl border shadow-sm flex flex-col ${
+      className={`p-4 rounded-xl border shadow-sm flex flex-col ${
         isDark
           ? "bg-slate-900 border-slate-800"
           : "bg-white border-slate-200"

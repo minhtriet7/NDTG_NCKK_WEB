@@ -1,5 +1,5 @@
 from app.models.user_model import User
-from app.schemas.user_schema import UserUpdate, ChangePasswordRequest
+from app.schemas.user_schema import UserUpdate, ChangePasswordRequest, UserPreferencesUpdate
 from app.services.user_service import UserService
 
 
@@ -15,6 +15,7 @@ def serialize_user_profile(user: User):
         "phone": getattr(user, "phone", None),
         "country": getattr(user, "country", None),
         "avatar_url": getattr(user, "avatar_url", None),
+        "preferences": getattr(user, "preferences", {}) or {},
         "created_at": getattr(user, "created_at", None),
         "updated_at": getattr(user, "updated_at", None),
         "last_login_at": getattr(user, "last_login_at", None),
@@ -31,6 +32,27 @@ class UserController:
     async def update_profile(user: User, data: UserUpdate):
         updated_user = await UserService.update_profile(user, data)
         return serialize_user_profile(updated_user)
+
+    @staticmethod
+    async def upload_avatar(user: User, file):
+        updated_user = await UserService.upload_avatar(user, file)
+        return serialize_user_profile(updated_user)
+
+    @staticmethod
+    async def get_stats(user: User):
+        return await UserService.get_profile_stats(user)
+
+    @staticmethod
+    async def get_profile_config():
+        return await UserService.get_profile_config()
+
+    @staticmethod
+    async def get_preferences(user: User):
+        return await UserService.get_preferences(user)
+
+    @staticmethod
+    async def update_preferences(user: User, data: UserPreferencesUpdate):
+        return await UserService.update_preferences(user, data)
 
     @staticmethod
     async def change_password(user: User, data: ChangePasswordRequest):

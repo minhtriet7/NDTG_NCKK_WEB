@@ -1,9 +1,11 @@
-import React from "react";
+import { useTranslation } from "react-i18next";
 import { Sun, Moon, Globe } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
+import { useLanguageStore } from "../../store/languageStore";
 
 export default function ThemeLangToggle() {
   const appStore = useAppStore();
+  const { i18n } = useTranslation();
 
   const theme = appStore.theme || "light";
   const lang = appStore.lang || "EN";
@@ -36,6 +38,15 @@ export default function ThemeLangToggle() {
       appStore.setLanguage(nextLang);
     } else {
       useAppStore.setState({ lang: nextLang });
+    }
+
+    // Synchronize with the secondary language store used by Result/History pages
+    if (typeof useLanguageStore.getState().setLanguage === "function") {
+      useLanguageStore.getState().setLanguage(nextLang);
+    }
+
+    if (i18n && typeof i18n.changeLanguage === "function") {
+      i18n.changeLanguage(nextLang.toLowerCase());
     }
   };
 

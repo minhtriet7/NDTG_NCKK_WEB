@@ -499,7 +499,7 @@ export default function TransactionsManager() {
     <div className="w-full max-w-[1440px] mx-auto space-y-6 animate-[fadeInUp_0.4s_ease-out]">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {t.title}
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
@@ -553,7 +553,7 @@ export default function TransactionsManager() {
       </div>
 
       <div
-        className={`p-4 rounded-2xl border shadow-sm flex flex-col sm:flex-row gap-4 ${
+        className={`p-4 rounded-xl border shadow-sm flex flex-col sm:flex-row gap-4 ${
           isDark
             ? "bg-slate-900 border-slate-800"
             : "bg-white border-slate-200"
@@ -630,7 +630,7 @@ export default function TransactionsManager() {
       </div>
 
       <div
-        className={`rounded-3xl border shadow-sm overflow-hidden ${
+        className={`rounded-xl border shadow-sm overflow-hidden ${
           isDark
             ? "bg-slate-900 border-slate-800"
             : "bg-white border-slate-200"
@@ -795,7 +795,7 @@ export default function TransactionsManager() {
 function StatCard({ isDark, label, value, icon, valueClassName }) {
   return (
     <div
-      className={`p-5 rounded-2xl border shadow-sm ${
+      className={`p-5 rounded-xl border shadow-sm ${
         isDark
           ? "bg-slate-900 border-slate-800"
           : "bg-white border-slate-200"
@@ -899,7 +899,7 @@ function TransactionDetailModal({
           </div>
 
           <div
-            className={`rounded-2xl border overflow-hidden ${
+            className={`rounded-xl border overflow-hidden ${
               isDark ? "border-slate-800" : "border-slate-200"
             }`}
           >
@@ -956,7 +956,7 @@ function TransactionDetailModal({
           </p>
 
           <div
-            className={`rounded-2xl border overflow-hidden ${
+            className={`rounded-xl border overflow-hidden ${
               isDark ? "border-slate-800" : "border-slate-200"
             }`}
           >

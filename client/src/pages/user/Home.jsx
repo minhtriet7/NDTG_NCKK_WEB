@@ -5,6 +5,7 @@ import { useAuthStore } from "../../store/authStore";
 
 import HeroSection from "../../components/home/HeroSection";
 import StatsSection from "../../components/home/StatsSection";
+import VideoDemoSection from "../../components/home/VideoDemoSection";
 import WorkflowSection from "../../components/home/WorkflowSection";
 import AgentSystemSection from "../../components/home/AgentSystemSection";
 
@@ -37,6 +38,7 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground transition-colors duration-300 pb-20">
       <HeroSection isAuthenticated={isAuthenticated} tokenBalance={tokenBalance} />
       <StatsSection stats={mockStats} />
+      <VideoDemoSection />
       <WorkflowSection />
       <AgentSystemSection />
     </div>

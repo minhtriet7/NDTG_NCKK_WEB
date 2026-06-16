@@ -148,7 +148,7 @@ export default function LlmConfig() {
           <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400 mb-2">
             Agent 2 Gemini
           </p>
-          <h1 className="text-3xl md:text-4xl font-black tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
           <p className="text-sm md:text-base text-slate-500 dark:text-slate-400 mt-2 max-w-2xl">{t.subtitle}</p>
         </div>
 
@@ -165,9 +165,9 @@ export default function LlmConfig() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className={`rounded-3xl border shadow-sm p-6 space-y-5 ${cardClass}`}>
+        <div className={`rounded-xl border shadow-sm p-6 space-y-5 ${cardClass}`}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-violet-50 dark:bg-violet-900/30 flex items-center justify-center text-violet-600 dark:text-violet-400">
+            <div className="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-900/30 flex items-center justify-center text-violet-600 dark:text-violet-400">
               <Brain size={18} />
             </div>
             <h2 className="text-xl font-black text-slate-900 dark:text-white">{t.model}</h2>
@@ -176,7 +176,7 @@ export default function LlmConfig() {
           <button
             type="button"
             onClick={() => toggle("enabled")}
-            className={`w-full p-4 rounded-2xl border flex justify-between items-center ${form.enabled ? "border-teal-300 bg-teal-50/50 dark:bg-teal-900/20" : "border-slate-200 dark:border-slate-800"}`}
+            className={`w-full p-4 rounded-xl border flex justify-between items-center ${form.enabled ? "border-teal-300 bg-teal-50/50 dark:bg-teal-900/20" : "border-slate-200 dark:border-slate-800"}`}
           >
             <span className="font-black text-slate-900 dark:text-white">{t.enabled}</span>
             <div className={`w-11 h-6 rounded-full p-1 ${form.enabled ? "bg-teal-600" : "bg-slate-300 dark:bg-slate-700"}`}>
@@ -184,7 +184,7 @@ export default function LlmConfig() {
             </div>
           </button>
 
-          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-4 flex items-center justify-between">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex items-center justify-between">
             <div>
               <div className="text-sm font-black text-slate-900 dark:text-white">{t.apiKey}</div>
               <div className="text-xs text-slate-500 mt-1">{form.api_key_configured ? t.configured : t.missing}</div>
@@ -197,7 +197,7 @@ export default function LlmConfig() {
             <input
               value={form.main_model}
               onChange={(e) => setForm({ ...form, main_model: e.target.value })}
-              className={`w-full h-12 px-4 rounded-2xl border outline-none text-sm font-semibold ${inputClass}`}
+              className={`w-full h-12 px-4 rounded-xl border outline-none text-sm font-semibold ${inputClass}`}
             />
           </div>
 
@@ -207,12 +207,12 @@ export default function LlmConfig() {
               value={fallbackText}
               onChange={(e) => setFallbackText(e.target.value)}
               rows={4}
-              className={`w-full px-4 py-3 rounded-2xl border outline-none text-sm font-mono ${inputClass}`}
+              className={`w-full px-4 py-3 rounded-xl border outline-none text-sm font-mono ${inputClass}`}
             />
           </div>
         </div>
 
-        <div className={`rounded-3xl border shadow-sm p-6 space-y-5 ${cardClass}`}>
+        <div className={`rounded-xl border shadow-sm p-6 space-y-5 ${cardClass}`}>
           <h2 className="text-xl font-black text-slate-900 dark:text-white">{t.safety}</h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -223,7 +223,7 @@ export default function LlmConfig() {
                 min="1"
                 value={form.max_attempts_per_model}
                 onChange={(e) => setForm({ ...form, max_attempts_per_model: Number(e.target.value) })}
-                className={`w-full h-12 px-4 rounded-2xl border outline-none font-mono font-bold ${inputClass}`}
+                className={`w-full h-12 px-4 rounded-xl border outline-none font-mono font-bold ${inputClass}`}
               />
             </div>
 
@@ -236,7 +236,7 @@ export default function LlmConfig() {
                 step="0.01"
                 value={form.temperature}
                 onChange={(e) => setForm({ ...form, temperature: Number(e.target.value) })}
-                className={`w-full h-12 px-4 rounded-2xl border outline-none font-mono font-bold ${inputClass}`}
+                className={`w-full h-12 px-4 rounded-xl border outline-none font-mono font-bold ${inputClass}`}
               />
             </div>
           </div>
@@ -246,14 +246,14 @@ export default function LlmConfig() {
             <input
               value={form.response_mime_type}
               onChange={(e) => setForm({ ...form, response_mime_type: e.target.value })}
-              className={`w-full h-12 px-4 rounded-2xl border outline-none text-sm font-semibold ${inputClass}`}
+              className={`w-full h-12 px-4 rounded-xl border outline-none text-sm font-semibold ${inputClass}`}
             />
           </div>
 
           <button
             type="button"
             onClick={() => toggle("quota_fallback_enabled")}
-            className={`w-full p-4 rounded-2xl border flex justify-between items-center ${form.quota_fallback_enabled ? "border-teal-300 bg-teal-50/50 dark:bg-teal-900/20" : "border-slate-200 dark:border-slate-800"}`}
+            className={`w-full p-4 rounded-xl border flex justify-between items-center ${form.quota_fallback_enabled ? "border-teal-300 bg-teal-50/50 dark:bg-teal-900/20" : "border-slate-200 dark:border-slate-800"}`}
           >
             <span className="font-black text-slate-900 dark:text-white">{t.quotaFallback}</span>
             <div className={`w-11 h-6 rounded-full p-1 ${form.quota_fallback_enabled ? "bg-teal-600" : "bg-slate-300 dark:bg-slate-700"}`}>
@@ -268,7 +268,7 @@ export default function LlmConfig() {
               onChange={(e) => setForm({ ...form, prompt_template: e.target.value })}
               rows={8}
               placeholder="Optional. Leave empty to use backend default prompt."
-              className={`w-full px-4 py-3 rounded-2xl border outline-none text-sm ${inputClass}`}
+              className={`w-full px-4 py-3 rounded-xl border outline-none text-sm ${inputClass}`}
             />
           </div>
         </div>

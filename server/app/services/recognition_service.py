@@ -2,6 +2,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import inspect
 
 from beanie import PydanticObjectId
 from fastapi import HTTPException, status
@@ -36,7 +37,7 @@ except ModuleNotFoundError:
         ]
 
 from app.utils.cloudinary_handler import upload_image_to_cloudinary
-from app.agents.agent_1_ml import run_agent1_yolo
+from app.agents.agent_1_openai import run_agent1_openai
 from app.agents.agent_2_llm import run_agent2_llm
 from app.agents.agent_3_selector import run_agent3_lens
 from app.services.admin_service import AdminService
@@ -286,6 +287,20 @@ def build_agent_usage_input(
     }
 
 
+
+async def run_agent_with_timeout(agent_coro, timeout_sec: int, fallback_message: str):
+    if not inspect.isawaitable(agent_coro):
+        return agent_coro
+    try:
+        return await asyncio.wait_for(agent_coro, timeout=timeout_sec)
+    except asyncio.TimeoutError:
+        logger.warning("[Timeout] Agent timed out after %ss: %s", timeout_sec, fallback_message)
+        return TimeoutError(f"Agents timeout after {timeout_sec}s")
+    except Exception as e:
+        logger.error("[Error] Agent execution failed: %s", e)
+        return e
+
+
 class RecognitionService:
     @staticmethod
     async def update_task(
@@ -508,33 +523,49 @@ class RecognitionService:
                 lens_v2_debug = {} if debug_mode else None
 
                 agent_tasks = [
-                    run_agent1_yolo(crop_bytes)
-                    if enable_agent_1
-                    else build_disabled_agent_result("Agent 1 ML/DL", "Agent 1 bị tắt theo cấu hình admin."),
-                    run_agent2_llm(crop_bytes, context_for_llm, debug_log=llm_debug_log)
-                    if enable_agent_2
+                    run_agent_with_timeout(
+                        run_agent1_openai(crop_bytes, debug_log=llm_debug_log),
+                        agent_timeout_seconds,
+                        "Agent 1 OpenAI"
+                    ) if enable_agent_1
+                    else build_disabled_agent_result("Agent 1 OpenAI", "Agent 1 bị tắt theo cấu hình admin."),
+                    run_agent_with_timeout(
+                        run_agent2_llm(crop_bytes, context_for_llm, debug_log=llm_debug_log),
+                        agent_timeout_seconds,
+                        "Agent 2 LLM"
+                    ) if enable_agent_2
                     else build_disabled_agent_result("Agent 2 LLM", "Agent 2 bị tắt theo cấu hình admin."),
-                    run_agent3_lens(crop_bytes, context_for_llm, debug_log=lens_debug_log)
-                    if enable_agent_3
+                    run_agent_with_timeout(
+                        run_agent3_lens(crop_bytes, context_for_llm, debug_log=lens_debug_log),
+                        agent_timeout_seconds,
+                        "Agent 3 Lens"
+                    ) if enable_agent_3
                     else build_disabled_agent_result("Agent 3 Lens", "Agent 3 bị tắt theo cấu hình admin."),
                 ]
                 
                 if debug_mode and enable_agent_3:
                     from app.agents.agent_3_lens import run_agent3_lens as run_agent3_lens_v1
                     from app.agents.agent_3_lens_v2 import run_agent3_lens_v2
-                    agent_tasks.append(run_agent3_lens_v1(crop_bytes, context_for_llm, debug_log=lens_v1_debug))
-                    agent_tasks.append(run_agent3_lens_v2(crop_bytes, context_for_llm, debug_log=lens_v2_debug))
+                    agent_tasks.append(
+                        run_agent_with_timeout(
+                            run_agent3_lens_v1(crop_bytes, context_for_llm, debug_log=lens_v1_debug),
+                            agent_timeout_seconds,
+                            "Agent 3 Lens v1"
+                        )
+                    )
+                    agent_tasks.append(
+                        run_agent_with_timeout(
+                            run_agent3_lens_v2(crop_bytes, context_for_llm, debug_log=lens_v2_debug),
+                            agent_timeout_seconds,
+                            "Agent 3 Lens v2"
+                        )
+                    )
 
                 try:
-                    results = await asyncio.wait_for(
-                        asyncio.gather(*agent_tasks, return_exceptions=True),
-                        timeout=agent_timeout_seconds,
-                    )
-                except asyncio.TimeoutError:
-                    results = [
-                        TimeoutError(f"Agents timeout after {agent_timeout_seconds}s")
-                        for _ in agent_tasks
-                    ]
+                    results = await asyncio.gather(*agent_tasks, return_exceptions=True)
+                except Exception as exc:
+                    logger.error("[Pipeline] unexpected gather error: %s", exc)
+                    results = [exc for _ in agent_tasks]
 
                 raw_1 = results[0]
                 raw_2 = results[1]
@@ -562,7 +593,7 @@ class RecognitionService:
 
                 object_agent_results = [
                     {
-                        "agent": "YOLO",
+                        "agent": "OpenAI",
                         "object_index": object_index,
                         "data": agent1_data,
                     },
@@ -707,6 +738,39 @@ class RecognitionService:
 
         if task:
             await RecognitionService.update_task(task, "building_result", 88)
+
+        # Loại bỏ các object false positive (các vùng crop không phải tiền tệ và bị nhận diện thất bại hoàn toàn)
+        # chỉ khi có ít nhất 1 object khác đã được nhận diện thành công (Completed).
+        has_completed = any(
+            str((item.get("final_result") or {}).get("status") or "").lower() == "completed"
+            for item in detected_results
+        )
+        if has_completed and len(detected_results) > 1:
+            filtered_results = []
+            for item in detected_results:
+                final_res = item.get("final_result") or {}
+                status_str = str(final_res.get("status") or "").lower()
+                matched_agents = int(final_res.get("matched_agents") or final_res.get("so_luong_dong_thuan") or 0)
+                
+                # Nếu là object thất bại hoàn toàn (matched_agents = 0) và trạng thái lỗi, loại bỏ
+                is_failed_val = status_str in {"failed", "needs review", "needs_review"}
+                if is_failed_val and matched_agents == 0:
+                    logger.info(
+                        "[Recognition/Filter] Bỏ qua object_%s (false positive) vì không có agent nào nhận diện được và đã có object thành công khác.",
+                        item.get("object_index")
+                    )
+                    continue
+                filtered_results.append(item)
+            
+            if len(filtered_results) > 0:
+                # Sắp xếp và cập nhật lại index của các object còn lại
+                for new_idx, item in enumerate(filtered_results, start=1):
+                    item["object_index"] = new_idx
+                    if "summary" in item:
+                        item["summary"]["object_index"] = new_idx
+                    if "final_result" in item:
+                        item["final_result"]["object_index"] = new_idx
+                detected_results = filtered_results
 
         public_detected_results = [
             build_public_detected_object(item) for item in detected_results

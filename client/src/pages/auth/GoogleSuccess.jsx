@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
-import axios from 'axios';
+import api from '../../services/api';
 
 export default function GoogleSuccess() {
   const [searchParams] = useSearchParams();
@@ -14,13 +14,13 @@ export default function GoogleSuccess() {
 
     if (token) {
       // Gọi API lấy thông tin chi tiết user bằng token vừa nhận được
-      axios.get('http://localhost:8000/api/v1/users/me', {
+      api.get('/users/me', {
         headers: { Authorization: `Bearer ${token}` }
       })
-      .then((res) => {
+      .then((userProfile) => {
         // Lưu thông tin user và token vào Zustand store
         if (loginStore) {
-          loginStore(res.data, token);
+          loginStore(userProfile, token);
         }
         // Đăng nhập thành công, chuyển hướng thẳng vào trang chính
         navigate('/');

@@ -10,20 +10,17 @@ import {
   Search,
   Filter,
   RotateCcw,
-  CheckCircle2,
-  XCircle,
   Trash2,
   Edit,
   AlertTriangle,
-  ShieldCheck,
   Mail,
-  User,
-  Users,
   RefreshCw,
-  Ban,
+  Users,
+  CheckCircle2,
+  XCircle,
+  Shield,
 } from "lucide-react";
 import toast from "react-hot-toast";
-
 
 function normalizeUser(user = {}) {
   return {
@@ -43,12 +40,8 @@ function normalizeUser(user = {}) {
 
 function normalizeUsersResponse(data) {
   if (Array.isArray(data)) {
-    return {
-      items: data.map(normalizeUser),
-      total: data.length,
-    };
+    return { items: data.map(normalizeUser), total: data.length };
   }
-
   return {
     items: (data?.items || data?.data || data?.results || []).map(normalizeUser),
     total: data?.total || data?.count || data?.items?.length || 0,
@@ -63,16 +56,12 @@ function getUserName(user) {
   return user?.full_name || user?.name || user?.username || "N/A";
 }
 
-function getProvider(user) {
-  return user?.auth_provider || user?.provider || "local";
-}
-
 function formatDate(value, lang) {
   if (!value) return "N/A";
-
   try {
     return new Intl.DateTimeFormat(lang === "VI" ? "vi-VN" : "en-US", {
       dateStyle: "medium",
+      timeStyle: "short"
     }).format(new Date(value));
   } catch {
     return "N/A";
@@ -90,130 +79,101 @@ export default function UsersManager() {
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [providerFilter, setProviderFilter] = useState("all");
 
-  const [editModal, setEditModal] = useState({
-    open: false,
-    user: null,
-    originalRole: null,
-    originalStatus: null,
-  });
-
-  const [deleteModal, setDeleteModal] = useState({
-    open: false,
-    user: null,
-  });
-
+  const [editModal, setEditModal] = useState({ open: false, user: null, originalRole: null, originalStatus: null });
+  const [deleteModal, setDeleteModal] = useState({ open: false, user: null });
   const [isProcessing, setIsProcessing] = useState(false);
 
   const t = {
     EN: {
-      title: "Users Management",
-      subtitle: "Manage user accounts, access roles, and account status.",
-      searchPlaceholder: "Search name or email...",
+      title: "User Management",
+      subtitle: "Directory of all registered accounts and access controls.",
+      searchPlaceholder: "Search by name or email...",
       filterRole: "Role",
-      filterStatus: "Status",
-      filterProvider: "Provider",
+      filterStatus: "State",
       filterAll: "All",
-      refresh: "Refresh",
-      totalUsers: "Total Users",
-      activeUsers: "Active Users",
-      adminUsers: "Admin Users",
-      bannedUsers: "Blocked Users",
-      thUser: "User Info",
-      thProvider: "Provider",
-      thToken: "Tokens",
+      refresh: "Sync",
+      totalUsers: "Total Accounts",
+      activeUsers: "Active Accounts",
+      adminUsers: "Administrators",
+      bannedUsers: "Suspended",
+      thUser: "Account Details",
+      thProvider: "Auth",
+      thToken: "Balance",
       thRole: "Role",
       thStatus: "Status",
-      thJoined: "Joined Date",
+      thJoined: "Registered Date",
       thAction: "Actions",
       stActive: "Active",
-      stBanned: "Blocked",
-      btnEdit: "Edit",
-      btnDelete: "Delete",
+      stBanned: "Suspended",
+      btnEdit: "Modify",
+      btnDelete: "Revoke",
       btnCancel: "Cancel",
-      btnSave: "Save Changes",
-      btnConfirmDel: "Confirm Delete",
-      modalEditTitle: "Edit User Access",
-      modalDelTitle: "Delete User",
-      modalDelMsg:
-        "Are you sure you want to delete this user? This action cannot be undone.",
-      errLoad: "Failed to load users.",
-      noData: "No users found.",
-      msgSuccess: "User updated successfully.",
-      msgDelSuccess: "User deleted successfully.",
-      roleUser: "Normal User",
+      btnSave: "Save Configuration",
+      btnConfirmDel: "Confirm Deletion",
+      modalEditTitle: "Account Configuration",
+      modalDelTitle: "Revoke Account",
+      modalDelMsg: "This action will permanently delete the selected account. This cannot be undone.",
+      errLoad: "Failed to fetch directory.",
+      noData: "No matching records.",
+      msgSuccess: "Account updated.",
+      msgDelSuccess: "Account revoked.",
+      lblRole: "System Role",
+      lblStatus: "Account Status",
+      lblAccountRef: "Account Reference",
+      roleUser: "Standard User",
       roleAdmin: "Administrator",
-      statusActive: "Active",
-      statusBlocked: "Blocked",
-      targetAccount: "Target Account",
-      systemRole: "System Role",
-      accountStatus: "Account Status",
     },
     VI: {
-      title: "Quản lý người dùng",
-      subtitle: "Quản lý tài khoản, phân quyền và trạng thái truy cập.",
-      searchPlaceholder: "Tìm theo tên hoặc email...",
+      title: "Quản lý Người dùng",
+      subtitle: "Danh bạ toàn bộ tài khoản và quyền truy cập hệ thống.",
+      searchPlaceholder: "Tìm kiếm tên, email...",
       filterRole: "Vai trò",
       filterStatus: "Trạng thái",
-      filterProvider: "Đăng nhập",
       filterAll: "Tất cả",
-      refresh: "Làm mới",
-      totalUsers: "Tổng người dùng",
+      refresh: "Đồng bộ",
+      totalUsers: "Tổng tài khoản",
       activeUsers: "Đang hoạt động",
       adminUsers: "Quản trị viên",
-      bannedUsers: "Bị khóa",
-      thUser: "Thông tin",
-      thProvider: "Đăng nhập",
-      thToken: "Token",
+      bannedUsers: "Bị đình chỉ",
+      thUser: "Thông tin tài khoản",
+      thProvider: "Xác thực",
+      thToken: "Số dư",
       thRole: "Vai trò",
       thStatus: "Trạng thái",
-      thJoined: "Ngày tham gia",
-      thAction: "Thao tác",
+      thJoined: "Ngày đăng ký",
+      thAction: "Tác vụ",
       stActive: "Hoạt động",
-      stBanned: "Bị khóa",
-      btnEdit: "Sửa",
+      stBanned: "Đình chỉ",
+      btnEdit: "Chỉnh sửa",
       btnDelete: "Xóa",
       btnCancel: "Hủy",
-      btnSave: "Lưu thay đổi",
+      btnSave: "Lưu cấu hình",
       btnConfirmDel: "Xác nhận xóa",
-      modalEditTitle: "Sửa quyền truy cập",
-      modalDelTitle: "Xóa tài khoản",
-      modalDelMsg:
-        "Bạn có chắc chắn muốn xóa tài khoản này? Hành động này không thể hoàn tác.",
-      errLoad: "Không thể tải danh sách người dùng.",
-      noData: "Không tìm thấy người dùng.",
+      modalEditTitle: "Cấu hình Tài khoản",
+      modalDelTitle: "Xóa Tài khoản",
+      modalDelMsg: "Hành động này sẽ xóa vĩnh viễn tài khoản đã chọn và không thể hoàn tác.",
+      errLoad: "Lỗi tải danh bạ.",
+      noData: "Không có bản ghi phù hợp.",
       msgSuccess: "Cập nhật thành công.",
       msgDelSuccess: "Xóa thành công.",
-      roleUser: "Người dùng thường",
+      lblRole: "Vai trò Hệ thống",
+      lblStatus: "Trạng thái Tài khoản",
+      lblAccountRef: "Tham chiếu Tài khoản",
+      roleUser: "Người dùng Tiêu chuẩn",
       roleAdmin: "Quản trị viên",
-      statusActive: "Hoạt động",
-      statusBlocked: "Bị khóa",
-      targetAccount: "Tài khoản",
-      systemRole: "Vai trò hệ thống",
-      accountStatus: "Trạng thái tài khoản",
     },
   }[lang || "EN"];
 
   const loadData = async () => {
     setIsLoading(true);
-
     try {
-      const data = await getAdminUsers({
-        page: 1,
-        limit: 200,
-        search: searchTerm || undefined,
-        role: roleFilter,
-        status: statusFilter,
-        provider: providerFilter,
-      });
-
+      const data = await getAdminUsers({ page: 1, limit: 500, search: searchTerm || undefined, role: roleFilter !== 'all' ? roleFilter : undefined, status: statusFilter !== 'all' ? statusFilter : undefined });
       const normalized = normalizeUsersResponse(data);
-
       setUsers(normalized.items);
       setTotalUsers(normalized.total);
     } catch (error) {
-      toast.error(error?.response?.data?.detail || error?.response?.data?.message || error?.message || t.errLoad);
+      toast.error(error?.response?.data?.detail || t.errLoad);
       setUsers([]);
       setTotalUsers(0);
     } finally {
@@ -228,72 +188,39 @@ export default function UsersManager() {
 
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
-      const name = getUserName(user).toLowerCase();
-      const email = String(user.email || "").toLowerCase();
-      const provider = getProvider(user).toLowerCase();
-
-      const matchSearch =
-        name.includes(searchTerm.toLowerCase()) ||
-        email.includes(searchTerm.toLowerCase());
-
+      const matchSearch = getUserName(user).toLowerCase().includes(searchTerm.toLowerCase()) || String(user.email || "").toLowerCase().includes(searchTerm.toLowerCase());
       const matchRole = roleFilter === "all" || user.role === roleFilter;
-
-      const matchStatus =
-        statusFilter === "all" ||
-        (statusFilter === "active" && user.is_active) ||
-        (statusFilter === "blocked" && !user.is_active);
-
-      const matchProvider =
-        providerFilter === "all" || provider.includes(providerFilter);
-
-      return matchSearch && matchRole && matchStatus && matchProvider;
+      const matchStatus = statusFilter === "all" || (statusFilter === "active" && user.is_active) || (statusFilter === "blocked" && !user.is_active);
+      return matchSearch && matchRole && matchStatus;
     });
-  }, [users, searchTerm, roleFilter, statusFilter, providerFilter]);
+  }, [users, searchTerm, roleFilter, statusFilter]);
 
-  const stats = useMemo(() => {
-    return {
-      total: totalUsers || users.length,
-      active: users.filter((user) => user.is_active).length,
-      admin: users.filter((user) => user.role === "admin").length,
-      blocked: users.filter((user) => !user.is_active).length,
-    };
-  }, [users, totalUsers]);
+  const stats = useMemo(() => ({
+    total: totalUsers || users.length,
+    active: users.filter(u => u.is_active).length,
+    admin: users.filter(u => u.role === "admin").length,
+    blocked: users.filter(u => !u.is_active).length,
+  }), [users, totalUsers]);
 
   const resetFilters = () => {
     setSearchTerm("");
     setRoleFilter("all");
     setStatusFilter("all");
-    setProviderFilter("all");
   };
 
-  const handleUpdateUser = async (event) => {
-    event.preventDefault();
-
+  const handleUpdateUser = async (e) => {
+    e.preventDefault();
     if (!editModal.user) return;
-
     setIsProcessing(true);
-
     try {
       const userId = getUserId(editModal.user);
-
-      if (editModal.user.role !== editModal.originalRole) {
-        await updateUserRole(userId, editModal.user.role);
-      }
-
-      if (editModal.user.is_active !== editModal.originalStatus) {
-        await updateUserStatus(userId, editModal.user.is_active);
-      }
-
+      if (editModal.user.role !== editModal.originalRole) await updateUserRole(userId, editModal.user.role);
+      if (editModal.user.is_active !== editModal.originalStatus) await updateUserStatus(userId, editModal.user.is_active);
       toast.success(t.msgSuccess);
-      setEditModal({
-        open: false,
-        user: null,
-        originalRole: null,
-        originalStatus: null,
-      });
+      setEditModal({ open: false, user: null, originalRole: null, originalStatus: null });
       loadData();
     } catch (error) {
-      toast.error(error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Update failed");
+      toast.error(error?.response?.data?.detail || "Update failed");
     } finally {
       setIsProcessing(false);
     }
@@ -301,318 +228,135 @@ export default function UsersManager() {
 
   const handleDeleteUser = async () => {
     if (!deleteModal.user) return;
-
     setIsProcessing(true);
-
     try {
       await deleteUser(getUserId(deleteModal.user));
-
       toast.success(t.msgDelSuccess);
       setDeleteModal({ open: false, user: null });
       loadData();
     } catch (error) {
-      toast.error(error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Delete failed");
+      toast.error(error?.response?.data?.detail || "Delete failed");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const cardClass = `rounded-3xl border shadow-sm transition-colors ${
-    isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
-  }`;
-
-  const inputClass = `border text-sm rounded-xl px-3 py-2 outline-none transition-colors ${
-    isDark
-      ? "bg-slate-950 border-slate-800 text-slate-300"
-      : "bg-slate-50 border-slate-200 text-slate-900"
-  }`;
-
   return (
-    <div className="w-full max-w-[1440px] mx-auto space-y-6 animate-[fadeInUp_0.4s_ease-out]">
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+    <div className="w-full max-w-[1600px] mx-auto space-y-6 pb-10">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
-            {t.title}
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">
-            {t.subtitle}
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">{t.subtitle}</p>
         </div>
-
-        <button
-          onClick={loadData}
-          className={`inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-bold transition-colors ${
-            isDark
-              ? "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800"
-              : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-          }`}
-        >
-          <RefreshCw size={16} />
-          {t.refresh}
+        <button onClick={loadData} className="px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 text-white rounded-lg text-sm font-bold shadow-sm flex items-center gap-2 transition w-fit">
+          <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} /> {t.refresh}
         </button>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard
-          isDark={isDark}
-          label={t.totalUsers}
-          value={stats.total}
-          icon={<Users size={18} />}
-        />
-        <StatCard
-          isDark={isDark}
-          label={t.activeUsers}
-          value={stats.active}
-          icon={<CheckCircle2 size={18} />}
-        />
-        <StatCard
-          isDark={isDark}
-          label={t.adminUsers}
-          value={stats.admin}
-          icon={<ShieldCheck size={18} />}
-        />
-        <StatCard
-          isDark={isDark}
-          label={t.bannedUsers}
-          value={stats.blocked}
-          icon={<Ban size={18} />}
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard isDark={isDark} title={t.totalUsers} val={stats.total} icon={<Users size={16} className="text-slate-400" />} />
+        <StatCard isDark={isDark} title={t.activeUsers} val={stats.active} icon={<CheckCircle2 size={16} className="text-slate-400" />} />
+        <StatCard isDark={isDark} title={t.adminUsers} val={stats.admin} icon={<Shield size={16} className="text-slate-400" />} />
+        <StatCard isDark={isDark} title={t.bannedUsers} val={stats.blocked} icon={<XCircle size={16} className="text-slate-400" />} />
       </div>
 
-      <div
-        className={`p-4 rounded-2xl border shadow-sm flex flex-col xl:flex-row gap-4 ${cardClass}`}
-      >
+      <div className={`p-4 rounded-xl border shadow-sm flex flex-col md:flex-row gap-4 ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
         <div className="relative flex-1 min-w-[240px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
           <input
             type="text"
             placeholder={t.searchPlaceholder}
             value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            className={`w-full pl-9 pr-4 py-2 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/50 transition-all ${
-              isDark
-                ? "bg-slate-950 border-slate-800 text-white placeholder-slate-500"
-                : "bg-slate-50 border-slate-200 text-slate-900"
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className={`w-full h-10 pl-9 pr-4 rounded-lg border outline-none text-sm font-medium transition-colors ${
+              isDark ? "bg-slate-950 border-slate-800 text-white focus:border-slate-600" : "bg-slate-50 border-slate-200 focus:bg-white focus:border-slate-300"
             }`}
           />
         </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
-            <Filter size={16} />
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-2 text-sm font-bold text-slate-500 uppercase tracking-wider">
+            <Filter size={14} /> Filter
           </div>
-
-          <select
-            value={roleFilter}
-            onChange={(event) => setRoleFilter(event.target.value)}
-            className={inputClass}
-          >
-            <option value="all">
-              {t.filterRole}: {t.filterAll}
-            </option>
+          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className={`h-10 px-3 rounded-lg border text-sm font-medium outline-none ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200"}`}>
+            <option value="all">{t.filterRole}: {t.filterAll}</option>
             <option value="admin">Admin</option>
             <option value="user">User</option>
           </select>
-
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-            className={inputClass}
-          >
-            <option value="all">
-              {t.filterStatus}: {t.filterAll}
-            </option>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`h-10 px-3 rounded-lg border text-sm font-medium outline-none ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200"}`}>
+            <option value="all">{t.filterStatus}: {t.filterAll}</option>
             <option value="active">{t.stActive}</option>
             <option value="blocked">{t.stBanned}</option>
           </select>
-
-          <select
-            value={providerFilter}
-            onChange={(event) => setProviderFilter(event.target.value)}
-            className={inputClass}
-          >
-            <option value="all">
-              {t.filterProvider}: {t.filterAll}
-            </option>
-            <option value="google">Google</option>
-            <option value="local">Local</option>
-            <option value="email">Email</option>
-          </select>
-
-          <button
-            onClick={resetFilters}
-            className={`p-2 border rounded-xl transition-colors ${
-              isDark
-                ? "text-slate-400 bg-slate-950 border-slate-800 hover:text-rose-400"
-                : "text-slate-400 bg-slate-50 border-slate-200 hover:text-rose-600"
-            }`}
-          >
-            <RotateCcw size={16} />
+          <button onClick={resetFilters} className={`w-10 h-10 flex items-center justify-center rounded-lg border transition-colors ${isDark ? "border-slate-800 bg-slate-950 text-slate-400 hover:text-white" : "border-slate-200 bg-slate-50 hover:bg-white"}`}>
+            <RotateCcw size={14} />
           </button>
         </div>
       </div>
 
-      <div className={`rounded-3xl border shadow-sm overflow-hidden ${cardClass}`}>
+      <div className={`rounded-xl border shadow-sm overflow-hidden ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead
-              className={`uppercase text-[10px] font-bold tracking-wider border-b ${
-                isDark
-                  ? "bg-slate-950/50 text-slate-500 border-slate-800"
-                  : "bg-slate-50 text-slate-500 border-slate-100"
-              }`}
-            >
+            <thead className={`text-xs font-semibold uppercase tracking-wider border-b ${isDark ? "bg-slate-900/80 text-slate-500 border-slate-800" : "bg-slate-50 text-slate-500 border-slate-200"}`}>
               <tr>
-                <th className="px-5 py-4">{t.thUser}</th>
-                <th className="px-5 py-4">{t.thProvider}</th>
-                <th className="px-5 py-4">{t.thToken}</th>
-                <th className="px-5 py-4">{t.thRole}</th>
-                <th className="px-5 py-4">{t.thStatus}</th>
-                <th className="px-5 py-4">{t.thJoined}</th>
-                <th className="px-5 py-4 text-right">{t.thAction}</th>
+                <th className="px-5 py-3">{t.thUser}</th>
+                <th className="px-5 py-3">{t.thProvider}</th>
+                <th className="px-5 py-3">{t.thRole}</th>
+                <th className="px-5 py-3">{t.thStatus}</th>
+                <th className="px-5 py-3">{t.thJoined}</th>
+                <th className="px-5 py-3 text-right">{t.thAction}</th>
               </tr>
             </thead>
-
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
               {isLoading ? (
-                Array(6)
-                  .fill(0)
-                  .map((_, index) => <SkeletonRow key={index} />)
+                <tr><td colSpan="6" className="text-center py-8 text-slate-400 text-sm">Loading...</td></tr>
               ) : filteredUsers.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan="7"
-                    className="text-center py-16 text-slate-500 font-medium"
-                  >
-                    {t.noData}
-                  </td>
-                </tr>
+                <tr><td colSpan="6" className="text-center py-8 text-slate-400 text-sm">{t.noData}</td></tr>
               ) : (
                 filteredUsers.map((user) => (
-                  <tr
-                    key={getUserId(user)}
-                    className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
-                  >
+                  <tr key={getUserId(user)} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <div
-                          className={`w-10 h-10 rounded-full flex items-center justify-center font-bold border overflow-hidden ${
-                            isDark
-                              ? "bg-slate-800 border-slate-700 text-slate-300"
-                              : "bg-slate-100 border-slate-200 text-slate-600"
-                          }`}
-                        >
-                          {user.avatar_url ? (
-                            <img
-                              src={user.avatar_url}
-                              alt=""
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            getUserName(user)?.[0]?.toUpperCase() || "U"
-                          )}
+                        <div className={`w-9 h-9 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shrink-0`}>
+                          {user.avatar_url ? <img src={user.avatar_url} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.onerror = null; e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>"; }} /> : <Users size={16} className="text-slate-400" />}
                         </div>
-
                         <div>
-                          <p
-                            className={`font-bold ${
-                              isDark ? "text-slate-200" : "text-slate-900"
-                            }`}
-                          >
-                            {getUserName(user)}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            {user.email || "N/A"}
-                          </p>
+                          <p className={`text-sm font-bold ${isDark ? "text-slate-200" : "text-slate-900"}`}>{getUserName(user)}</p>
+                          <p className="text-[11px] font-mono text-slate-500 mt-0.5">{user.email || "N/A"}</p>
                         </div>
                       </div>
                     </td>
-
                     <td className="px-5 py-3">
-                      <span className="text-xs font-semibold text-slate-500 uppercase">
-                        {getProvider(user)}
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
+                        {user.auth_provider || "Local"}
                       </span>
                     </td>
-
-                    <td className="px-5 py-3 text-sm font-bold text-teal-600 dark:text-teal-400">
-                      {user.token_balance ?? user.tokens ?? 0}
-                    </td>
-
                     <td className="px-5 py-3">
                       {user.role === "admin" ? (
-                        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-indigo-500">
-                          <ShieldCheck size={14} /> Admin
-                        </span>
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">Admin</span>
                       ) : (
-                        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                          <User size={14} /> User
-                        </span>
+                        <span className="text-xs font-medium text-slate-500">User</span>
                       )}
                     </td>
-
                     <td className="px-5 py-3">
                       {user.is_active ? (
-                        <span
-                          className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase ${
-                            isDark
-                              ? "bg-teal-900/30 text-teal-400"
-                              : "bg-teal-50 text-teal-700"
-                          }`}
-                        >
-                          <CheckCircle2
-                            size={12}
-                            className="inline mr-1 mb-0.5"
-                          />
-                          {t.stActive}
-                        </span>
+                         <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400 border border-emerald-200/50 dark:border-emerald-500/20 w-fit">
+                           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>{t.stActive}
+                         </span>
                       ) : (
-                        <span
-                          className={`px-2.5 py-1 rounded text-[10px] font-bold uppercase ${
-                            isDark
-                              ? "bg-rose-900/30 text-rose-400"
-                              : "bg-rose-50 text-rose-700"
-                          }`}
-                        >
-                          <XCircle size={12} className="inline mr-1 mb-0.5" />
-                          {t.stBanned}
-                        </span>
+                         <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400 border border-rose-200/50 dark:border-rose-500/20 w-fit">
+                           <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>{t.stBanned}
+                         </span>
                       )}
                     </td>
-
-                    <td className="px-5 py-3 text-xs font-medium text-slate-500">
+                    <td className="px-5 py-3 text-xs font-mono text-slate-500">
                       {formatDate(user.created_at, lang)}
                     </td>
-
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() =>
-                            setEditModal({
-                              open: true,
-                              user: { ...user },
-                              originalRole: user.role,
-                              originalStatus: user.is_active,
-                            })
-                          }
-                          className={`p-2 rounded-lg border transition ${
-                            isDark
-                              ? "border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-teal-400"
-                              : "border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-teal-600"
-                          }`}
-                        >
+                        <button onClick={() => setEditModal({ open: true, user: {...user}, originalRole: user.role, originalStatus: user.is_active })} className={`p-1.5 rounded border transition ${isDark ? "border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-white" : "border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-900"}`}>
                           <Edit size={14} />
                         </button>
-
-                        <button
-                          onClick={() =>
-                            setDeleteModal({ open: true, user })
-                          }
-                          className={`p-2 rounded-lg border transition ${
-                            isDark
-                              ? "border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-rose-400"
-                              : "border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-rose-600"
-                          }`}
-                        >
+                        <button onClick={() => setDeleteModal({ open: true, user })} className={`p-1.5 rounded border transition ${isDark ? "border-slate-700 text-slate-400 hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/50" : "border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200"}`}>
                           <Trash2 size={14} />
                         </button>
                       </div>
@@ -626,117 +370,41 @@ export default function UsersManager() {
       </div>
 
       {editModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <form
-            onSubmit={handleUpdateUser}
-            className={`w-full max-w-md rounded-3xl shadow-2xl p-6 border ${
-              isDark
-                ? "bg-slate-900 border-slate-800"
-                : "bg-white border-slate-200"
-            }`}
-          >
-            <h3
-              className={`text-xl font-black mb-6 ${
-                isDark ? "text-white" : "text-slate-900"
-              }`}
-            >
-              {t.modalEditTitle}
-            </h3>
-
-            <div
-              className={`p-4 rounded-xl border mb-6 flex items-center gap-3 ${
-                isDark
-                  ? "bg-slate-950 border-slate-800"
-                  : "bg-slate-50 border-slate-100"
-              }`}
-            >
-              <Mail className="text-slate-400 w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <form onSubmit={handleUpdateUser} className={`w-full max-w-md rounded-xl shadow-xl p-6 border ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+            <h3 className={`text-lg font-bold mb-6 ${isDark ? "text-white" : "text-slate-900"}`}>{t.modalEditTitle}</h3>
+            
+            <div className={`p-4 rounded-lg border mb-6 flex items-center gap-3 ${isDark ? "bg-slate-950 border-slate-800" : "bg-slate-50 border-slate-100"}`}>
+              <Mail className="text-slate-400" size={18} />
               <div className="overflow-hidden">
-                <p className="text-xs text-slate-500 uppercase font-bold">
-                  {t.targetAccount}
-                </p>
-                <p
-                  className={`font-semibold truncate ${
-                    isDark ? "text-slate-200" : "text-slate-800"
-                  }`}
-                >
-                  {editModal.user?.email}
-                </p>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{t.lblAccountRef}</p>
+                <p className={`font-mono text-sm truncate ${isDark ? "text-slate-300" : "text-slate-700"}`}>{editModal.user?.email}</p>
               </div>
             </div>
 
             <div className="space-y-4">
-              <label className="block">
-                <span className="text-xs font-bold text-slate-500 uppercase mb-2 block">
-                  {t.systemRole}
-                </span>
-                <select
-                  value={editModal.user?.role}
-                  onChange={(event) =>
-                    setEditModal((modal) => ({
-                      ...modal,
-                      user: {
-                        ...modal.user,
-                        role: event.target.value,
-                      },
-                    }))
-                  }
-                  className={inputClass}
-                >
+              <label className="block mb-4">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">{t.lblRole}</span>
+                <select value={editModal.user?.role || "user"} onChange={(e) => setEditModal(m => ({...m, user: {...m.user, role: e.target.value}}))} className={`w-full h-11 px-3 rounded-lg border text-sm outline-none transition-colors ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200"}`}>
                   <option value="user">{t.roleUser}</option>
                   <option value="admin">{t.roleAdmin}</option>
                 </select>
               </label>
 
               <label className="block">
-                <span className="text-xs font-bold text-slate-500 uppercase mb-2 block">
-                  {t.accountStatus}
-                </span>
-                <select
-                  value={String(editModal.user?.is_active)}
-                  onChange={(event) =>
-                    setEditModal((modal) => ({
-                      ...modal,
-                      user: {
-                        ...modal.user,
-                        is_active: event.target.value === "true",
-                      },
-                    }))
-                  }
-                  className={inputClass}
-                >
-                  <option value="true">{t.statusActive}</option>
-                  <option value="false">{t.statusBlocked}</option>
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">{t.lblStatus}</span>
+                <select value={String(editModal.user?.is_active)} onChange={(e) => setEditModal(m => ({...m, user: {...m.user, is_active: e.target.value === "true"}}))} className={`w-full h-11 px-3 rounded-lg border text-sm outline-none transition-colors ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200"}`}>
+                  <option value="true">{t.stActive}</option>
+                  <option value="false">{t.stBanned}</option>
                 </select>
               </label>
             </div>
 
             <div className="flex gap-3 mt-8">
-              <button
-                type="button"
-                onClick={() =>
-                  setEditModal({
-                    open: false,
-                    user: null,
-                    originalRole: null,
-                    originalStatus: null,
-                  })
-                }
-                disabled={isProcessing}
-                className={`flex-1 py-2.5 rounded-xl font-bold text-sm border transition ${
-                  isDark
-                    ? "border-slate-700 hover:bg-slate-800 text-slate-300"
-                    : "border-slate-200 hover:bg-slate-50 text-slate-700"
-                }`}
-              >
+              <button type="button" onClick={() => setEditModal({ open: false, user: null, originalRole: null, originalStatus: null })} disabled={isProcessing} className={`flex-1 h-10 rounded-lg font-bold text-sm border transition ${isDark ? "border-slate-700 hover:bg-slate-800 text-slate-300" : "border-slate-200 hover:bg-slate-50 text-slate-700"}`}>
                 {t.btnCancel}
               </button>
-
-              <button
-                type="submit"
-                disabled={isProcessing}
-                className="flex-1 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl font-bold text-sm shadow-md transition disabled:opacity-50"
-              >
+              <button type="submit" disabled={isProcessing} className="flex-1 h-10 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 rounded-lg font-bold text-sm transition disabled:opacity-50">
                 {isProcessing ? "..." : t.btnSave}
               </button>
             </div>
@@ -745,50 +413,21 @@ export default function UsersManager() {
       )}
 
       {deleteModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div
-            className={`w-full max-w-sm rounded-3xl shadow-2xl p-6 border text-center ${
-              isDark
-                ? "bg-slate-900 border-slate-800"
-                : "bg-white border-slate-200"
-            }`}
-          >
-            <div className="w-16 h-16 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto mb-4">
-              <AlertTriangle size={32} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className={`w-full max-w-sm rounded-xl shadow-xl p-6 border text-center ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+            <div className="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto mb-4 border border-rose-500/20">
+              <AlertTriangle size={24} />
             </div>
-
-            <h3
-              className={`text-xl font-black mb-2 ${
-                isDark ? "text-white" : "text-slate-900"
-              }`}
-            >
-              {t.modalDelTitle}
-            </h3>
-
+            <h3 className={`text-lg font-bold mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>{t.modalDelTitle}</h3>
             <p className="text-sm text-slate-500 mb-6">{t.modalDelMsg}</p>
-
-            <p className="text-xs font-mono bg-slate-100 dark:bg-slate-950 p-2 rounded mb-6 truncate">
+            <p className="text-xs font-mono bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2 rounded mb-6 truncate text-slate-600 dark:text-slate-400">
               {deleteModal.user?.email}
             </p>
-
             <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteModal({ open: false, user: null })}
-                disabled={isProcessing}
-                className={`flex-1 py-2.5 rounded-xl font-bold text-sm border transition ${
-                  isDark
-                    ? "border-slate-700 hover:bg-slate-800 text-slate-300"
-                    : "border-slate-200 hover:bg-slate-50 text-slate-700"
-                }`}
-              >
+              <button onClick={() => setDeleteModal({ open: false, user: null })} disabled={isProcessing} className={`flex-1 h-10 rounded-lg font-bold text-sm border transition ${isDark ? "border-slate-700 hover:bg-slate-800 text-slate-300" : "border-slate-200 hover:bg-slate-50 text-slate-700"}`}>
                 {t.btnCancel}
               </button>
-
-              <button
-                onClick={handleDeleteUser}
-                disabled={isProcessing}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-sm shadow-md transition disabled:opacity-50"
-              >
+              <button onClick={handleDeleteUser} disabled={isProcessing} className="flex-1 h-10 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-bold text-sm transition disabled:opacity-50">
                 {isProcessing ? "..." : t.btnConfirmDel}
               </button>
             </div>
@@ -799,56 +438,14 @@ export default function UsersManager() {
   );
 }
 
-function StatCard({ isDark, label, value, icon }) {
+function StatCard({ isDark, title, val, icon }) {
   return (
-    <div
-      className={`rounded-2xl border p-5 shadow-sm ${
-        isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
-      }`}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">
-          {label}
-        </p>
-        <span className="text-teal-500">{icon}</span>
+    <div className={`p-5 rounded-xl border shadow-sm flex flex-col h-[100px] ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
+      <div className="flex justify-between items-center mb-auto">
+        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{title}</span>
+        {icon}
       </div>
-      <p className="mt-3 text-2xl font-black text-slate-900 dark:text-white">
-        {value}
-      </p>
+      <span className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{val ?? "0"}</span>
     </div>
-  );
-}
-
-function SkeletonRow() {
-  return (
-    <tr>
-      <td className="px-5 py-4">
-        <div className="flex gap-3">
-          <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 animate-pulse" />
-          <div className="space-y-2">
-            <div className="w-24 h-3 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
-            <div className="w-32 h-3 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
-          </div>
-        </div>
-      </td>
-      <td className="px-5 py-4">
-        <div className="w-16 h-4 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
-      </td>
-      <td className="px-5 py-4">
-        <div className="w-10 h-4 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
-      </td>
-      <td className="px-5 py-4">
-        <div className="w-12 h-5 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
-      </td>
-      <td className="px-5 py-4">
-        <div className="w-16 h-5 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
-      </td>
-      <td className="px-5 py-4">
-        <div className="w-20 h-4 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
-      </td>
-      <td className="px-5 py-4">
-        <div className="w-8 h-8 ml-auto bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
-      </td>
-    </tr>
   );
 }

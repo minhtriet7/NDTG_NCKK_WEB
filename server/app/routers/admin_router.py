@@ -1,7 +1,7 @@
 from typing import Optional
 import inspect
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from pydantic import BaseModel
 
 from app.controllers.admin_controller import AdminController
@@ -122,7 +122,7 @@ async def get_pending_feedback(
 @router.get("/users")
 async def get_admin_users(
     page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
     search: str = "",
     role: str = "all",
     status: str = "all",
@@ -367,6 +367,14 @@ async def get_admin_results(current_user: User = Depends(admin_user)):
     return await maybe_await(AdminController.get_all_results())
 
 
+@router.get("/results/{id}")
+async def get_admin_result_detail(
+    id: str,
+    current_user: User = Depends(admin_user),
+):
+    return await maybe_await(AdminController.get_result_detail(id))
+
+
 @router.delete("/results/{id}")
 async def delete_admin_result(
     id: str,
@@ -422,6 +430,16 @@ async def delete_banknote(
     current_user: User = Depends(admin_user),
 ):
     return await maybe_await(AdminController.delete_banknote(id))
+
+
+@router.post("/banknotes/{id}/upload-image")
+async def upload_banknote_image(
+    id: str,
+    file: UploadFile = File(...),
+    side: str = Query(default="front"),
+    current_user: User = Depends(admin_user),
+):
+    return await maybe_await(AdminController.upload_banknote_image(id, file, side))
 
 
 # ============================================================

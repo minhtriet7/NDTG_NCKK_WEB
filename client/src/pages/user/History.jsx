@@ -22,8 +22,17 @@ import {
   FileJson,
   ChevronDown,
   ChevronUp,
+  Check,
+  Banknote,
+  TrendingUp,
+  Activity,
+  Zap,
+  Globe,
+  ChevronRight,
+  Image as ImageIcon,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { getRates } from "../../services/currencyService";
 
 // ==========================================
 // DATA HELPER FUNCTIONS
@@ -146,6 +155,46 @@ const normalizeAgentOutputs = (record) => {
   };
 };
 
+const getAgentLabel = (agentItem, lang = "EN", fallback = "Agent") => {
+  const raw = String(agentItem?.agent || agentItem?.agent_name || agentItem?.name || fallback);
+  const low = raw.toLowerCase();
+
+  if (low.includes("yolo") || low.includes("ml") || low.includes("openai") || low.includes("chatgpt")) return lang === "VI" ? "Phân tích ChatGPT Vision" : "ChatGPT Vision";
+  if (low.includes("llm") || low.includes("gemini")) return lang === "VI" ? "Phân tích LLM" : "LLM";
+  if (low.includes("lens") || low.includes("visual")) return lang === "VI" ? "Tìm kiếm Hình ảnh" : "Visual Search";
+  if (low.includes("aggregator")) return "Aggregator";
+
+  return raw;
+};
+
+const getAgentIcon = (agentName) => {
+  const low = String(agentName).toLowerCase();
+  if (low.includes("yolo") || low.includes("ml") || low.includes("openai") || low.includes("chatgpt")) return <Cpu size={14} />;
+  if (low.includes("llm") || low.includes("gemini")) return <BotMessageSquare size={14} />;
+  if (low.includes("lens") || low.includes("visual")) return <SearchCheck size={14} />;
+  return <Cpu size={14} />;
+};
+
+const parseAmountFromDenom = (denom) => {
+  if (!denom || denom === "N/A") return 0;
+  const clean = String(denom).replace(/[^0-9]/g, "");
+  return Number.parseInt(clean, 10) || 0;
+};
+
+function InfoRow({ label, value, isMatched }) {
+  return (
+    <div className="flex justify-between gap-4 border-b border-slate-150 dark:border-slate-800/40 pb-2">
+      <span className="text-slate-450 dark:text-slate-500 text-xs font-semibold">{label}</span>
+      <span className="font-extrabold text-slate-800 dark:text-slate-200 text-xs text-right truncate flex items-center gap-1 justify-end">
+        {value}
+        {isMatched && (
+          <Check size={12} className="text-emerald-500 shrink-0 stroke-[3px]" />
+        )}
+      </span>
+    </div>
+  );
+}
+
 const getAgentDenom = (data) => {
   if (Array.isArray(data)) {
     return safeStr(data[0]?.menh_gia || data[0]?.denomination || data[0]?.class_name);
@@ -201,9 +250,22 @@ export default function History() {
   const isDark = theme === "dark";
 
   const [records, setRecords] = useState([]);
+  const [ratesData, setRatesData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState(null);
+
+  useEffect(() => {
+    const fetchRatesData = async () => {
+      try {
+        const rates = await getRates();
+        setRatesData(rates);
+      } catch (err) {
+        console.error("Error fetching rates in History:", err);
+      }
+    };
+    fetchRatesData();
+  }, []);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -245,12 +307,48 @@ export default function History() {
       jsonPreview: "JSON Preview",
       btnCopy: "Copy JSON",
       btnDownload: "Download",
-      ag1: "ML/DL Analysis",
-      ag2: "LLM/API Analysis",
+      ag1: "ChatGPT Vision",
+      ag2: "LLM",
       ag3: "Visual Search",
       insightTitle: "Insights",
       insightCountry: "Most Scanned Country",
       insightDenom: "Most Scanned Denom",
+      filtersLabel: "Filters:",
+      statusCompleted: "Completed",
+      statusReview: "Needs Review",
+      statusFailed: "Failed",
+      countryVietnam: "Vietnam",
+      countryMalaysia: "Malaysia",
+      countryThailand: "Thailand",
+      countrySingapore: "Singapore",
+      match3: "3/3 Matched",
+      match2: "2/3 Matched",
+      matchConflict: "Conflict (1/3)",
+      dateToday: "Today",
+      date7d: "Last 7 days",
+      date30d: "Last 30 days",
+      btnDetails: "Details",
+      tokenCost: "1 token",
+      finalDecision: "Final Decision",
+      agentDenom: "Denomination",
+      agentCountry: "Country",
+      agentConfidence: "Confidence",
+      noObjects: "No banknotes detected",
+      noDebate: "No agent debate data available",
+      hide: "Hide",
+      compare: "Compare",
+      detectedObjectsTitle: "Detected banknotes",
+      agentComparisonTitle: "Agent AI Comparison",
+      noImage: "No image provided",
+      noCropImage: "No crop image",
+      consensusLabel: "Consensus",
+      vndEquivalent: "VND Equivalent",
+      currencyLabel: "Currency",
+      materialLabel: "Material",
+      multipleCountries: "Multiple Countries",
+      detectedCount: (count) => `${count} banknotes detected`,
+      recognizedStatus: (completed, total, needsBetter) =>
+        `${completed}/${total} recognized${needsBetter > 0 ? ` · ${needsBetter} needs clearer image` : ""}`,
     },
     VI: {
       title: "Lịch sử phân tích",
@@ -285,12 +383,48 @@ export default function History() {
       jsonPreview: "Dữ liệu JSON",
       btnCopy: "Sao chép JSON",
       btnDownload: "Tải xuống",
-      ag1: "Phân tích ML/DL",
-      ag2: "Phân tích LLM/API",
+      ag1: "Phân tích ChatGPT Vision",
+      ag2: "Phân tích LLM",
       ag3: "Tìm kiếm Hình ảnh",
       insightTitle: "Thống kê nhanh",
       insightCountry: "Quốc gia quét nhiều nhất",
       insightDenom: "Mệnh giá phổ biến nhất",
+      filtersLabel: "Bộ lọc:",
+      statusCompleted: "Hoàn thành",
+      statusReview: "Cần xem lại",
+      statusFailed: "Thất bại",
+      countryVietnam: "Việt Nam",
+      countryMalaysia: "Malaysia",
+      countryThailand: "Thái Lan",
+      countrySingapore: "Singapore",
+      match3: "Khớp 3/3",
+      match2: "Khớp 2/3",
+      matchConflict: "Bất đồng (1/3)",
+      dateToday: "Hôm nay",
+      date7d: "7 ngày qua",
+      date30d: "30 ngày qua",
+      btnDetails: "Chi tiết",
+      tokenCost: "1 token",
+      finalDecision: "Quyết định cuối",
+      agentDenom: "Mệnh giá",
+      agentCountry: "Quốc gia",
+      agentConfidence: "Độ tin cậy",
+      noObjects: "Không phát hiện tờ tiền nào",
+      noDebate: "Không có dữ liệu agent tranh biện",
+      hide: "Thu gọn",
+      compare: "Xem so sánh",
+      detectedObjectsTitle: "Các đối tượng phát hiện",
+      agentComparisonTitle: "Bảng đối chiếu các Agent AI",
+      noImage: "Không có ảnh",
+      noCropImage: "Không có ảnh crop",
+      consensusLabel: "Đồng thuận",
+      vndEquivalent: "Quy đổi VND",
+      currencyLabel: "Tiền tệ",
+      materialLabel: "Chất liệu",
+      multipleCountries: "Nhiều quốc gia",
+      detectedCount: (count) => `Phát hiện ${count} tờ tiền`,
+      recognizedStatus: (completed, total, needsBetter) =>
+        `${completed}/${total} nhận diện thành công${needsBetter > 0 ? ` · ${needsBetter} cần ảnh rõ hơn` : ""}`,
     },
   }[lang || "EN"];
 
@@ -419,35 +553,74 @@ export default function History() {
     };
   }, [records]);
 
-  const selectedAgentOutputs = useMemo(() => {
-    if (!selectedRecord) {
-      return {
-        ml_dl: null,
-        llm_api: null,
-        visual_search: null,
-      };
-    }
+  const agentsList = useMemo(() => {
+    if (!selectedRecord) return [];
+    if (Array.isArray(selectedRecord.agent_results)) return selectedRecord.agent_results;
+    if (Array.isArray(selectedRecord.result?.agent_results)) return selectedRecord.result.agent_results;
 
-    return normalizeAgentOutputs(selectedRecord);
+    if (selectedRecord.agents) {
+      return [
+        selectedRecord.agents.ml_dl && { agent: "yolo", data: selectedRecord.agents.ml_dl },
+        selectedRecord.agents.llm_api && { agent: "llm", data: selectedRecord.agents.llm_api },
+        selectedRecord.agents.visual_search && { agent: "lens", data: selectedRecord.agents.visual_search },
+      ].filter(Boolean);
+    }
+    return [];
   }, [selectedRecord]);
 
   const isMultiObject = useMemo(() => {
     if (!selectedRecord) return false;
+    const detected =
+      selectedRecord.detected_objects ||
+      selectedRecord.final_result?.detected_objects ||
+      selectedRecord.result?.final_result?.detected_objects ||
+      selectedRecord.result?.detected_objects ||
+      selectedRecord.consensus?.detected_objects ||
+      [];
+    const mode =
+      selectedRecord.final_result?.mode ||
+      selectedRecord.result?.final_result?.mode ||
+      selectedRecord.consensus?.mode ||
+      "";
     return (
       selectedRecord.multi_object === true ||
-      selectedRecord.final_result?.mode === "multi_object" ||
-      selectedRecord.consensus?.mode === "multi_object" ||
+      mode === "multi_object" ||
       selectedRecord.consensus?.method === "multi_object_pipeline" ||
-      Array.isArray(selectedRecord.detected_objects) ||
-      Array.isArray(selectedRecord.final_result?.detected_objects)
+      detected.length > 1
     );
   }, [selectedRecord]);
+
+  const singleConvertedText = useMemo(() => {
+    if (!selectedRecord) return "N/A";
+    const denom = getRecDenom(selectedRecord);
+    const currency = getRecCurrency(selectedRecord);
+    const amountVal = parseAmountFromDenom(denom);
+    const normalizedCurrency = String(currency).toUpperCase();
+    const rates = ratesData?.rates || {};
+
+    if (amountVal > 0) {
+      if (normalizedCurrency === "VND") {
+        return `${amountVal.toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} VND`;
+      } else {
+        const rateToVnd = Number(rates[normalizedCurrency] || 0);
+        if (rateToVnd > 0) {
+          const convertedVnd = amountVal * rateToVnd;
+          return `~ ${Math.round(convertedVnd).toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} VND`;
+        } else {
+          return `${amountVal.toLocaleString()} ${normalizedCurrency}`;
+        }
+      }
+    }
+    return "N/A";
+  }, [selectedRecord, ratesData, lang]);
 
   const detectedObjects = useMemo(() => {
     if (!selectedRecord) return [];
     return (
       selectedRecord.detected_objects ||
       selectedRecord.final_result?.detected_objects ||
+      selectedRecord.result?.final_result?.detected_objects ||
+      selectedRecord.result?.detected_objects ||
       selectedRecord.consensus?.detected_objects ||
       []
     );
@@ -530,123 +703,74 @@ export default function History() {
     setDateFilter("all");
   };
 
-  const renderStatusBadge = (status, isDarkMode) => {
+  const renderStatusBadge = (status) => {
     const s = String(status || "").toLowerCase();
 
     if (s === "success" || s === "completed") {
       return (
-        <span
-          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider flex w-fit items-center gap-1 border ${
-            isDarkMode
-              ? "bg-teal-900/30 text-teal-400 border-teal-800"
-              : "bg-teal-50 text-teal-700 border-teal-200"
-          }`}
-        >
-          <CheckCircle2 size={12} /> Completed
+        <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider flex w-fit items-center gap-1 border bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800 shadow-sm shadow-indigo-100 dark:shadow-none">
+          <CheckCircle2 size={12} strokeWidth={2.5} /> Hoàn thành
         </span>
       );
     }
 
     if (s === "failed" || s === "error") {
       return (
-        <span
-          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border ${
-            isDarkMode
-              ? "bg-rose-900/30 text-rose-400 border-rose-800"
-              : "bg-rose-50 text-rose-700 border-rose-200"
-          }`}
-        >
-          Failed
+        <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider flex w-fit items-center gap-1 border bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800">
+          <X size={12} strokeWidth={2.5} /> Thất bại
         </span>
       );
     }
 
     return (
-      <span
-        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider flex w-fit items-center gap-1 border ${
-          isDarkMode
-            ? "bg-amber-900/30 text-amber-400 border-amber-800"
-            : "bg-amber-50 text-amber-700 border-amber-200"
-        }`}
-      >
-        <AlertTriangle size={12} /> Needs Review
+      <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider flex w-fit items-center gap-1 border bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800">
+        <AlertTriangle size={12} strokeWidth={2.5} /> Cần xem lại
       </span>
     );
   };
 
-  const renderConsensusBadge = (match, isDarkMode) => {
+  const renderConsensusBadge = (match) => {
     if (match >= 3) {
       return (
-        <span
-          className={`px-2 py-1 rounded-md text-xs font-bold ${
-            isDarkMode
-              ? "bg-teal-900/40 text-teal-400"
-              : "bg-teal-50 text-teal-700"
-          }`}
-        >
-          3/3 Matched
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30">
+          <Check size={10} strokeWidth={3} /> 3/3
         </span>
       );
     }
 
     if (match === 2) {
       return (
-        <span
-          className={`px-2 py-1 rounded-md text-xs font-bold ${
-            isDarkMode
-              ? "bg-emerald-900/40 text-emerald-400"
-              : "bg-emerald-50 text-emerald-700"
-          }`}
-        >
-          2/3 Matched
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300 border border-violet-200 dark:border-violet-500/30">
+          <Check size={10} strokeWidth={3} /> 2/3
         </span>
       );
     }
 
     if (match > 0) {
       return (
-        <span
-          className={`px-2 py-1 rounded-md text-xs font-bold ${
-            isDarkMode
-              ? "bg-amber-900/40 text-amber-400"
-              : "bg-amber-50 text-amber-700"
-          }`}
-        >
-          Conflict
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30">
+          <AlertTriangle size={10} strokeWidth={2.5} /> 1/3
         </span>
       );
     }
 
     return (
-      <span
-        className={`px-2 py-1 rounded-md text-xs font-bold ${
-          isDarkMode
-            ? "bg-slate-800 text-slate-400"
-            : "bg-slate-100 text-slate-500"
-        }`}
-      >
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
         N/A
       </span>
     );
   };
 
   return (
-    <div
-      className={`min-h-screen p-4 md:p-8 font-sans pb-24 transition-colors duration-300 ${
-        isDark ? "bg-slate-950 text-slate-200" : "bg-[#F8FAFC] text-[#0F172A]"
-      }`}
-    >
-      <div className="max-w-7xl mx-auto space-y-6 animate-[fadeInUp_0.4s_ease-out]">
+    <div className="page-inner pt-6 relative pb-24 font-sans transition-colors duration-300">
+      <div className="page-orb-indigo top-0 right-[10%]" />
+      <div className="max-w-7xl mx-auto space-y-6 px-4 md:px-8 animate-[fadeInUp_0.4s_ease-out] relative z-10">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-2">
           <div>
-            <h1
-              className={`text-3xl font-extrabold tracking-tight ${
-                isDark ? "text-white" : "text-slate-900"
-              }`}
-            >
+            <h1 className="text-3xl font-extrabold tracking-tight on-deep-title">
               {t.title}
             </h1>
-            <p className={`mt-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+            <p className="mt-2 on-deep-muted">
               {t.subtitle}
             </p>
           </div>
@@ -666,11 +790,7 @@ export default function History() {
             <button
               onClick={handleExportCSV}
               disabled={filteredRecords.length === 0}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-                isDark
-                  ? "bg-teal-600 hover:bg-teal-500 text-white"
-                  : "bg-[#0F172A] hover:bg-slate-800 text-white"
-              }`}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed bg-indigo-600 hover:bg-indigo-500 text-white"
             >
               <FileSpreadsheet size={18} />
               {t.btnExport}
@@ -683,36 +803,49 @@ export default function History() {
             {
               label: t.statTotal,
               value: stats.total,
-              color: isDark ? "text-white" : "text-[#0F172A]",
+              icon: <Banknote className="w-5 h-5" />,
+              accent: "text-slate-700 dark:text-white",
+              iconBg: "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300",
+              border: "border-slate-200 dark:border-slate-800",
             },
             {
               label: t.statCompleted,
               value: stats.completed,
-              color: isDark ? "text-teal-400" : "text-teal-600",
+              icon: <CheckCircle2 className="w-5 h-5" />,
+              accent: "text-indigo-600 dark:text-indigo-400",
+              iconBg: "bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400",
+              border: "border-indigo-100 dark:border-indigo-500/20",
             },
             {
               label: t.statReview,
               value: stats.review,
-              color: isDark ? "text-amber-400" : "text-amber-600",
+              icon: <AlertTriangle className="w-5 h-5" />,
+              accent: "text-amber-600 dark:text-amber-400",
+              iconBg: "bg-amber-50 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400",
+              border: "border-amber-100 dark:border-amber-500/20",
             },
             {
               label: t.statTokens,
               value: stats.total,
-              color: isDark ? "text-indigo-400" : "text-indigo-600",
+              icon: <Zap className="w-5 h-5" />,
+              accent: "text-indigo-600 dark:text-indigo-400",
+              iconBg: "bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400",
+              border: "border-indigo-100 dark:border-indigo-500/20",
             },
           ].map((stat, i) => (
             <div
               key={i}
-              className={`p-5 rounded-2xl border shadow-sm ${
-                isDark
-                  ? "bg-slate-900 border-slate-800"
-                  : "bg-white border-slate-200"
-              }`}
+              className={`p-5 rounded-2xl border shadow-sm bg-white dark:bg-slate-900 ${stat.border} hover:shadow-md transition-shadow bento-card card-base`}
             >
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                {stat.label}
-              </p>
-              <p className={`text-2xl font-black mt-1 ${stat.color}`}>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                  {stat.label}
+                </p>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${stat.iconBg}`}>
+                  {stat.icon}
+                </div>
+              </div>
+              <p className={`text-3xl font-black ${stat.accent}`}>
                 {stat.value}
               </p>
             </div>
@@ -734,7 +867,7 @@ export default function History() {
               placeholder={t.searchPlaceholder}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className={`w-full pl-10 pr-4 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/50 transition-all ${
+              className={`w-full pl-10 pr-4 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all ${
                 isDark
                   ? "bg-slate-950 border-slate-800 text-white placeholder-slate-500"
                   : "bg-slate-50 border-slate-200 text-slate-900"
@@ -748,7 +881,7 @@ export default function History() {
                 isDark ? "text-slate-400" : "text-slate-500"
               }`}
             >
-              <Filter size={16} /> Filters:
+              <Filter size={16} /> {t.filtersLabel}
             </div>
 
             <select
@@ -763,9 +896,9 @@ export default function History() {
               <option value="all">
                 {t.filterStatus}: {t.filterAll}
               </option>
-              <option value="completed">Completed</option>
-              <option value="review">Needs Review</option>
-              <option value="failed">Failed</option>
+              <option value="completed">{t.statusCompleted}</option>
+              <option value="review">{t.statusReview}</option>
+              <option value="failed">{t.statusFailed}</option>
             </select>
 
             <select
@@ -780,10 +913,10 @@ export default function History() {
               <option value="all">
                 {t.filterCountry}: {t.filterAll}
               </option>
-              <option value="vietnam">Vietnam</option>
-              <option value="malaysia">Malaysia</option>
-              <option value="thailand">Thailand</option>
-              <option value="singapore">Singapore</option>
+              <option value="vietnam">{t.countryVietnam}</option>
+              <option value="malaysia">{t.countryMalaysia}</option>
+              <option value="thailand">{t.countryThailand}</option>
+              <option value="singapore">{t.countrySingapore}</option>
             </select>
 
             <select
@@ -798,9 +931,9 @@ export default function History() {
               <option value="all">
                 {t.filterConsensus}: {t.filterAll}
               </option>
-              <option value="3">3/3 Matched</option>
-              <option value="2">2/3 Matched</option>
-              <option value="conflict">Conflict</option>
+              <option value="3">{t.match3}</option>
+              <option value="2">{t.match2}</option>
+              <option value="conflict">{t.matchConflict}</option>
             </select>
 
             <select
@@ -815,9 +948,9 @@ export default function History() {
               <option value="all">
                 {t.filterDate}: {t.filterAll}
               </option>
-              <option value="today">Today</option>
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
+              <option value="today">{t.dateToday}</option>
+              <option value="7d">{t.date7d}</option>
+              <option value="30d">{t.date30d}</option>
             </select>
 
             <button
@@ -844,19 +977,19 @@ export default function History() {
           <div className="overflow-x-auto">
             <table className="w-full text-left whitespace-nowrap">
               <thead
-                className={`uppercase text-[11px] font-bold tracking-wider border-b ${
+                className={`uppercase text-[11px] font-bold tracking-wider border-b sticky top-0 z-20 backdrop-blur-md ${
                   isDark
-                    ? "bg-slate-950/80 text-slate-400 border-slate-800"
-                    : "bg-slate-50/80 text-slate-500 border-slate-200"
+                    ? "bg-slate-950/75 text-slate-400 border-slate-800/80"
+                    : "bg-slate-50/75 text-slate-500 border-slate-100/80"
                 }`}
               >
                 <tr>
-                  <th className="px-6 py-4">{t.thDate}</th>
-                  <th className="px-6 py-4">{t.thImage}</th>
-                  <th className="px-6 py-4">{t.thResult}</th>
-                  <th className="px-6 py-4">{t.thCountry}</th>
-                  <th className="px-6 py-4">{t.thConsensus}</th>
-                  <th className="px-6 py-4">{t.thStatus}</th>
+                  <th className="px-6 py-4 flex items-center gap-1.5"><Clock size={13} />{t.thDate}</th>
+                  <th className="px-6 py-4"><ImageIcon size={13} className="inline mr-1" />{t.thImage}</th>
+                  <th className="px-6 py-4"><Banknote size={13} className="inline mr-1" />{t.thResult}</th>
+                  <th className="px-6 py-4"><Globe size={13} className="inline mr-1" />{t.thCountry}</th>
+                  <th className="px-6 py-4"><Activity size={13} className="inline mr-1" />{t.thConsensus}</th>
+                  <th className="px-6 py-4"><TrendingUp size={13} className="inline mr-1" />{t.thStatus}</th>
                   <th className="px-6 py-4">{t.thCost}</th>
                   <th className="px-6 py-4 text-right">{t.thAction}</th>
                 </tr>
@@ -992,7 +1125,7 @@ export default function History() {
                         {records.length === 0 ? (
                           <button
                             onClick={() => navigate("/recognize")}
-                            className="px-5 py-2.5 bg-teal-600 text-white rounded-xl font-bold shadow-sm hover:bg-teal-700 transition"
+                            className="btn-primary"
                           >
                             {t.btnWorkspace}
                           </button>
@@ -1040,40 +1173,28 @@ export default function History() {
                       const rCompleted = r.completed_objects !== undefined ? r.completed_objects : completedCount;
                       const rTotal = r.total_objects !== undefined ? r.total_objects : totalObj;
 
-                      const langVi = lang === "VI";
-                      displayDenom = langVi ? `Phát hiện ${rTotal} tờ tiền` : `${rTotal} banknotes detected`;
-                      
-                      if (needsBetterCount > 0) {
-                        displayCurrency = langVi 
-                          ? `${rCompleted}/${rTotal} nhận diện thành công · ${needsBetterCount} cần ảnh rõ hơn`
-                          : `${rCompleted}/${rTotal} recognized · ${needsBetterCount} needs clearer image`;
-                      } else {
-                        displayCurrency = langVi 
-                          ? `${rCompleted}/${rTotal} nhận diện thành công`
-                          : `${rCompleted}/${rTotal} recognized`;
-                      }
+                      displayDenom = t.detectedCount(rTotal);
+                      displayCurrency = t.recognizedStatus(rCompleted, rTotal, needsBetterCount);
                       
                       const countries = [...new Set(detectedObjects.map(o => resolveObjectCountry(o)).filter(c => c && c !== "N/A" && c !== "Không xác định"))];
                       if (countries.length === 1) {
                         displayCountry = countries[0];
-                      } else if (countries.length > 1) {
-                        displayCountry = langVi ? "Nhiều quốc gia" : "Multiple";
                       } else {
-                        displayCountry = langVi ? "Nhiều quốc gia" : "Multiple";
+                        displayCountry = t.multipleCountries;
                       }
                       
                       const allCompleted = rCompleted === rTotal && rTotal > 0;
                       const hasCompleted = rCompleted > 0;
                       
                       const badgeBg = allCompleted 
-                        ? (isDark ? "bg-teal-900/40 text-teal-400" : "bg-teal-50 text-teal-700")
+                        ? (isDark ? "bg-indigo-900/40 text-indigo-400" : "bg-indigo-50 text-indigo-700")
                         : (hasCompleted 
                            ? (isDark ? "bg-amber-900/40 text-amber-400" : "bg-amber-50 text-amber-700") 
                            : (isDark ? "bg-rose-900/40 text-rose-400" : "bg-rose-50 text-rose-700"));
                            
                       consensusNode = (
                         <span className={`px-2 py-1 rounded-md text-xs font-bold whitespace-nowrap ${badgeBg}`}>
-                          {rCompleted}/{rTotal} {langVi ? "Hoàn thành" : "Completed"}
+                          {rCompleted}/{rTotal} {t.statusCompleted}
                         </span>
                       );
                     } else {
@@ -1083,104 +1204,95 @@ export default function History() {
                       consensusNode = renderConsensusBadge(getRecConsensus(r), isDark);
                     }
 
+                    const statusStr = getRecStatus(r);
+                    const rowBorderColor = statusStr === "completed" || statusStr === "success"
+                      ? "border-l-4 border-l-indigo-400 dark:border-l-indigo-500"
+                      : statusStr === "failed" || statusStr === "error"
+                      ? "border-l-4 border-l-rose-400 dark:border-l-rose-500"
+                      : "border-l-4 border-l-amber-400 dark:border-l-amber-500";
+
                     return (
                       <tr
                         key={r.id || r._id || i}
-                        className={`transition-colors group ${
-                          isDark ? "hover:bg-slate-800/50" : "hover:bg-slate-50/50"
+                        onClick={() => setSelectedRecord(r)}
+                        className={`transition-all duration-200 group cursor-pointer ${rowBorderColor} ${
+                          isDark 
+                            ? "hover:bg-slate-800/80 hover:scale-[1.003] hover:shadow-sm" 
+                            : "hover:bg-indigo-50/20 hover:scale-[1.003] hover:shadow-[0_4px_20px_rgba(99,102,241,0.04)]"
                         }`}
                       >
-                        <td className="px-6 py-4">
-                          <p
-                            className={`font-semibold ${
-                              isDark ? "text-slate-200" : "text-slate-900"
-                            }`}
-                          >
-                            {d.toLocaleDateString()}
+                        <td className="px-5 py-4">
+                          <p className={`font-bold text-sm ${
+                            isDark ? "text-slate-200" : "text-slate-800"
+                          }`}>
+                            {d.toLocaleDateString(lang === "VI" ? "vi-VN" : "en-US")}
                           </p>
-                          <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                            <Clock size={10} /> {d.toLocaleTimeString()}
+                          <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
+                            <Clock size={10} /> {d.toLocaleTimeString(lang === "VI" ? "vi-VN" : "en-US", {hour: "2-digit", minute: "2-digit"})}
                           </p>
                         </td>
 
-                        <td className="px-6 py-4">
-                          <div
-                            className={`w-16 h-10 border rounded-lg overflow-hidden flex items-center justify-center shadow-sm ${
-                              isDark
-                                ? "bg-slate-800 border-slate-700"
-                                : "bg-white border-slate-200"
-                            }`}
-                          >
+                        <td className="px-5 py-4">
+                          <div className={`w-14 h-9 rounded-xl overflow-hidden flex items-center justify-center shadow-sm border ${
+                            isDark ? "bg-slate-800 border-slate-700" : "bg-slate-50 border-slate-200"
+                          }`}>
                             {image ? (
-                              <img
-                                src={image}
-                                alt="scan"
-                                className="object-cover w-full h-full"
-                              />
+                              <img src={image} alt="scan" className="object-cover w-full h-full" />
                             ) : (
-                              <span
-                                className={`text-[10px] ${
-                                  isDark ? "text-slate-500" : "text-slate-300"
-                                }`}
-                              >
-                                No Img
-                              </span>
+                              <ImageIcon size={14} className={isDark ? "text-slate-600" : "text-slate-300"} />
                             )}
                           </div>
                         </td>
 
-                        <td className="px-6 py-4">
-                          <p
-                            className={`font-black text-base ${
-                              isDark ? "text-white" : "text-slate-900"
-                            }`}
-                          >
-                            {displayDenom}
-                          </p>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase">
-                            {displayCurrency}
-                          </p>
+                        <td className="px-5 py-4">
+                          {isMultiObject ? (
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black border ${
+                              isDark ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" : "bg-indigo-50 text-indigo-700 border-indigo-200"
+                            }`}>
+                              <Banknote size={11} /> {displayDenom}
+                            </span>
+                          ) : (
+                            <>
+                              <p className={`font-black text-sm ${
+                                isDark ? "text-white" : "text-slate-900"
+                              }`}>{displayDenom}</p>
+                              <p className="text-[10px] font-semibold text-slate-400 uppercase mt-0.5">{displayCurrency}</p>
+                            </>
+                          )}
                         </td>
 
-                        <td
-                          className={`px-6 py-4 font-medium ${
-                            isDark ? "text-slate-300" : "text-slate-700"
-                          }`}
-                        >
+                        <td className={`px-5 py-4 text-sm font-medium ${
+                          isDark ? "text-slate-300" : "text-slate-700"
+                        }`}>
                           {displayCountry}
                         </td>
 
-                        <td className="px-6 py-4">
+                        <td className="px-5 py-4">
                           {consensusNode}
                         </td>
 
-                        <td className="px-6 py-4">
-                          {renderStatusBadge(getRecStatus(r), isDark)}
+                        <td className="px-5 py-4">
+                          {renderStatusBadge(statusStr)}
                         </td>
 
-                        <td className="px-6 py-4">
-                          <span
-                            className={`text-xs font-semibold px-2 py-1 rounded ${
-                              isDark
-                                ? "bg-slate-800 text-slate-400"
-                                : "bg-slate-100 text-slate-500"
-                            }`}
-                          >
-                            1 Token
+                        <td className="px-5 py-4">
+                          <span className={`text-xs font-bold px-2 py-1 rounded-lg ${
+                            isDark ? "bg-slate-800/80 text-slate-500" : "bg-slate-100 text-slate-400"
+                          }`}>
+                            {t.tokenCost}
                           </span>
                         </td>
 
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-5 py-4 text-right">
                           <button
-                            onClick={() => setSelectedRecord(r)}
-                            className={`p-2 border rounded-lg shadow-sm transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 ${
+                            onClick={(e) => { e.stopPropagation(); setSelectedRecord(r); }}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
                               isDark
-                                ? "text-slate-400 hover:text-teal-400 bg-slate-800 border-slate-700 hover:border-teal-500"
-                                : "text-slate-400 hover:text-teal-600 bg-white border-slate-200 hover:border-teal-200"
+                                ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-indigo-900/40 hover:text-indigo-400 hover:border-indigo-700"
+                                : "bg-white border-slate-200 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300"
                             }`}
-                            title="View Detail"
                           >
-                            <Eye size={16} />
+                            {t.btnDetails} <ChevronRight size={13} />
                           </button>
                         </td>
                       </tr>
@@ -1241,7 +1353,7 @@ export default function History() {
                 </span>
                 <span
                   className={`font-bold ${
-                    isDark ? "text-teal-400" : "text-teal-600"
+                    isDark ? "text-indigo-400" : "text-indigo-600"
                   }`}
                 >
                   {stats.mostDenom}
@@ -1272,7 +1384,7 @@ export default function History() {
                     isDark ? "text-white" : "text-slate-900"
                   }`}
                 >
-                  <FileText className="w-5 h-5 text-teal-500" />
+                  <FileText className="w-5 h-5 text-indigo-500" />
                   {t.modalTitle}
                 </h3>
 
@@ -1299,92 +1411,70 @@ export default function History() {
               }`}
             >
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div
-                  className={`rounded-2xl border p-4 shadow-sm flex items-center justify-center min-h-[250px] ${
-                    isDark
-                      ? "bg-slate-900 border-slate-800"
-                      : "bg-white border-slate-200"
-                  }`}
-                >
+                {/* Ảnh gốc - to hơn */}
+                <div className={`rounded-2xl border overflow-hidden flex items-center justify-center min-h-[300px] ${
+                  isDark ? "bg-slate-900 border-slate-800" : "bg-slate-50 border-slate-200"
+                }`}>
                   {getRecImage(selectedRecord) ? (
                     <img
                       src={getRecImage(selectedRecord)}
                       alt="Scanned Note"
-                      className="object-contain max-h-[250px] rounded-lg"
+                      className="object-contain max-h-[320px] w-full p-3 rounded-xl"
                     />
                   ) : (
-                    <div className="text-slate-500 font-medium">
-                      No Image Provided
+                    <div className="flex flex-col items-center gap-3 text-slate-400">
+                      <ImageIcon size={36} className="opacity-40" />
+                      <p className="text-sm font-medium">{t.noImage}</p>
                     </div>
                   )}
                 </div>
 
-                <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 shadow-sm text-white">
-                  <div className="flex justify-between items-start mb-4">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                      Final Decision
-                    </span>
-                    {renderConsensusBadge(getRecConsensus(selectedRecord), true)}
+                {/* Final Decision card gradient */}
+                <div className="rounded-2xl overflow-hidden shadow-xl border border-indigo-500/10 dark:border-indigo-500/20">
+                  <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-5 border-b border-indigo-500/10 relative overflow-hidden">
+                    <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(99,102,241,0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgba(99,102,241,0.05)_1px,transparent_1px)] bg-[size:14px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none" />
+                    <div className="flex justify-between items-center mb-3 relative z-10">
+                      <span className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">{t.finalDecision}</span>
+                      {renderConsensusBadge(getRecConsensus(selectedRecord))}
+                    </div>
+                    <h2 className="text-3.5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-slate-100 to-indigo-200 leading-tight relative z-10 tracking-tight">
+                      {getRecDenom(selectedRecord)}
+                    </h2>
+                    <p className="text-indigo-300/70 text-xs mt-1 capitalize relative z-10 flex items-center gap-1.5 font-medium">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      {normalizeStatusLabel(getRecStatus(selectedRecord), lang)}
+                    </p>
                   </div>
-
-                  <h2 className="text-4xl font-black text-white mb-6">
-                    {getRecDenom(selectedRecord)}
-                  </h2>
-
-                  <div className="grid grid-cols-2 gap-y-4 gap-x-2 text-sm">
-                    <div>
-                      <p className="text-slate-500 text-xs uppercase mb-1">
-                        Country
-                      </p>
-                      <p className="font-semibold">
-                        {getRecCountry(selectedRecord)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-slate-500 text-xs uppercase mb-1">
-                        Currency
-                      </p>
-                      <p className="font-semibold">
-                        {getRecCurrency(selectedRecord)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-slate-500 text-xs uppercase mb-1">
-                        Material
-                      </p>
-                      <p className="font-semibold">
-                        {getRecMaterial(selectedRecord)}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="text-slate-500 text-xs uppercase mb-1">
-                        Status
-                      </p>
-                      <p className="font-semibold capitalize">
-                        {getRecStatus(selectedRecord)}
-                      </p>
-                    </div>
+                  <div className="bg-slate-950/80 dark:bg-slate-950 p-5 grid grid-cols-2 gap-3 relative z-10">
+                    {[
+                      { label: t.agentCountry, value: getRecCountry(selectedRecord) },
+                      { label: t.currencyLabel, value: getRecCurrency(selectedRecord) },
+                      { label: t.materialLabel, value: getRecMaterial(selectedRecord) },
+                      { label: t.vndEquivalent, value: singleConvertedText, accent: true },
+                    ].map((item, i) => (
+                      <div key={i} className="bg-slate-900/40 hover:bg-slate-900/80 rounded-xl p-3 border border-slate-850/80 hover:border-indigo-500/10 transition-all duration-300 shadow-sm">
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">{item.label}</p>
+                        <p className={`text-sm font-extrabold leading-tight ${item.accent ? "text-indigo-400" : "text-slate-200"}`}>
+                          {item.value || "N/A"}
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
 
               <div>
-                <h3
-                  className={`text-lg font-bold mb-4 flex items-center gap-2 ${
-                    isDark ? "text-white" : "text-slate-900"
-                  }`}
-                >
-                  <GitMerge className="w-5 h-5 text-slate-400" />
-                  {isMultiObject ? (lang === "VI" ? "Các đối tượng phát hiện" : "Detected Banknotes") : "Agent Outputs"}
+                <h3 className={`text-sm font-black mb-4 flex items-center gap-2 uppercase tracking-wider ${
+                  isDark ? "text-slate-400" : "text-slate-500"
+                }`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                  {isMultiObject ? `${t.detectedObjectsTitle} (${detectedObjects.length})` : t.agentComparisonTitle}
                 </h3>
 
                 {isMultiObject ? (
                   <div className="space-y-4">
                     {detectedObjects.length === 0 ? (
-                      <p className="text-slate-500 text-sm">No objects found in this record.</p>
+                      <p className="text-slate-500 text-sm">{t.noObjects}</p>
                     ) : (
                       detectedObjects.map((obj, idx) => (
                         <HistoryObjectCard 
@@ -1395,36 +1485,35 @@ export default function History() {
                           t={t} 
                           lang={lang} 
                           rootImage={getRecImage(selectedRecord)}
+                          ratesData={ratesData}
                         />
                       ))
                     )}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <AgentMiniCard
-                      isDark={isDark}
-                      title={t.ag1}
-                      icon={<Cpu size={16} />}
-                      data={selectedAgentOutputs.ml_dl}
-                      finalDenom={getRecDenom(selectedRecord)}
-                    />
-
-                    <AgentMiniCard
-                      isDark={isDark}
-                      title={t.ag2}
-                      icon={<BotMessageSquare size={16} />}
-                      data={selectedAgentOutputs.llm_api}
-                      finalDenom={getRecDenom(selectedRecord)}
-                    />
-
-                    <AgentMiniCard
-                      isDark={isDark}
-                      title={t.ag3}
-                      icon={<SearchCheck size={16} />}
-                      data={selectedAgentOutputs.visual_search}
-                      finalDenom={getRecDenom(selectedRecord)}
-                    />
-                  </div>
+                  agentsList.length === 0 ? (
+                    <p className="text-slate-500 text-sm italic col-span-3 text-center py-6 bg-slate-50 dark:bg-slate-900/20 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                      {t.noDebate}
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {agentsList.map((agentItem, idx) => {
+                        const data = agentItem?.data || agentItem?.result || agentItem;
+                        const agentName = getAgentLabel(agentItem, lang, `Agent ${idx + 1}`);
+                        return (
+                          <AgentMiniCard
+                            key={idx}
+                            isDark={isDark}
+                            title={agentName}
+                            icon={getAgentIcon(agentName)}
+                            data={data}
+                            finalDenom={getRecDenom(selectedRecord)}
+                            t={t}
+                          />
+                        );
+                      })}
+                    </div>
+                  )
                 )}
               </div>
 
@@ -1512,19 +1601,15 @@ export default function History() {
 // ==========================================
 // COMPONENT CON: AGENT CARD
 // ==========================================
-function AgentMiniCard({ title, icon, data, finalDenom, isDark }) {
+function AgentMiniCard({ title, icon, data, finalDenom, isDark, t }) {
   if (!data) {
     return (
-      <div
-        className={`p-4 rounded-2xl border border-dashed flex flex-col items-center justify-center text-center min-h-[140px] ${
-          isDark
-            ? "bg-slate-900 border-slate-700 text-slate-500"
-            : "bg-white border-slate-200 text-slate-400"
-        }`}
-      >
-        {icon}
-        <p className="text-sm font-bold mt-2">{title}</p>
-        <p className="text-xs mt-1">No data</p>
+      <div className={`p-4 rounded-2xl border border-dashed flex flex-col items-center justify-center text-center min-h-[120px] ${
+        isDark ? "bg-slate-900/50 border-slate-700/60 text-slate-500" : "bg-slate-50 border-slate-200 text-slate-400"
+      }`}>
+        <div className="opacity-40 mb-2">{icon}</div>
+        <p className="text-xs font-bold">{title}</p>
+        <p className="text-[10px] mt-0.5 opacity-60">—</p>
       </div>
     );
   }
@@ -1532,73 +1617,76 @@ function AgentMiniCard({ title, icon, data, finalDenom, isDark }) {
   const denom = getAgentDenom(data);
   const country = getAgentCountry(data);
   const confidence = getAgentConfidence(data);
-  const isMatch = denom === finalDenom && finalDenom !== "N/A";
+  const isMatch = denom && finalDenom && String(denom).toLowerCase().trim() === String(finalDenom).toLowerCase().trim() && finalDenom !== "N/A";
+  const confidenceNum = confidence !== undefined && confidence !== null && confidence !== ""
+    ? (Number(confidence) <= 1 ? Number(confidence) * 100 : Number(confidence))
+    : null;
 
   return (
-    <div
-      className={`p-4 rounded-2xl border shadow-sm flex flex-col ${
-        isDark
-          ? "bg-slate-900 border-slate-800"
-          : "bg-white border-slate-200"
-      }`}
-    >
-      <div
-        className={`flex items-center justify-between mb-3 border-b pb-2 ${
-          isDark ? "border-slate-800" : "border-slate-50"
-        }`}
-      >
-        <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5">
-          {icon} {title}
+    <div className={`rounded-2xl border overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 flex flex-col ${
+      isMatch
+        ? isDark
+          ? "bg-indigo-950/20 border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.05)]"
+          : "bg-indigo-50/35 border-indigo-200 shadow-[0_0_15px_rgba(99,102,241,0.05)]"
+        : isDark
+        ? "bg-slate-900 border-slate-800"
+        : "bg-white border-slate-200"
+    }`}>
+      {/* Header */}
+      <div className={`px-3 py-2.5 flex items-center justify-between border-b ${
+        isMatch
+          ? "border-indigo-200 dark:border-indigo-800/60 bg-indigo-500/10"
+          : isDark ? "border-slate-800 bg-slate-800/40" : "border-slate-100 bg-slate-50"
+      }`}>
+        <p className={`text-[11px] font-black uppercase flex items-center gap-1.5 ${
+          isDark ? "text-slate-400" : "text-slate-500"
+        }`}>
+          <span className={isMatch ? "text-indigo-500" : "text-slate-400"}>{icon}</span>
+          {title}
         </p>
-
         {isMatch ? (
-          <CheckCircle2 size={14} className="text-teal-500" />
+          <CheckCircle2 size={13} className="text-emerald-500 shrink-0" strokeWidth={2.5} />
         ) : (
-          <AlertTriangle size={14} className="text-amber-500" />
+          <AlertTriangle size={13} className="text-amber-400 shrink-0" strokeWidth={2.5} />
         )}
       </div>
 
-      <div className="space-y-2 mt-auto">
-        <div className="flex justify-between gap-3">
-          <span className="text-xs text-slate-400">Denom:</span>
-          <span
-            className={`text-sm font-bold text-right ${
-              isMatch
-                ? isDark
-                  ? "text-white"
-                  : "text-slate-900"
-                : isDark
-                  ? "text-amber-400"
-                  : "text-amber-600"
-            }`}
-          >
-            {denom}
-          </span>
+      {/* Body */}
+      <div className="p-3 space-y-2 flex-1">
+        <div className="flex justify-between gap-2 items-baseline">
+          <span className="text-[10px] text-slate-400 font-semibold shrink-0">{t.agentDenom}</span>
+          <span className={`text-sm font-black text-right leading-tight ${
+            isMatch ? "text-indigo-600 dark:text-indigo-455" : isDark ? "text-amber-455" : "text-amber-600"
+          }`}>{denom}</span>
         </div>
-
-        <div className="flex justify-between gap-3">
-          <span className="text-xs text-slate-400">Country:</span>
-          <span
-            className={`text-sm font-semibold text-right ${
-              isDark ? "text-slate-300" : "text-slate-700"
-            }`}
-          >
-            {country}
-          </span>
+        <div className="flex justify-between gap-2 items-baseline">
+          <span className="text-[10px] text-slate-400 font-semibold shrink-0">{t.agentCountry}</span>
+          <span className={`text-xs font-bold text-right ${
+            isDark ? "text-slate-300" : "text-slate-700"
+          }`}>{country}</span>
         </div>
-
-        {confidence !== undefined && confidence !== null && confidence !== "" && (
-          <div className="flex justify-between gap-3">
-            <span className="text-xs text-slate-400">Confidence:</span>
-            <span
-              className={`text-sm font-semibold text-right ${
-                isDark ? "text-slate-300" : "text-slate-700"
-              }`}
-            >
-              {Number(confidence) <= 1
-                ? `${(Number(confidence) * 100).toFixed(2)}%`
-                : `${Number(confidence).toFixed(2)}%`}
-            </span>
+        {confidenceNum !== null && (
+          <div>
+            <div className="flex justify-between gap-2 mb-1">
+              <span className="text-[10px] text-slate-400 font-semibold">{t.agentConfidence}</span>
+              <span className={`text-[10px] font-black ${
+                confidenceNum >= 80 ? "text-indigo-500" : confidenceNum >= 60 ? "text-amber-405" : "text-rose-405"
+              }`}>{confidenceNum.toFixed(1)}%</span>
+            </div>
+            <div className={`h-1.5 rounded-full overflow-hidden ${
+              isDark ? "bg-slate-800" : "bg-slate-200"
+            }`}>
+              <div
+                className={`h-full rounded-full transition-all bg-gradient-to-r ${
+                  confidenceNum >= 80 
+                    ? "from-indigo-500 to-violet-500" 
+                    : confidenceNum >= 60 
+                    ? "from-amber-400 to-amber-500" 
+                    : "from-rose-400 to-rose-500"
+                }`}
+                style={{ width: `${Math.min(confidenceNum, 100)}%` }}
+              />
+            </div>
           </div>
         )}
       </div>
@@ -1666,7 +1754,7 @@ const resolveObjectCountry = (object) => {
 // ==========================================
 // COMPONENT CON: HISTORY OBJECT CARD
 // ==========================================
-function HistoryObjectCard({ object, index, isDark, t, lang, rootImage }) {
+function HistoryObjectCard({ object, index, isDark, t, lang, rootImage, ratesData }) {
   const [expanded, setExpanded] = useState(false);
 
   const objectNo = object?.object_index || index + 1;
@@ -1679,54 +1767,174 @@ function HistoryObjectCard({ object, index, isDark, t, lang, rootImage }) {
 
   const bboxText = object?.bbox ? `[${object.bbox.join(", ")}]` : null;
 
-  const agentData = normalizeAgentOutputs(object);
-  const hasAgents = !!(agentData.ml_dl || agentData.llm_api || agentData.visual_search);
+  // Extract Currency & Material
+  const firstFinal = object?.final_result || {};
+  const firstSummary = object?.summary || {};
+  const currency = firstFinal.currency || firstFinal.currency_code || firstSummary.currency || inferCurrencyFromDenom(denom);
+  const material = firstFinal.chat_lieu || firstFinal.material || "N/A";
+
+  // Calculate VND Equivalent (Always VND)
+  const rates = ratesData?.rates || {};
+  const amountVal = parseAmountFromDenom(denom);
+  const normalizedCurrency = String(currency).toUpperCase();
+  let convertedText = "N/A";
+
+  if (amountVal > 0) {
+    if (normalizedCurrency === "VND") {
+      convertedText = `${amountVal.toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} VND`;
+    } else {
+      const rateToVnd = Number(rates[normalizedCurrency] || 0);
+      if (rateToVnd > 0) {
+        const convertedVnd = amountVal * rateToVnd;
+        convertedText = `~ ${Math.round(convertedVnd).toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} VND`;
+      } else {
+        convertedText = `${amountVal.toLocaleString()} ${normalizedCurrency}`;
+      }
+    }
+  }
+
+  // Get dynamic agents list
+  const agentsList = useMemo(() => {
+    if (!object) return [];
+    if (Array.isArray(object.agent_results)) return object.agent_results;
+    if (Array.isArray(object.result?.agent_results)) return object.result.agent_results;
+    
+    if (object.agents) {
+      return [
+        object.agents.ml_dl && { agent: "yolo", data: object.agents.ml_dl },
+        object.agents.llm_api && { agent: "llm", data: object.agents.llm_api },
+        object.agents.visual_search && { agent: "lens", data: object.agents.visual_search },
+      ].filter(Boolean);
+    }
+    return [];
+  }, [object]);
+
+  const hasAgents = agentsList.length > 0;
+
+  const objectImage = object?.crop_base64 
+    ? `data:image/jpeg;base64,${object.crop_base64}` 
+    : (object?.image_url || object?.thumbnail_url || object?.uploaded_image_url || rootImage);
 
   return (
-    <div className={`rounded-xl border overflow-hidden ${isDark ? "bg-slate-800/40 border-slate-700" : "bg-white border-slate-200"}`}>
-      <div className="p-3 sm:px-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center justify-center w-8 h-8 rounded-lg font-bold text-sm ${isDark ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
-            #{objectNo}
-          </div>
-          <div>
-            <h4 className={`text-base font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{denom}</h4>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 text-xs text-slate-500">
-              <span>{country}</span>
-              <span className="w-1 h-1 rounded-full bg-slate-400"></span>
-              <span>{status}</span>
-              {bboxText && (
-                <>
-                  <span className="w-1 h-1 rounded-full bg-slate-400"></span>
-                  <span className="font-mono text-[10px]">bbox: {bboxText}</span>
-                </>
-              )}
+    <div className={`rounded-2xl border overflow-hidden transition-all duration-200 ${
+      isDark ? "bg-slate-900/40 border-slate-800" : "bg-white border-slate-200"
+    }`}>
+      {/* Header summary - luôn visible */}
+      <div className={`p-4 border-b ${
+        isDark ? "border-slate-800/60 bg-slate-900/60" : "border-slate-100 bg-slate-50/50"
+      }`}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center justify-center w-9 h-9 rounded-xl font-black text-sm shrink-0 ${
+              matchedAgents >= 3
+                ? "bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-400"
+                : matchedAgents >= 2
+                ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
+                : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+            }`}>
+              #{objectNo}
+            </div>
+            <div>
+              <h4 className={`text-base font-black leading-tight ${
+                isDark ? "text-white" : "text-slate-900"
+              }`}>{denom}</h4>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-[11px] text-slate-500 font-semibold">
+                <span>{country}</span>
+                <span className="text-slate-300 dark:text-slate-600">•</span>
+                <span>{status}</span>
+              </div>
             </div>
           </div>
-        </div>
-
-        <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
-          <span className={`px-2 py-1 rounded text-[11px] font-bold border whitespace-nowrap ${matchedAgents >= 2 ? (isDark ? "bg-teal-500/10 text-teal-400 border-teal-500/20" : "bg-teal-50 text-teal-700 border-teal-200") : (isDark ? "bg-amber-500/10 text-amber-400 border-amber-500/20" : "bg-amber-50 text-amber-700 border-amber-200")}`}>
-            {matchedAgents}/3 Match
-          </span>
-
-          <button 
-            onClick={() => hasAgents && setExpanded(!expanded)}
-            className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold ${isDark ? "hover:bg-slate-700 text-slate-400" : "hover:bg-slate-100 text-slate-600"} ${!hasAgents ? "opacity-50 cursor-not-allowed" : ""}`}
-            title={hasAgents ? "View agent debate" : "No agent data"}
-          >
-            <span className="hidden sm:inline">{expanded ? "Hide debate" : "View debate"}</span>
-            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
+          <div className="flex items-center gap-3 sm:ml-auto">
+            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black border whitespace-nowrap ${
+              matchedAgents >= 3
+                ? "bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-500/20 dark:text-teal-300 dark:border-teal-500/30"
+                : matchedAgents >= 2
+                ? "bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/30"
+                : "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30"
+            }`}>
+              <Check size={10} strokeWidth={3} />
+              {matchedAgents}/3 {lang === "VI" ? "Khớp" : "Matched"}
+            </span>
+            {hasAgents && (
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className={`flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-colors ${
+                  expanded
+                    ? "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/30"
+                    : isDark
+                    ? "bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                {expanded ? t.hide : t.compare}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
+      {/* Luôn hiện: Ảnh crop + Specs */}
+      <div className={`p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 ${
+        isDark ? "bg-slate-900/20" : "bg-white"
+      }`}>
+        {/* Crop Image */}
+        <div className={`rounded-xl overflow-hidden flex items-center justify-center min-h-[160px] max-h-[220px] border ${
+          isDark ? "bg-slate-950/60 border-slate-800" : "bg-slate-50 border-slate-200"
+        }`}>
+          {objectImage ? (
+            <img
+              src={objectImage}
+              alt={`Crop object ${objectNo}`}
+              className="w-full h-full object-contain max-h-[220px] p-2"
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-slate-400">
+              <ImageIcon size={28} className="opacity-30" />
+              <p className="text-[11px] font-medium">{t.noCropImage}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Specs */}
+        <div className={`space-y-2 p-3 rounded-xl border ${
+          isDark ? "bg-slate-900/30 border-slate-800/60" : "bg-slate-50 border-slate-200"
+        }`}>
+          <InfoRow label={t.agentCountry} value={country} />
+          <InfoRow label={t.agentDenom} value={denom} />
+          <InfoRow label={t.currencyLabel} value={currency} />
+          <InfoRow label={t.materialLabel} value={material} />
+          <InfoRow label={t.vndEquivalent} value={convertedText} />
+          <InfoRow label={t.consensusLabel} value={`${matchedAgents}/3 agents`} />
+        </div>
+      </div>
+
+      {/* Agent Cards - chỉ hiện khi expand */}
       {expanded && hasAgents && (
-        <div className={`p-4 border-t bg-slate-50/50 dark:bg-slate-900/50 ${isDark ? "border-slate-700" : "border-slate-200"}`}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <AgentMiniCard isDark={isDark} title={t.ag1 || "ML/DL Analysis"} icon={<Cpu size={14} />} data={agentData.ml_dl} finalDenom={denom} />
-            <AgentMiniCard isDark={isDark} title={t.ag2 || "LLM/API Analysis"} icon={<BotMessageSquare size={14} />} data={agentData.llm_api} finalDenom={denom} />
-            <AgentMiniCard isDark={isDark} title={t.ag3 || "Visual Search"} icon={<SearchCheck size={14} />} data={agentData.visual_search} finalDenom={denom} />
+        <div className={`border-t p-4 space-y-3 ${
+          isDark ? "border-slate-800 bg-slate-950/40" : "border-slate-100 bg-slate-50"
+        }`}>
+          <h5 className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+            {t.agentComparisonTitle}
+          </h5>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {agentsList.map((agentItem, idx) => {
+              const data = agentItem?.data || agentItem?.result || agentItem;
+              const agentName = getAgentLabel(agentItem, lang, `Agent ${idx + 1}`);
+              return (
+                <AgentMiniCard
+                  key={idx}
+                  isDark={isDark}
+                  title={agentName}
+                  icon={getAgentIcon(agentName)}
+                  data={data}
+                  finalDenom={denom}
+                  t={t}
+                />
+              );
+            })}
           </div>
         </div>
       )}

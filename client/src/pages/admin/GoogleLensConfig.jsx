@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAppStore } from "../../store/appStore";
-import { getLensConfig, updateLensConfig } from "../../services/adminConfigService";
+import { getLensConfig, updateLensConfig } from "../../services/adminService";
 
 const DEFAULT_CONFIG = {
   enable_agent_3: true,
@@ -292,7 +292,7 @@ export default function GoogleLensConfig() {
     <button
       type="button"
       onClick={() => toggle(field)}
-      className={`w-full p-4 rounded-2xl border text-left flex items-center justify-between gap-4 transition-colors ${
+      className={`w-full p-4 rounded-xl border text-left flex items-center justify-between gap-4 transition-colors ${
         config[field]
           ? "border-teal-300 bg-teal-50/50 dark:bg-teal-900/20 dark:border-teal-800"
           : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
@@ -325,9 +325,7 @@ export default function GoogleLensConfig() {
     <div className="max-w-5xl mx-auto space-y-6 animate-[fadeInUp_0.4s_ease-out]">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className={`text-2xl font-bold ${textMain} flex items-center gap-2`}>
-            <ScanSearch className="text-teal-600" /> {t.title}
-          </h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
           <p className="mt-1 text-slate-500 text-sm max-w-3xl">{t.desc}</p>
         </div>
 
@@ -342,7 +340,7 @@ export default function GoogleLensConfig() {
         </button>
       </div>
 
-      <form onSubmit={handleSave} className={`p-6 md:p-8 rounded-3xl border shadow-sm ${cardBg} space-y-8`}>
+      <form onSubmit={handleSave} className={`p-6 md:p-8 rounded-xl border shadow-sm ${cardBg} space-y-8`}>
         <section className="space-y-4">
           <div className="flex items-center gap-2">
             <Route className="text-teal-600" size={18} />
@@ -358,7 +356,7 @@ export default function GoogleLensConfig() {
             ].map((option) => (
               <label
                 key={option.value}
-                className={`p-4 rounded-2xl border cursor-pointer font-black transition-colors ${
+                className={`p-4 rounded-xl border cursor-pointer font-black transition-colors ${
                   config.lens_provider === option.value
                     ? "border-teal-400 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300"
                     : "border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-teal-300"

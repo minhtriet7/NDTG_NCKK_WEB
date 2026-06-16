@@ -114,9 +114,9 @@ async def run_aggregator(
 
         # Lọc ra các vote thuộc phe thắng
         winning_votes = [v for v in valid_votes if v["vote_key"] == winner_key]
-        # Ưu tiên lấy Agent 2 (llm_api) để có JSON đầy đủ (mô tả, quan điểm, năm, chất liệu, v.v)
+        # Ưu tiên lấy Agent 2 (llm_api) hoặc Agent 1 (openai_api) để có JSON đầy đủ
         final_vote = next(
-            (v for v in winning_votes if v["agent_key"] == "llm_api"),
+            (v for v in winning_votes if v["agent_key"] in ("llm_api", "openai_api", "ml_dl")),
             winning_votes[0]
         )
 

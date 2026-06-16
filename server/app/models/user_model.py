@@ -1,6 +1,6 @@
 from beanie import Document
 from pydantic import EmailStr, Field
-from typing import Optional
+from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 
 
@@ -19,6 +19,7 @@ class User(Document):
 
     is_active: bool = True
     avatar_url: Optional[str] = None
+    preferences: Dict[str, Any] = Field(default_factory=dict)
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

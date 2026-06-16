@@ -447,3 +447,20 @@ export const safeGetPendingFeedback = async (limit = 5) => {
     return [];
   }
 };
+
+/* =========================================================
+   PAGES (CMS)
+========================================================= */
+
+export const getPages = async () => {
+  const data = await api.get("/pages");
+  return normalizeList(data);
+};
+
+export const getPage = async (slug) => {
+  return await api.get(`/pages/${slug}`);
+};
+
+export const updatePageContent = async (slug, payload) => {
+  return await api.put(`/pages/${slug}`, payload);
+};

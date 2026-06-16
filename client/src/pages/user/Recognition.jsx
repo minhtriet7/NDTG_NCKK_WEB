@@ -36,8 +36,9 @@ export default function Recognition() {
   }[lang || "EN"];
 
   return (
-    <div className="min-h-screen font-sans pb-20 p-4 md:p-8 bg-background text-foreground transition-colors duration-300">
-      <div className="max-w-7xl mx-auto space-y-8">
+    <div className="page-inner pb-20 p-4 md:p-8 relative">
+      <div className="page-orb-indigo top-0 left-[-10%]" />
+      <div className="max-w-7xl mx-auto space-y-8 relative z-10">
         
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pt-2">

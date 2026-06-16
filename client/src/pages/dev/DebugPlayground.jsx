@@ -143,7 +143,7 @@ const DebugPlayground = () => {
           <div>
             <h1 className="text-2xl font-bold text-white tracking-tight">Multi-Agent Debug Dashboard</h1>
             <p className="text-slate-500 text-sm mt-1">
-              Internal DevTool • End-to-end pipeline inspection (YOLO crop, LLM prompts, Visual Search, Aggregator)
+              Internal DevTool • End-to-end pipeline inspection (YOLO Crop, OpenAI, Gemini, Visual Search, Aggregator)
             </p>
           </div>
         </div>
@@ -292,7 +292,7 @@ const DebugPlayground = () => {
                           <div className="absolute -left-3 top-0 bottom-0 w-1 bg-blue-500/20 rounded-full" />
                           <div className="flex items-center gap-2 mb-3">
                             <span className="px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 text-xs font-bold uppercase">Agent 1</span>
-                            <span className="text-sm font-semibold text-slate-300">YOLO Detection & ResNet Classification</span>
+                            <span className="text-sm font-semibold text-slate-300">Agent 1: OpenAI GPT-4o</span>
                           </div>
                           
                           <div className="mb-4">

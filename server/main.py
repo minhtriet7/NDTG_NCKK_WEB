@@ -16,7 +16,7 @@ from app.routers.payment_router import router as payment_router
 from app.routers.currency_router import router as currency_router
 from app.routers.feedback_router import router as feedback_router
 from app.routers.admin_router import router as admin_router
-
+from app.routers.page_router import router as page_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -88,6 +88,7 @@ app.include_router(currency_router, prefix="/api/v1/currency", tags=["Currency"]
 app.include_router(feedback_router, prefix="/api/v1/feedback", tags=["Feedback"])
 app.include_router(admin_router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(token_usage_router, prefix="/api/v1/token-usage", tags=["Token Usage"])
+app.include_router(page_router, prefix="/api/v1/pages", tags=["Pages"])
 
 
 @app.get("/")

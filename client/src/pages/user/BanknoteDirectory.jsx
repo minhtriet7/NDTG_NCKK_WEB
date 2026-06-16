@@ -150,12 +150,13 @@ export default function BanknoteDirectory() {
   }, [banknotes, searchTerm]);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 p-4 md:p-8 lg:p-10 font-sans text-slate-900 dark:text-slate-100 animate-[fadeInUp_0.4s_ease-out] pb-24 transition-colors duration-300">
-      <div className="max-w-7xl mx-auto space-y-8">
+    <div className="page-inner pt-6 relative p-4 md:p-8 lg:p-10 font-sans animate-[fadeInUp_0.4s_ease-out] pb-24 transition-colors duration-300">
+      <div className="page-orb-indigo top-0 right-[-10%]" />
+      <div className="max-w-7xl mx-auto space-y-8 relative z-10">
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div className="max-w-3xl">
             <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-3 transition-colors">
-              <Layers className="w-8 h-8 text-teal-600 dark:text-teal-400" />
+              <Layers className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
               {text.title}
             </h1>
             <p className="text-slate-500 dark:text-slate-400 mt-3 text-lg leading-relaxed transition-colors">
@@ -167,7 +168,7 @@ export default function BanknoteDirectory() {
             <button
               onClick={fetchBanknotes}
               disabled={loading}
-              className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition-all disabled:opacity-60"
+              className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all disabled:opacity-60"
               aria-label="Reload banknotes"
             >
               <RefreshCw className={`w-6 h-6 ${loading ? "animate-spin" : ""}`} />
@@ -175,7 +176,7 @@ export default function BanknoteDirectory() {
 
             <button
               onClick={toggleTheme}
-              className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition-all"
+              className="p-3 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all"
               aria-label="Toggle Dark Mode"
             >
               {isDarkMode ? <Sun className="w-6 h-6" /> : <Moon className="w-6 h-6" />}
@@ -208,7 +209,7 @@ export default function BanknoteDirectory() {
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div
                 key={i}
-                className="h-[420px] bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 animate-pulse rounded-3xl shadow-sm transition-colors"
+                className="h-[420px] card-base border border-slate-100 dark:border-slate-700 animate-pulse rounded-3xl shadow-sm transition-colors"
               >
                 <div className="h-48 bg-slate-100 dark:bg-slate-700 rounded-t-3xl transition-colors"></div>
                 <div className="p-6 space-y-4">
@@ -231,7 +232,7 @@ export default function BanknoteDirectory() {
             {filteredData.map((note) => (
               <div
                 key={note.id}
-                className="group bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-3xl overflow-hidden shadow-sm hover:shadow-xl hover:border-teal-200 dark:hover:border-teal-500 transition-all duration-300 flex flex-col"
+                className="group card-base border border-slate-200 dark:border-slate-700 rounded-3xl overflow-hidden shadow-sm hover:shadow-xl hover:border-indigo-200 dark:hover:border-indigo-500 transition-all duration-300 flex flex-col"
               >
                 <div className="h-52 bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center p-4 relative overflow-hidden border-b border-slate-100 dark:border-slate-700 transition-colors">
                   <div className="absolute top-4 left-4 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur text-slate-700 dark:text-slate-200 font-black text-xs tracking-wider px-3 py-1.5 rounded-full shadow-sm border border-slate-200 dark:border-slate-600 transition-colors">
@@ -269,7 +270,7 @@ export default function BanknoteDirectory() {
                       </span>
                     </h3>
                     <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mt-1.5 transition-colors">
-                      <MapPin className="w-4 h-4 text-teal-600 dark:text-teal-400" />{" "}
+                      <MapPin className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />{" "}
                       {note.country}
                     </p>
                   </div>
@@ -307,9 +308,9 @@ export default function BanknoteDirectory() {
                   <div className="mt-auto pt-2">
                     <button
                       onClick={() => navigate("/recognize")}
-                      className="w-full py-3.5 bg-slate-900 dark:bg-teal-600 hover:bg-slate-800 dark:hover:bg-teal-500 text-white font-bold rounded-xl text-sm transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
+                      className="w-full py-3.5 bg-slate-900 dark:bg-indigo-600 hover:bg-slate-800 dark:hover:bg-indigo-500 text-white font-bold rounded-xl text-sm transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
                     >
-                      <ScanLine className="w-4 h-4 text-teal-400 dark:text-teal-200" />{" "}
+                      <ScanLine className="w-4 h-4 text-indigo-400 dark:text-indigo-200" />{" "}
                       {text.btnScan}
                     </button>
                   </div>

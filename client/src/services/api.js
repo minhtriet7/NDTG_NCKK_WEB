@@ -1,9 +1,15 @@
 import axios from "axios";
 import { useAuthStore } from "../store/authStore";
 
+const normalizeRootApiUrl = (value) => {
+  const url = String(value || "").trim().replace(/\/+$/, "");
+
+  return url.replace(/\/api\/v1$/i, "").replace(/\/api$/i, "");
+};
+
 const ROOT_API_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  import.meta.env.VITE_API_URL ||
+  normalizeRootApiUrl(import.meta.env.VITE_API_BASE_URL) ||
+  normalizeRootApiUrl(import.meta.env.VITE_API_URL) ||
   "http://localhost:8000";
 
 const API_BASE_URL = `${ROOT_API_URL}/api/v1`;
@@ -66,6 +72,7 @@ const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "69420",
   },
   timeout: 180000, // Tăng lên 3 phút vì Debug Playground chạy song song 2 Agent (V1, V2) nên rất lâu
 });

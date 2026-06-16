@@ -20,6 +20,19 @@ import {
   MessageSquare,
   RotateCcw,
   Wallet,
+  CheckCircle2,
+  AlertTriangle,
+  Globe,
+  Layers,
+  Zap,
+  BrainCircuit,
+  ScanSearch,
+  TrendingUp,
+  ChevronRight,
+  Hash,
+  Calendar,
+  Check,
+  Image as ImageIcon,
 } from "lucide-react";
 
 const normalizeText = (value) => {
@@ -849,7 +862,7 @@ export default function Result() {
 
           <button
             onClick={() => navigate("/recognize")}
-            className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-teal-600 text-white font-bold hover:bg-slate-800 dark:hover:bg-teal-500 transition"
+            className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 transition shadow-md shadow-indigo-500/20"
           >
             {t.backWorkspace}
           </button>
@@ -859,9 +872,19 @@ export default function Result() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto font-sans space-y-8 pb-12">
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
-        <div>
+    <div className="page-inner pt-6 relative">
+      <div className="page-orb-indigo top-0 left-[-10%]" />
+      <div className="max-w-6xl mx-auto font-sans space-y-8 pb-12 relative z-10 px-4 sm:px-6">
+        {/* ===== HERO HEADER ===== */}
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+          <div>
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2 flex items-center gap-1.5">
+            <Hash className="w-3.5 h-3.5" />
+            <span className="font-mono">{(currentItem?.id || "").slice(-8) || "—"}</span>
+            <span className="mx-1 text-slate-300 dark:text-slate-700">•</span>
+            <Calendar className="w-3.5 h-3.5" />
+            <span>{currentItem?.id ? new Date().toLocaleDateString(lang === "VI" ? "vi-VN" : "en-US") : "—"}</span>
+          </p>
           <h1 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-slate-100 tracking-tight">
             {t.title}
           </h1>
@@ -872,9 +895,7 @@ export default function Result() {
 
         <div className="flex flex-wrap gap-3">
           <button
-            onClick={() =>
-              navigate("/feedback", { state: { scanResult: currentItem } })
-            }
+            onClick={() => navigate("/feedback", { state: { scanResult: currentItem } })}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition"
           >
             <MessageSquare className="w-4 h-4" />
@@ -891,7 +912,7 @@ export default function Result() {
 
           <button
             onClick={() => navigate("/recognize")}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-teal-600 text-white font-bold hover:bg-slate-800 dark:hover:bg-teal-500 transition"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 text-white font-bold hover:from-indigo-500 hover:to-indigo-400 transition shadow-md shadow-indigo-500/20"
           >
             <RotateCcw className="w-4 h-4" />
             {t.scanAnother}
@@ -907,7 +928,7 @@ export default function Result() {
               onClick={() => setActiveTab(index)}
               className={`px-4 py-2 rounded-xl text-sm font-bold border transition ${
                 activeTab === index
-                  ? "bg-teal-600 text-white border-teal-600"
+                  ? "bg-indigo-600 text-white border-indigo-600"
                   : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
               }`}
             >
@@ -924,73 +945,73 @@ export default function Result() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-slate-100 dark:border-slate-800">
-            <p className="text-sm font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              {t.uploadTitle}
-            </p>
+          {/* ===== Ảnh Upload - to hơn ===== */}
+          <div className="card-base overflow-hidden shadow-sm">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800">
+              <p className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5" />
+                {t.uploadTitle}
+              </p>
+            </div>
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/30">
+              {previewImage ? (
+                <img
+                  src={previewImage}
+                  alt="Uploaded banknote"
+                  className="w-full rounded-2xl object-contain max-h-[480px] bg-white dark:bg-slate-900 shadow-sm"
+                />
+              ) : (
+                <div className="h-[260px] rounded-2xl bg-white dark:bg-slate-800 border border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-3 text-slate-400">
+                  <ImageIcon className="w-10 h-10 opacity-30" />
+                  <span className="text-sm font-medium">No image</span>
+                </div>
+              )}
+            </div>
           </div>
-
-          <div className="p-5">
-            {previewImage ? (
-              <img
-                src={previewImage}
-                alt="Uploaded banknote"
-                className="w-full rounded-2xl bg-slate-50 dark:bg-slate-800 object-contain max-h-[380px]"
-              />
-            ) : (
-              <div className="h-[260px] rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400">
-                No image
-              </div>
-            )}
-          </div>
-        </div>
 
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-6">
-            <div className="flex items-center justify-between gap-4 mb-5">
-              <div>
-                <p className="text-sm font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          {/* ===== Final Decision Card ===== */}
+          <div className="rounded-3xl overflow-hidden shadow-lg">
+            <div className="bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                   {t.finalDecision}
                 </p>
-
-                <h2 className="text-3xl font-black text-slate-900 dark:text-slate-100 mt-2">
-                  {finalDenomination}
-                </h2>
+                <span className={`px-3 py-1 rounded-full border text-xs font-black uppercase tracking-wider ${getConsensusBadgeClass(consensus)}`}>
+                  {getConsensusStatusLabel(consensus, lang)}
+                </span>
               </div>
-
-              <span
-                className={`px-3 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider ${getConsensusBadgeClass(consensus)}`}
-              >
-                {getConsensusStatusLabel(consensus, lang)}
-              </span>
+              <h2 className="text-5xl font-black text-white leading-none mb-1">
+                {finalDenomination}
+              </h2>
+              <p className="text-slate-400 text-xs mt-2">{normalizeStatusLabel(currentItem?.status, lang)}</p>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <InfoRow label={t.lblCountry} value={finalCountry} />
-              <InfoRow label={t.lblCurrency} value={finalCurrency} />
-              <InfoRow label={t.lblMaterial} value={finalMaterial} />
-              <InfoRow label={t.lblOrigin} value={finalOrigin} />
-            </div>
-
-            <div className="mt-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
-              <p className="text-xs font-black uppercase tracking-wider text-slate-400 mb-2">
-                {t.referee}
-              </p>
-
-              <div className="prose prose-sm prose-slate dark:prose-invert max-w-none text-slate-700 dark:text-slate-300">
-                <ReactMarkdown>
-                  {stripMarkdownSymbols(consensusText)}
-                </ReactMarkdown>
+            <div className="bg-slate-900 p-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <InfoRow label={t.lblCountry} value={finalCountry} />
+                <InfoRow label={t.lblCurrency} value={finalCurrency} />
+                <InfoRow label={t.lblMaterial} value={finalMaterial} />
+                <InfoRow label={t.lblOrigin} value={finalOrigin} />
+              </div>
+              <div className="mt-4 pt-4 border-t border-slate-800">
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-2">
+                  {t.referee}
+                </p>
+                <div className="prose prose-sm prose-invert max-w-none text-slate-300 text-xs leading-relaxed">
+                  <ReactMarkdown>{stripMarkdownSymbols(consensusText)}</ReactMarkdown>
+                </div>
               </div>
             </div>
           </div>
 
+          {/* ===== 4 Summary Cards ===== */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <SummaryCard label={t.lblDenomination} value={finalDenomination} />
-            <SummaryCard label={t.lblCountry} value={finalCountry} />
+            <SummaryCard label={t.lblDenomination} value={finalDenomination} icon={<Coins className="w-4 h-4" />} accent="teal" />
+            <SummaryCard label={t.lblCountry} value={finalCountry} icon={<Globe className="w-4 h-4" />} accent="indigo" />
             <SummaryCard
               label={t.lblConsensus}
+              icon={<Check className="w-4 h-4" />}
+              accent="emerald"
               value={
                 currentItem?.multi_object
                   ? (currentItem?.consensus?.partial
@@ -1001,13 +1022,13 @@ export default function Result() {
                   : `${matchedAgents}/3 ${t.agents}`
               }
             />
-            <SummaryCard label={t.lblCurrency} value={finalCurrency} />
+            <SummaryCard label={t.lblCurrency} value={finalCurrency} icon={<TrendingUp className="w-4 h-4" />} accent="violet" />
           </div>
         </div>
       </div>
 
       {!currentItem?.multi_object && exchangeResults && exchangeResults.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-6">
+        <div className="card-base p-6 shadow-sm">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
             <div>
               <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">
@@ -1020,7 +1041,7 @@ export default function Result() {
 
             <Link
               to="/exchange"
-              className="text-sm font-bold text-teal-600 dark:text-teal-400 hover:underline"
+              className="text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
             >
               {t.fullConverter}
             </Link>
@@ -1053,97 +1074,35 @@ export default function Result() {
 
       {!currentItem?.multi_object && (
         <>
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-6">
-        <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">
-          {t.aggDecision}
-        </h2>
+          {/* ===== Aggregator Decision ===== */}
+          <div className="card-base p-6 shadow-sm">
+            <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">
+              {t.aggDecision}
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-5">
+              {t.aggDesc}
+            </p>
+            <div className="space-y-2">
+              <DecisionItem label="YOLO / ML" value={getAgentDenomination(agents.ml_dl)} status={getAgentDenomination(agents.ml_dl) === finalDenomination ? "matched" : "different"} t={t} />
+              <DecisionItem label="LLM" value={getAgentDenomination(agents.llm_api)} status={getAgentDenomination(agents.llm_api) === finalDenomination ? "matched" : "different"} t={t} />
+              <DecisionItem label="Visual Search" value={getAgentDenomination(agents.visual_search)} status={getAgentDenomination(agents.visual_search) === finalDenomination ? "matched" : "different"} t={t} />
+              <DecisionItem label="Aggregator" value={finalDenomination} status="final" t={t} />
+            </div>
+          </div>
 
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-5">
-          {t.aggDesc}
-        </p>
-
-        <div className="space-y-3">
-          <DecisionItem
-            label="YOLO / ML"
-            value={getAgentDenomination(agents.ml_dl)}
-            status={
-              getAgentDenomination(agents.ml_dl) === finalDenomination
-                ? "matched"
-                : "different"
-            }
-            t={t}
-          />
-
-          <DecisionItem
-            label="LLM"
-            value={getAgentDenomination(agents.llm_api)}
-            status={
-              getAgentDenomination(agents.llm_api) === finalDenomination
-                ? "matched"
-                : "different"
-            }
-            t={t}
-          />
-
-          <DecisionItem
-            label="Visual Search"
-            value={getAgentDenomination(agents.visual_search)}
-            status={
-              getAgentDenomination(agents.visual_search) === finalDenomination
-                ? "matched"
-                : "different"
-            }
-            t={t}
-          />
-
-          <DecisionItem
-            label="Aggregator"
-            value={finalDenomination}
-            status="final"
-            t={t}
-          />
-        </div>
-      </div>
-
-      <div>
-        <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 mb-4">
-          {t.agentCompare}
-        </h2>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <AgentCard
-            agentKey="Agent 1"
-            title="YOLO / ML"
-            method="Visual detection"
-            data={agents.ml_dl}
-            finalDenomination={finalDenomination}
-            t={t}
-          />
-
-          <AgentCard
-            agentKey="Agent 2"
-            title="LLM"
-            method="Language reasoning"
-            data={agents.llm_api}
-            finalDenomination={finalDenomination}
-            t={t}
-          />
-
-          <AgentCard
-            agentKey="Agent 3"
-            title="Visual Search"
-            method="External visual matching"
-            data={agents.visual_search}
-            finalDenomination={finalDenomination}
-            t={t}
-          />
-        </div>
-      </div>
-
+          {/* ===== Agent Cards ===== */}
+          <div>
+            <h2 className="text-xl font-black text-slate-900 dark:text-slate-100 mb-4">{t.agentCompare}</h2>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <AgentCard agentKey="Agent 1" title="YOLO / ML" method="Visual detection" data={agents.ml_dl} finalDenomination={finalDenomination} t={t} agentType="yolo" />
+              <AgentCard agentKey="Agent 2" title="LLM" method="Language reasoning" data={agents.llm_api} finalDenomination={finalDenomination} t={t} agentType="llm" />
+              <AgentCard agentKey="Agent 3" title="Visual Search" method="External visual matching" data={agents.visual_search} finalDenomination={finalDenomination} t={t} agentType="lens" />
+            </div>
+          </div>
         </>
       )}
 
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+      <div className="card-base overflow-hidden shadow-sm">
         <button
           onClick={() => setShowRawLog(!showRawLog)}
           className="w-full p-6 flex items-center justify-between text-left hover:bg-slate-50 dark:hover:bg-slate-800/50 transition"
@@ -1173,10 +1132,10 @@ export default function Result() {
         )}
       </div>
 
-      <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+      <div className="card-base overflow-hidden shadow-sm">
         <div className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-3">
-            <FileJson className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+            <FileJson className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
             <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">
               {t.jsonTitle}
             </h2>
@@ -1193,7 +1152,7 @@ export default function Result() {
 
             <button
               onClick={handleDownloadJSON}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 dark:bg-teal-600 text-white text-sm font-bold hover:bg-slate-800 dark:hover:bg-teal-500 transition"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-500 transition shadow-sm shadow-indigo-500/20"
             >
               <Download className="w-4 h-4" />
               {t.download}
@@ -1206,50 +1165,68 @@ export default function Result() {
         </pre>
       </div>
 
-      <div className="bg-slate-900 dark:bg-slate-950 rounded-3xl p-8 text-white flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-2xl font-black">{t.continueTitle}</h2>
-          <p className="text-slate-400 mt-2">{t.continueDesc}</p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3">
-          <button
-            onClick={() => navigate("/recognize")}
-            className="px-5 py-3 rounded-xl bg-teal-600 text-white font-bold hover:bg-teal-500 transition"
-          >
-            {t.btnScanAnother}
-          </button>
-
-          <button
-            onClick={() => navigate("/history")}
-            className="px-5 py-3 rounded-xl bg-white/10 text-white font-bold hover:bg-white/20 transition"
-          >
-            {t.btnViewHistory}
-          </button>
+      {/* ===== CTA Footer ===== */}
+      <div className="rounded-3xl overflow-hidden shadow-xl">
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-8 text-white flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div>
+            <h2 className="text-2xl font-black">{t.continueTitle}</h2>
+            <p className="text-slate-400 mt-2">{t.continueDesc}</p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => navigate("/recognize")}
+              className="px-5 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 text-white font-bold hover:from-indigo-400 hover:to-indigo-500 transition shadow-lg shadow-indigo-900/40 flex items-center justify-center gap-2 group"
+            >
+              <RotateCcw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-300" />
+              {t.btnScanAnother}
+            </button>
+            <button
+              onClick={() => navigate("/history")}
+              className="px-5 py-3 rounded-xl border border-indigo-700/50 bg-white/5 text-white font-bold hover:bg-white/10 hover:border-indigo-500 transition flex items-center justify-center gap-2"
+            >
+              <History className="w-4 h-4" />
+              {t.btnViewHistory}
+            </button>
+          </div>
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 }
 
 function InfoRow({ label, value }) {
   return (
-    <div className="flex justify-between gap-4 border-b border-slate-50 dark:border-slate-700/50 pb-2">
-      <span className="text-slate-500 dark:text-slate-400">{label}</span>
-      <span className="font-bold text-slate-900 dark:text-slate-100 text-right">
+    <div className="flex justify-between gap-4 border-b border-slate-100 dark:border-slate-700/50 pb-2">
+      <span className="text-slate-500 dark:text-slate-400 text-xs font-semibold shrink-0">{label}</span>
+      <span className="font-bold text-slate-900 dark:text-slate-100 text-right text-xs">
         {normalizeText(value)}
       </span>
     </div>
   );
 }
 
-function SummaryCard({ label, value }) {
+function SummaryCard({ label, value, icon, accent = "slate" }) {
+  const accentMap = {
+    teal: "text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-500/20",
+    indigo: "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/20",
+    emerald: "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/20",
+    violet: "text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-500/20",
+    slate: "text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800",
+  };
+  const iconClass = accentMap[accent] || accentMap.slate;
+
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5 transition-colors">
-      <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 transition-all hover:-translate-y-0.5 hover:shadow-md group">
+      {icon && (
+        <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-3 ${iconClass}`}>
+          {icon}
+        </div>
+      )}
+      <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">
         {label}
       </p>
-      <p className="mt-2 text-lg font-black text-slate-900 dark:text-slate-100">
+      <p className="mt-1 text-base font-black text-slate-900 dark:text-slate-100 leading-tight">
         {normalizeText(value)}
       </p>
     </div>
@@ -1262,8 +1239,6 @@ function MultiObjectResults({ currentItem, t, lang }) {
     ? currentItem.detected_objects
     : [];
 
-  const [expandedObject, setExpandedObject] = useState(null);
-
   if (!objects.length) return null;
 
   const getObjectStatus = (item) => {
@@ -1272,31 +1247,43 @@ function MultiObjectResults({ currentItem, t, lang }) {
   };
 
   const getObjectImage = (item) => {
-    if (item?.crop_base64) {
-      return `data:image/jpeg;base64,${item.crop_base64}`;
-    }
-
+    if (item?.crop_base64) return `data:image/jpeg;base64,${item.crop_base64}`;
     return currentItem?.image_url || null;
+  };
+
+  const { ratesData } = useCurrencyStore();
+  const rates = ratesData?.rates || {};
+
+  const getVndText = (denomination, currency) => {
+    const amount = parseAmountFromDenomination(denomination);
+    if (!amount) return "N/A";
+    const cur = String(currency || "").toUpperCase();
+    if (cur === "VND") return `${amount.toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} VND`;
+    const rate = Number(rates[cur] || 0);
+    if (rate <= 0) return `${amount} ${cur}`;
+    return `~ ${Math.round(amount * rate).toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} VND`;
   };
 
   return (
     <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
+      <div className="flex items-center justify-between gap-3 mb-5">
         <div>
           <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">
-            {lang === "VI"
-              ? `Đã phát hiện ${objects.length} tờ tiền`
-              : `${objects.length} banknotes detected`}
+            {lang === "VI" ? `Đã phát hiện ${objects.length} tờ tiền` : `${objects.length} banknotes detected`}
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
             {lang === "VI"
-              ? "Mỗi tờ tiền được crop riêng. YOLO/ML, LLM và Visual Search tranh luận riêng cho từng tờ; Aggregator không so sánh tờ 5.000 với tờ 2.000."
-              : "Each banknote is cropped separately. YOLO/ML, LLM, and Visual Search debate each banknote independently; the aggregator does not compare the 5,000 note against the 2,000 note."}
+              ? "Mỗi tờ tiền được phân tích riêng bởi 3 agent AI"
+              : "Each banknote was analyzed independently by 3 AI agents"}
           </p>
         </div>
+        <span className="text-xs font-black px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30">
+          {objects.length} {lang === "VI" ? "tờ" : "items"}
+        </span>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* Full-width cards, 1 per banknote */}
+      <div className="space-y-5">
         {objects.map((item, index) => {
           const objectNo = item?.object_index || index + 1;
           const denomination = getObjectDenomination(item);
@@ -1304,135 +1291,126 @@ function MultiObjectResults({ currentItem, t, lang }) {
           const status = getObjectStatus(item);
           const matchedAgents = getObjectMatchedAgents(item);
           const image = getObjectImage(item);
-          const agents = Array.isArray(item?.agent_results)
-            ? item.agent_results
-            : [];
-          const objectDebate = buildMultiObjectDebateLog([item], lang || "EN");
-          const isExpanded = expandedObject === objectNo;
+          const agentResults = Array.isArray(item?.agent_results) ? item.agent_results : [];
+
+          const objectFinal = getObjectFinalData(item);
+          const currency = objectFinal.currency || objectFinal.currency_code || inferCurrencyFromDenomination(denomination);
+          const material = objectFinal.chat_lieu || objectFinal.material || "N/A";
+          const vndText = getVndText(denomination, currency);
 
           return (
-            <div
-              key={objectNo}
-              className="rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-slate-50 dark:bg-slate-800/40"
-            >
-              <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-wider text-slate-400">
-                    {lang === "VI" ? "Tờ tiền" : "Banknote"} #{objectNo}
-                  </p>
-                  <h3 className="text-lg font-black text-slate-900 dark:text-slate-100 mt-1">
-                    {denomination}
-                  </h3>
-                </div>
-
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-black border ${
+            <div key={objectNo} className={`rounded-2xl border overflow-hidden ${
+              matchedAgents >= 2
+                ? "border-teal-200 dark:border-teal-800/60"
+                : "border-amber-200 dark:border-amber-800/60"
+            }`}>
+              {/* Header */}
+              <div className={`px-5 py-3 flex items-center justify-between ${
+                matchedAgents >= 2
+                  ? "bg-teal-50 dark:bg-teal-950/40"
+                  : "bg-amber-50 dark:bg-amber-950/40"
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black ${
                     matchedAgents >= 2
-                      ? "bg-teal-50 dark:bg-teal-500/20 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-500/30"
-                      : "bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30"
-                  }`}
-                >
-                  {matchedAgents}/3
+                      ? "bg-teal-100 text-teal-700 dark:bg-teal-800 dark:text-teal-300"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-800 dark:text-amber-300"
+                  }`}>#{objectNo}</div>
+                  <div>
+                    <p className="font-black text-slate-900 dark:text-slate-100">{denomination}</p>
+                    <p className="text-xs text-slate-500">{country} &bull; {normalizeStatusLabel(status, lang)}</p>
+                  </div>
+                </div>
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black border ${
+                  matchedAgents >= 2
+                    ? "bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-500/20 dark:text-teal-300 dark:border-teal-500/30"
+                    : "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30"
+                }`}>
+                  <Check className="w-2.5 h-2.5" strokeWidth={3} />
+                  {matchedAgents}/3 {lang === "VI" ? "Khớp" : "Matched"}
                 </span>
               </div>
 
-              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
+              {/* Body: 3 columns */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-0 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                {/* Col 1: Crop Image */}
+                <div className="p-4 flex items-center justify-center bg-slate-50 dark:bg-slate-800/30 min-h-[180px]">
                   {image ? (
                     <img
                       src={image}
                       alt={`Banknote crop ${objectNo}`}
-                      className="w-full rounded-xl bg-white dark:bg-slate-900 object-contain max-h-[240px]"
+                      className="w-full rounded-xl object-contain max-h-[200px]"
                     />
                   ) : (
-                    <div className="h-[180px] rounded-xl bg-slate-100 dark:bg-slate-900 flex items-center justify-center text-slate-400">
-                      No crop
+                    <div className="flex flex-col items-center gap-2 text-slate-400">
+                      <ImageIcon className="w-8 h-8 opacity-30" />
+                      <p className="text-xs">{lang === "VI" ? "Không có crop" : "No crop"}</p>
                     </div>
-                  )}
-
-                  {item?.bbox && (
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">
-                      bbox: [{item.bbox.join(", ")}]
-                    </p>
                   )}
                 </div>
 
-                <div className="space-y-3">
+                {/* Col 2: Specs */}
+                <div className="p-4 space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-3">{lang === "VI" ? "Thông tin" : "Details"}</p>
                   <InfoRow label={t.lblCountry} value={country} />
                   <InfoRow label={t.lblDenomination} value={denomination} />
-                  <InfoRow label="Status" value={normalizeStatusLabel(status, lang)} />
-                  <InfoRow
-                    label={t.lblConsensus}
-                    value={`${matchedAgents}/3 ${t.agents}`}
-                  />
+                  <InfoRow label={t.lblCurrency} value={currency} />
+                  <InfoRow label={lang === "VI" ? "Chất liệu" : "Material"} value={material} />
+                  <InfoRow label={lang === "VI" ? "Quy đổi VND" : "VND Equiv."} value={vndText} />
+                  <InfoRow label={t.lblConsensus} value={`${matchedAgents}/3 agents`} />
+                </div>
 
-                  <div className="pt-2">
-                    <p className="text-xs font-black uppercase tracking-wider text-slate-400 mb-2">
-                      {lang === "VI" ? "Tranh luận agent" : "Agent debate"}
-                    </p>
+                {/* Col 3: Agent mini cards */}
+                <div className="p-4">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-3">{lang === "VI" ? "Phiếu Agent" : "Agent Votes"}</p>
+                  <div className="space-y-2">
+                    {agentResults.length > 0 ? agentResults.map((agentItem, agentIndex) => {
+                      const data = getAgentPayload(agentItem);
+                      const agentName = getAgentLabel(agentItem, `Agent ${agentIndex + 1}`);
+                      const agentDenom = getAgentDenomination(data);
+                      const isMatch = agentDenom && denomination && String(agentDenom).toLowerCase().trim() === String(denomination).toLowerCase().trim();
+                      const confidence = data?.confidence || data?.do_tin_cay || data?.confidence_score;
+                      const confNum = confidence !== undefined && confidence !== null
+                        ? (Number(confidence) <= 1 ? Number(confidence) * 100 : Number(confidence))
+                        : null;
 
-                    <div className="space-y-2">
-                      {agents.map((agentItem, agentIndex) => {
-                        const data = getAgentPayload(agentItem);
-                        const agentName = getAgentLabel(agentItem, `Agent ${agentIndex + 1}`);
-                        const agentDenom = getAgentDenomination(data);
-                        const isMatched = agentDenom === denomination;
-
-                        return (
-                          <div
-                            key={agentIndex}
-                            className="rounded-xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-700 p-3"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs font-black text-slate-700 dark:text-slate-200">
-                                {agentName}
-                              </p>
-                              <span
-                                className={`px-2 py-0.5 rounded-full border text-[10px] font-black uppercase ${
-                                  isMatched
-                                    ? "bg-teal-50 text-teal-700 border-teal-100 dark:bg-teal-500/20 dark:text-teal-300 dark:border-teal-500/30"
-                                    : "bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30"
-                                }`}
-                              >
-                                {isMatched ? t.matched : t.different}
-                              </span>
-                            </div>
-
-                            <div className="mt-2 flex items-center justify-between gap-3 text-xs">
-                              <span className="text-slate-500 dark:text-slate-400">
-                                {t.lblDenomination}
-                              </span>
-                              <span className="font-black text-slate-900 dark:text-slate-100 text-right">
-                                {agentDenom}
-                              </span>
-                            </div>
-
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 line-clamp-3">
-                              {stripMarkdownSymbols(getAgentReasoning(data))}
-                            </p>
+                      return (
+                        <div key={agentIndex} className={`rounded-xl border p-3 ${
+                          isMatch
+                            ? "bg-teal-50/60 border-teal-200 dark:bg-teal-950/30 dark:border-teal-800/60"
+                            : "bg-white border-slate-100 dark:bg-slate-800/40 dark:border-slate-700"
+                        }`}>
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <p className="text-[11px] font-black text-slate-700 dark:text-slate-200">{agentName}</p>
+                            {isMatch
+                              ? <CheckCircle2 size={12} className="text-teal-500" strokeWidth={2.5} />
+                              : <AlertTriangle size={12} className="text-amber-400" strokeWidth={2.5} />}
                           </div>
-                        );
-                      })}
-                    </div>
+                          <p className={`text-sm font-black ${
+                            isMatch ? "text-teal-700 dark:text-teal-400" : "text-amber-600 dark:text-amber-400"
+                          }`}>{agentDenom}</p>
+                          {confNum !== null && (
+                            <div className="mt-2">
+                              <div className="flex justify-between mb-0.5">
+                                <span className="text-[10px] text-slate-400">{lang === "VI" ? "Độ tin cậy" : "Confidence"}</span>
+                                <span className={`text-[10px] font-black ${
+                                  confNum >= 80 ? "text-teal-500" : confNum >= 60 ? "text-amber-400" : "text-rose-400"
+                                }`}>{confNum.toFixed(0)}%</span>
+                              </div>
+                              <div className="h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                                <div className={`h-full rounded-full ${
+                                  confNum >= 80 ? "bg-teal-500" : confNum >= 60 ? "bg-amber-400" : "bg-rose-400"
+                                }`} style={{ width: `${Math.min(confNum, 100)}%` }} />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }) : (
+                      <p className="text-xs text-slate-400 italic">{lang === "VI" ? "Không có dữ liệu agent" : "No agent data"}</p>
+                    )}
                   </div>
                 </div>
-              </div>
-
-              <div className="px-4 pb-4">
-                <div className="rounded-2xl bg-slate-950 text-emerald-400 p-4 text-xs overflow-auto">
-                  <ReactMarkdown>
-                    {isExpanded ? objectDebate : `${objectDebate.slice(0, 520)}${objectDebate.length > 520 ? "..." : ""}`}
-                  </ReactMarkdown>
-                </div>
-
-                {objectDebate.length > 520 && (
-                  <button
-                    onClick={() => setExpandedObject(isExpanded ? null : objectNo)}
-                    className="mt-3 text-sm font-bold text-teal-600 dark:text-teal-400 hover:underline"
-                  >
-                    {isExpanded ? t.showLess : t.readFull}
-                  </button>
-                )}
               </div>
             </div>
           );
@@ -1575,118 +1553,142 @@ function TokenMetric({ icon, label, value }) {
 }
 
 function DecisionItem({ label, value, status, t }) {
-  const statusClass =
-    status === "matched"
-      ? "bg-teal-50 dark:bg-teal-500/20 text-teal-700 dark:text-teal-300 border-teal-100 dark:border-teal-500/30"
-      : status === "different"
-        ? "bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-500/30"
-        : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700";
+  const isMatched = status === "matched";
+  const isDiff = status === "different";
+  const isFinal = status === "final";
+
+  const borderColor = isMatched
+    ? "border-l-teal-500"
+    : isDiff
+    ? "border-l-amber-400"
+    : "border-l-slate-400 dark:border-l-slate-600";
+
+  const statusClass = isMatched
+    ? "bg-teal-50 dark:bg-teal-500/20 text-teal-700 dark:text-teal-300 border-teal-100 dark:border-teal-500/30"
+    : isDiff
+    ? "bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-500/30"
+    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700";
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 transition-colors">
-      <div>
-        <p className="text-sm font-bold text-slate-900 dark:text-slate-200">
-          {label}
-        </p>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          {normalizeText(value)}
-        </p>
+    <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 pl-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 border-l-4 ${borderColor} transition-colors`}>
+      <div className="flex items-center gap-3">
+        {isMatched ? (
+          <CheckCircle2 className="w-4 h-4 text-teal-500 shrink-0" strokeWidth={2.5} />
+        ) : isDiff ? (
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" strokeWidth={2.5} />
+        ) : (
+          <Layers className="w-4 h-4 text-slate-400 shrink-0" />
+        )}
+        <div>
+          <p className="text-sm font-bold text-slate-900 dark:text-slate-200">{label}</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{normalizeText(value)}</p>
+        </div>
       </div>
-
-      <span
-        className={`w-fit px-3 py-1 rounded-full border text-xs font-bold uppercase tracking-wider ${statusClass}`}
-      >
-        {status === "matched"
-          ? t.matched
-          : status === "different"
-            ? t.different
-            : t.final}
+      <span className={`w-fit px-3 py-1 rounded-full border text-xs font-bold uppercase tracking-wider ${statusClass}`}>
+        {isMatched ? t.matched : isDiff ? t.different : t.final}
       </span>
     </div>
   );
 }
 
-function AgentCard({ agentKey, title, method, data, finalDenomination, t }) {
+function AgentCard({ agentKey, title, method, data, finalDenomination, t, agentType }) {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  const headerGradient = agentType === "yolo"
+    ? "from-indigo-900 to-indigo-950"
+    : agentType === "llm"
+    ? "from-violet-900 to-violet-950"
+    : "from-teal-900 to-teal-950";
+
+  const agentIcon = agentType === "yolo"
+    ? <Cpu className="w-5 h-5" />
+    : agentType === "llm"
+    ? <BrainCircuit className="w-5 h-5" />
+    : <ScanSearch className="w-5 h-5" />;
 
   if (!data) {
     return (
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 transition-colors">
-        <span className="inline-block px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider rounded mb-3">
-          {agentKey}
-        </span>
-
-        <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-          {title}
-        </h3>
-
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-4">
-          {t.noAgentData}
-        </p>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
+        <div className={`bg-gradient-to-br ${headerGradient} p-4 flex items-center gap-3`}>
+          <span className="text-slate-400">{agentIcon}</span>
+          <div>
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{agentKey}</span>
+            <h3 className="text-base font-bold text-white">{title}</h3>
+          </div>
+        </div>
+        <div className="p-6">
+          <p className="text-sm text-slate-500 dark:text-slate-400">{t.noAgentData}</p>
+        </div>
       </div>
     );
   }
 
   const agentDenomination = getAgentDenomination(data);
-  const isMatched =
-    agentDenomination !== "N/A" &&
-    finalDenomination !== "N/A" &&
-    agentDenomination === finalDenomination;
-
+  const isMatched = agentDenomination !== "N/A" && finalDenomination !== "N/A" && agentDenomination && finalDenomination && String(agentDenomination).toLowerCase().trim() === String(finalDenomination).toLowerCase().trim();
   const reasoningText = stripMarkdownSymbols(getAgentReasoning(data));
+  const confidence = data?.confidence || data?.do_tin_cay || data?.confidence_score;
+  const confNum = confidence !== undefined && confidence !== null
+    ? (Number(confidence) <= 1 ? Number(confidence) * 100 : Number(confidence))
+    : null;
 
   return (
-    <div className="flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden p-6 hover:shadow-md transition-all">
-      <div className="flex justify-between items-start gap-4 mb-4">
-        <div>
-          <span className="inline-block px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider rounded mb-2">
-            {agentKey}
-          </span>
-
-          <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-            {title}
-          </h3>
-
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {getAgentMethod(data, method)}
-          </p>
+    <div className={`flex flex-col bg-white dark:bg-slate-900 rounded-2xl border shadow-sm overflow-hidden hover:shadow-md transition-all ${
+      isMatched ? "border-teal-200 dark:border-teal-800/60" : "border-slate-200 dark:border-slate-800"
+    }`}>
+      {/* Gradient header */}
+      <div className={`bg-gradient-to-br ${headerGradient} p-4 flex items-center justify-between`}>
+        <div className="flex items-center gap-3">
+          <span className={isMatched ? "text-teal-400" : "text-slate-400"}>{agentIcon}</span>
+          <div>
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{agentKey}</span>
+            <h3 className="text-base font-bold text-white leading-tight">{title}</h3>
+            <p className="text-xs text-slate-500 mt-0.5">{getAgentMethod(data, method)}</p>
+          </div>
         </div>
-
-        <span
-          className={`px-2.5 py-1 text-xs font-bold uppercase tracking-wider rounded whitespace-nowrap border ${
-            isMatched
-              ? "bg-teal-50 dark:bg-teal-500/20 text-teal-700 dark:text-teal-300 border-teal-100 dark:border-teal-500/30"
-              : "bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-500/30"
-          }`}
-        >
+        <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-full border whitespace-nowrap ${
+          isMatched
+            ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
+            : "bg-amber-500/20 text-amber-300 border-amber-500/40"
+        }`}>
           {isMatched ? t.matched : t.different}
         </span>
       </div>
 
-      <div className="space-y-3 mb-6 text-sm">
+      {/* Body */}
+      <div className="p-5 space-y-3 flex-1">
         <InfoRow label={t.lblDenomination} value={agentDenomination} />
         <InfoRow label={t.lblCountry} value={getAgentCountry(data)} />
-        <InfoRow
-          label={t.lblMaterial}
-          value={data?.chat_lieu || data?.material}
-        />
+        <InfoRow label={t.lblMaterial} value={data?.chat_lieu || data?.material} />
+
+        {confNum !== null && (
+          <div className="pt-1">
+            <div className="flex justify-between mb-1.5">
+              <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Confidence</span>
+              <span className={`text-xs font-black ${
+                confNum >= 80 ? "text-teal-500" : confNum >= 60 ? "text-amber-400" : "text-rose-400"
+              }`}>{confNum.toFixed(1)}%</span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${
+                confNum >= 80 ? "bg-gradient-to-r from-teal-500 to-teal-400" : confNum >= 60 ? "bg-amber-400" : "bg-rose-400"
+              }`} style={{ width: `${Math.min(confNum, 100)}%` }} />
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="mt-auto">
-        <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3">
+      {/* Reasoning */}
+      <div className="px-5 pb-5">
+        <p className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
           {t.lblReasoning}
         </p>
-
-        <div
-          className={`text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700/50 ${
-            !isExpanded ? "line-clamp-5" : ""
-          }`}
-        >
+        <div className={`text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700/50 ${
+          !isExpanded ? "line-clamp-5" : ""
+        }`}>
           <div className="prose prose-sm prose-slate dark:prose-invert max-w-none">
             <ReactMarkdown>{reasoningText}</ReactMarkdown>
           </div>
         </div>
-
         {reasoningText.length > 180 && (
           <button
             onClick={() => setIsExpanded(!isExpanded)}

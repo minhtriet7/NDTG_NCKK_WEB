@@ -148,10 +148,13 @@ class Agent3Lens(BaseAgent):
         raw_lens_text: Optional[str] = None,
         formatted_result: Optional[dict] = None,
         error: Optional[Exception] = None,
+        evidence: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         if formatted_result:
             formatted_result["status"] = formatted_result.get("status", "Completed")
             formatted_result["raw_text"] = raw_lens_text
+            if evidence is not None:
+                formatted_result["evidence"] = evidence
             return json.dumps([formatted_result], ensure_ascii=False)
 
         if raw_lens_text:
@@ -171,6 +174,8 @@ class Agent3Lens(BaseAgent):
                 "status": "Partial",
                 "raw_text": raw_lens_text,
             }
+            if evidence is not None:
+                fallback_data["evidence"] = evidence
             return json.dumps([fallback_data], ensure_ascii=False)
 
         failed_data = {
@@ -188,15 +193,17 @@ class Agent3Lens(BaseAgent):
             "dac_diem_chinh": [],
             "status": "Failed",
         }
+        if evidence is not None:
+            failed_data["evidence"] = evidence
         return json.dumps([failed_data], ensure_ascii=False)
 
-    def parse_formatted_result(self, formatted_json_text: str, raw_lens_data: str) -> str:
+    def parse_formatted_result(self, formatted_json_text: str, raw_lens_data: str, evidence: Optional[List[Dict[str, Any]]] = None) -> str:
         try:
             parsed = json.loads(formatted_json_text)
             item = parsed[0] if isinstance(parsed, list) and parsed else parsed
 
             if not isinstance(item, dict):
-                return self.build_visual_search_result(raw_lens_text=raw_lens_data)
+                return self.build_visual_search_result(raw_lens_text=raw_lens_data, evidence=evidence)
 
             item.setdefault("quoc_gia", "Không xác định")
             item.setdefault("ma_tien_te", "Không xác định")
@@ -212,12 +219,14 @@ class Agent3Lens(BaseAgent):
             item.setdefault("dac_diem_chinh", [])
             item.setdefault("status", "Completed")
             item["raw_text"] = raw_lens_data
+            if evidence is not None:
+                item["evidence"] = evidence
 
             return json.dumps([item], ensure_ascii=False)
 
         except Exception as e:
             print(f"[{self.agent_name}] Lỗi parse formatted Lens result: {e}")
-            return self.build_visual_search_result(raw_lens_text=raw_lens_data, error=e)
+            return self.build_visual_search_result(raw_lens_text=raw_lens_data, error=e, evidence=evidence)
 
     async def _format_lens_results_with_llm(
         self,
@@ -301,6 +310,69 @@ Quy tắc:
             if not self._has_useful_lens_data(compact_data):
                 return self.build_visual_search_result(error=Exception("SerpApi Google Lens không trả dữ liệu hữu ích."))
 
+            # Combine matches into a list of evidence
+            raw_evidence = []
+            for item in compact_data.get("exact_matches") or []:
+                raw_evidence.append({
+                    "bucket": "exact_match",
+                    "title": item.get("title", ""),
+                    "snippet": item.get("snippet", ""),
+                    "url": item.get("link", ""),
+                    "source": item.get("source", ""),
+                })
+            for item in compact_data.get("visual_matches") or []:
+                raw_evidence.append({
+                    "bucket": "visual_match",
+                    "title": item.get("title", ""),
+                    "snippet": item.get("snippet", ""),
+                    "url": item.get("link", ""),
+                    "source": item.get("source", ""),
+                })
+            for item in compact_data.get("text_results") or []:
+                raw_evidence.append({
+                    "bucket": "text_result",
+                    "title": item.get("text") or item.get("title", ""),
+                    "snippet": "",
+                    "url": item.get("link", ""),
+                    "source": "",
+                })
+
+            # Validate links asynchronously
+            from app.utils.link_validator import filter_alive_links
+            alive_evidence = await filter_alive_links(raw_evidence)
+
+            # Reconstruct compact_data with alive links
+            compact_data["exact_matches"] = [
+                {
+                    "title": item["title"],
+                    "source": item["source"],
+                    "link": item["url"],
+                    "snippet": item["snippet"],
+                }
+                for item in alive_evidence if item["bucket"] == "exact_match"
+            ]
+            compact_data["visual_matches"] = [
+                {
+                    "title": item["title"],
+                    "source": item["source"],
+                    "link": item["url"],
+                    "snippet": item["snippet"],
+                }
+                for item in alive_evidence if item["bucket"] == "visual_match"
+            ]
+            compact_data["text_results"] = [
+                {
+                    "text": item["title"],
+                    "link": item["url"],
+                }
+                for item in alive_evidence if item["bucket"] == "text_result"
+            ]
+
+            # Rank alive evidence
+            from app.services.evidence_ranker_service import rank_lens_evidence
+            ranked_evidence = rank_lens_evidence(alive_evidence, context=context)
+            top_evidence = ranked_evidence[:5]
+
             raw_lens_data = json.dumps(compact_data, ensure_ascii=False)
             print(f"[{self.agent_name}] Đã có dữ liệu Lens, đang format bằng LLM...")
 
@@ -309,8 +381,7 @@ Quy tắc:
                 try:
                     formatted_text = await self._format_lens_results_with_llm(compact_data, context=context, debug_log=debug_log)
                     print(f"[{self.agent_name}] Hoàn tất format Lens!")
-                    return self.parse_formatted_result(formatted_text, raw_lens_data)
-
+                    return self.parse_formatted_result(formatted_text, raw_lens_data, evidence=top_evidence)
                 except Exception as e:
                     last_error = e
                     error_text = str(e)

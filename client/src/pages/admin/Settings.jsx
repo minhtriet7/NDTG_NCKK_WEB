@@ -113,13 +113,11 @@ function unwrapSettings(data) {
 
 function normalizePayload(config) {
   const gateways = [];
-
   if (config.sepay_enabled) gateways.push("sepay");
   if (config.vnpay_enabled) gateways.push("vnpay");
   if (config.mock_payment_enabled) gateways.push("mock");
 
   let defaultGateway = config.payment_gateway_default || "sepay";
-
   if (!gateways.includes(defaultGateway)) {
     defaultGateway = gateways[0] || "sepay";
   }
@@ -155,38 +153,38 @@ export default function Settings() {
 
   const text = {
     EN: {
-      title: "System Settings",
-      sub: "Manage global app behavior, payment gateways, token billing, notifications, maintenance, and security.",
+      title: "System Configuration",
+      sub: "Global application variables and service endpoints.",
       save: "Save Changes",
       saving: "Saving...",
-      refresh: "Refresh",
-      maintWarn: "Warning: user-facing features are currently unavailable due to maintenance mode.",
+      refresh: "Sync",
+      maintWarn: "Warning: Client applications are currently suspended due to maintenance override.",
       tabs: {
-        app: "Application",
+        app: "General",
         features: "Features",
-        upload: "Upload & Scan",
-        payment: "Payment",
-        billing: "Token Billing",
-        email: "Email",
-        maint: "Maintenance",
+        upload: "Processing",
+        payment: "Gateways",
+        billing: "Billing Model",
+        email: "Mail Server",
+        maint: "Operations",
         sec: "Security",
       },
     },
     VI: {
-      title: "Cài đặt Hệ thống",
-      sub: "Quản lý ứng dụng, cổng thanh toán, cách trừ token, email, bảo trì và bảo mật.",
-      save: "Lưu thay đổi",
+      title: "Cấu hình Hệ thống",
+      sub: "Các biến toàn cục và kết nối dịch vụ ứng dụng.",
+      save: "Lưu cấu hình",
       saving: "Đang lưu...",
-      refresh: "Làm mới",
-      maintWarn: "Cảnh báo: các chức năng người dùng đang bị tạm ngưng do chế độ bảo trì.",
+      refresh: "Đồng bộ",
+      maintWarn: "Cảnh báo: Ứng dụng client đang tạm ngưng do cờ bảo trì hệ thống bật.",
       tabs: {
-        app: "Ứng dụng",
+        app: "Chung",
         features: "Tính năng",
-        upload: "Upload & Scan",
+        upload: "Xử lý",
         payment: "Thanh toán",
-        billing: "Trừ Token",
-        email: "Email",
-        maint: "Bảo trì",
+        billing: "Mô hình Phí",
+        email: "Mail Server",
+        maint: "Vận hành",
         sec: "Bảo mật",
       },
     },
@@ -200,24 +198,15 @@ export default function Settings() {
       setConfig(merged);
       setInitialConfig(merged);
     } catch (error) {
-      console.error("Load settings failed:", error);
-      toast.error(
-        error?.response?.data?.detail ||
-          error?.response?.data?.message ||
-          "Failed to load settings.",
-      );
+      toast.error(error?.response?.data?.detail || "Failed to load settings.");
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
-  const isDirty = useMemo(() => {
-    return JSON.stringify(config) !== JSON.stringify(initialConfig);
-  }, [config, initialConfig]);
+  const isDirty = useMemo(() => JSON.stringify(config) !== JSON.stringify(initialConfig), [config, initialConfig]);
 
   const updateField = (name, value) => {
     setConfig((prev) => ({ ...prev, [name]: value }));
@@ -225,151 +214,97 @@ export default function Settings() {
 
   const handleInputChange = (event) => {
     const { name, value, type, checked } = event.target;
-
-    updateField(
-      name,
-      type === "checkbox"
-        ? checked
-        : type === "number"
-          ? Number(value)
-          : value,
-    );
+    updateField(name, type === "checkbox" ? checked : type === "number" ? Number(value) : value);
   };
 
   const handleSave = async () => {
-    if (!config.app_name?.trim()) {
-      toast.error("App name is required.");
-      return;
-    }
-
-    if (!config.support_email?.trim()) {
-      toast.error("Support email is required.");
-      return;
-    }
-
+    if (!config.app_name?.trim()) return toast.error("App name is required.");
+    if (!config.support_email?.trim()) return toast.error("Support email is required.");
     const payload = normalizePayload(config);
-
     setSaving(true);
     try {
       const updated = await updateSystemSettings(payload);
       const normalized = unwrapSettings(updated);
-
       setConfig(normalized);
       setInitialConfig(normalized);
-      toast.success(lang === "VI" ? "Đã lưu cài đặt." : "Settings saved successfully.");
+      toast.success(lang === "VI" ? "Đã lưu cấu hình." : "Configuration saved.");
     } catch (error) {
-      console.error("Save settings failed:", error);
-      toast.error(
-        error?.response?.data?.detail ||
-          error?.response?.data?.message ||
-          "Failed to save settings.",
-      );
+      toast.error(error?.response?.data?.detail || "Failed to save settings.");
     } finally {
       setSaving(false);
     }
   };
 
   const pageBg = isDark ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-900";
-  const panelCls = isDark
-    ? "bg-slate-900 border-slate-800"
-    : "bg-white border-slate-200";
-  const inputCls = `w-full h-11 px-4 rounded-xl border outline-none transition-colors text-sm font-semibold ${
-    isDark
-      ? "bg-slate-950 border-slate-800 text-white focus:border-teal-500"
-      : "bg-slate-50 border-slate-200 text-slate-900 focus:border-teal-500 focus:bg-white"
+  const panelCls = isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200";
+  const inputCls = `w-full h-10 px-3 rounded-md border outline-none transition-colors text-sm font-medium ${
+    isDark ? "bg-slate-950 border-slate-800 text-white focus:border-teal-500" : "bg-slate-50 border-slate-300 text-slate-900 focus:border-teal-500 focus:bg-white"
   }`;
-  const labelCls = "block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2";
+  const labelCls = "block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1.5";
 
   const tabs = [
-    { id: "app", name: text.tabs.app, icon: <Smartphone size={18} /> },
-    { id: "features", name: text.tabs.features, icon: <ToggleLeft size={18} /> },
-    { id: "upload", name: text.tabs.upload, icon: <HardDrive size={18} /> },
-    { id: "payment", name: text.tabs.payment, icon: <CreditCard size={18} /> },
-    { id: "billing", name: text.tabs.billing, icon: <Coins size={18} /> },
-    { id: "email", name: text.tabs.email, icon: <Bell size={18} /> },
-    { id: "maint", name: text.tabs.maint, icon: <Wrench size={18} /> },
-    { id: "sec", name: text.tabs.sec, icon: <Shield size={18} /> },
+    { id: "app", name: text.tabs.app, icon: <Smartphone size={16} /> },
+    { id: "features", name: text.tabs.features, icon: <ToggleLeft size={16} /> },
+    { id: "upload", name: text.tabs.upload, icon: <HardDrive size={16} /> },
+    { id: "payment", name: text.tabs.payment, icon: <CreditCard size={16} /> },
+    { id: "billing", name: text.tabs.billing, icon: <Coins size={16} /> },
+    { id: "email", name: text.tabs.email, icon: <Bell size={16} /> },
+    { id: "maint", name: text.tabs.maint, icon: <Wrench size={16} /> },
+    { id: "sec", name: text.tabs.sec, icon: <Shield size={16} /> },
   ];
 
   if (loading) {
     return (
       <div className={`min-h-[70vh] flex items-center justify-center ${pageBg}`}>
-        <RefreshCw className="animate-spin text-teal-600" size={30} />
+        <RefreshCw className="animate-spin text-teal-600" size={24} />
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-[1440px] mx-auto pb-20 animate-[fadeInUp_0.4s_ease-out]">
-      <div
-        className={`sticky top-0 z-40 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 py-4 md:py-6 mb-6 border-b backdrop-blur-md ${
-          isDark
-            ? "border-slate-800 bg-slate-950/80"
-            : "border-slate-200 bg-slate-50/80"
-        }`}
-      >
+    <div className="w-full max-w-[1600px] mx-auto pb-20 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
         <div>
-          <h1 className={`text-3xl font-black tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
-            {text.title}
-          </h1>
-          <p className="text-sm text-slate-500 mt-1 max-w-3xl">{text.sub}</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{text.title}</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm font-medium">{text.sub}</p>
         </div>
 
-        <div className="flex gap-3 w-full md:w-auto">
-          <button
-            onClick={loadData}
-            disabled={loading}
-            title={text.refresh}
-            className={`p-2.5 rounded-xl border transition ${
-              isDark
-                ? "border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-300"
-                : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
-            }`}
-          >
-            <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+        <div className="flex items-center gap-3 w-full sm:w-auto">
+          <button onClick={loadData} disabled={loading} className={`h-10 px-4 rounded-lg font-bold text-sm border flex items-center gap-2 transition ${isDark ? "border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300" : "border-slate-300 bg-white hover:bg-slate-50 text-slate-700"}`}>
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> {text.refresh}
           </button>
-
-          <button
-            onClick={handleSave}
-            disabled={!isDirty || saving}
-            className="flex-1 md:flex-none px-6 py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            <Save size={18} />
-            {saving ? text.saving : text.save}
+          <button onClick={handleSave} disabled={!isDirty || saving} className="flex-1 sm:flex-none h-10 px-6 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 dark:text-slate-900 text-white font-bold rounded-lg shadow-sm transition disabled:opacity-50 flex items-center justify-center gap-2">
+            <Save size={14} /> {saving ? text.saving : text.save}
           </button>
         </div>
       </div>
 
+      {isDirty && (
+         <div className="p-3 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 flex items-center gap-3 animate-[fadeIn_0.3s_ease]">
+           <AlertTriangle size={16} className="text-indigo-600 dark:text-indigo-400 shrink-0" />
+           <p className="text-sm font-bold text-indigo-800 dark:text-indigo-300">You have unsaved changes. Please save to apply your new configuration.</p>
+         </div>
+      )}
+
       {config.maintenance_mode && (
-        <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-3 text-amber-600 dark:text-amber-500">
-          <AlertTriangle className="shrink-0 mt-0.5" size={20} />
-          <p className="text-sm font-bold leading-relaxed">{text.maintWarn}</p>
+        <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 flex items-center gap-3">
+          <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 shrink-0" />
+          <p className="text-sm font-bold text-amber-800 dark:text-amber-300">{text.maintWarn}</p>
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row gap-8 items-start">
-        <div className="w-full md:w-72 shrink-0 space-y-2">
+      <div className="flex flex-col md:flex-row gap-6 items-start">
+        <div className="w-full md:w-64 shrink-0 space-y-1">
           {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition ${
-                activeTab === tab.id
-                  ? "bg-teal-600 text-white shadow-lg shadow-teal-600/20"
-                  : isDark
-                    ? "text-slate-400 hover:bg-slate-900 hover:text-white"
-                    : "text-slate-600 hover:bg-white hover:text-slate-900"
-              }`}
-            >
-              {tab.icon}
-              {tab.name}
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition ${activeTab === tab.id ? (isDark ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-900") : isDark ? "text-slate-400 hover:bg-slate-800/50 hover:text-white" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}>
+              {tab.icon} {tab.name}
             </button>
           ))}
         </div>
 
         <div className="flex-1 w-full space-y-6">
           {activeTab === "app" && (
-            <Section title="Application" panelCls={panelCls}>
+            <Section title="General" panelCls={panelCls}>
               <Grid>
                 <Input label="App Name" name="app_name" value={config.app_name} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
                 <Input label="Support Email" name="support_email" value={config.support_email} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
@@ -380,145 +315,135 @@ export default function Settings() {
           )}
 
           {activeTab === "features" && (
-            <Section title="Feature Toggles" panelCls={panelCls}>
+            <Section title="Feature Flags" panelCls={panelCls}>
               <ToggleGrid>
                 <Toggle title="Public Registration" name="public_registration_enabled" checked={config.public_registration_enabled} onChange={handleInputChange} />
                 <Toggle title="Email / Password Login" name="feature_email_password_login_enabled" checked={config.feature_email_password_login_enabled} onChange={handleInputChange} />
-                <Toggle title="Google Login" name="feature_google_login_enabled" checked={config.feature_google_login_enabled} onChange={handleInputChange} />
-                <Toggle title="AI Scan" name="feature_scan_enabled" checked={config.feature_scan_enabled} onChange={handleInputChange} />
+                <Toggle title="Google OAuth Login" name="feature_google_login_enabled" checked={config.feature_google_login_enabled} onChange={handleInputChange} />
+                <Toggle title="Vision Processing" name="feature_scan_enabled" checked={config.feature_scan_enabled} onChange={handleInputChange} />
                 <Toggle title="Currency Converter" name="feature_currency_converter_enabled" checked={config.feature_currency_converter_enabled} onChange={handleInputChange} />
-                <Toggle title="Payment / Top-up" name="feature_payment_enabled" checked={config.feature_payment_enabled} onChange={handleInputChange} />
-                <Toggle title="Feedback" name="feature_feedback_enabled" checked={config.feature_feedback_enabled} onChange={handleInputChange} />
-                <Toggle title="History" name="feature_history_enabled" checked={config.feature_history_enabled} onChange={handleInputChange} />
+                <Toggle title="Payment Subsystem" name="feature_payment_enabled" checked={config.feature_payment_enabled} onChange={handleInputChange} />
+                <Toggle title="Feedback Subsystem" name="feature_feedback_enabled" checked={config.feature_feedback_enabled} onChange={handleInputChange} />
+                <Toggle title="History Access" name="feature_history_enabled" checked={config.feature_history_enabled} onChange={handleInputChange} />
               </ToggleGrid>
             </Section>
           )}
 
           {activeTab === "upload" && (
-            <Section title="Upload & Recognition" panelCls={panelCls}>
+            <Section title="Processing Boundaries" panelCls={panelCls}>
               <Grid>
-                <Input label="Max Upload Size MB" name="max_upload_size_mb" type="number" value={config.max_upload_size_mb} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                <Input label="History Retention Days" name="scan_history_retention_days" type="number" value={config.scan_history_retention_days} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                <Input label="Fixed Token Cost / Scan" name="token_cost_per_scan" type="number" value={config.token_cost_per_scan} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                <Input label="Allowed Image Types" name="allowed_image_types_text" value={(config.allowed_image_types || []).join(", ")} onChange={(event) => updateField("allowed_image_types", event.target.value.split(",").map((v) => v.trim()).filter(Boolean))} inputCls={inputCls} labelCls={labelCls} />
+                <Input label="Max Payload Size (MB)" name="max_upload_size_mb" type="number" value={config.max_upload_size_mb} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                <Input label="Log Retention (Days)" name="scan_history_retention_days" type="number" value={config.scan_history_retention_days} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                <Input label="Default Token Cost" name="token_cost_per_scan" type="number" value={config.token_cost_per_scan} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                <Input label="Allowed MIME Types" name="allowed_image_types_text" value={(config.allowed_image_types || []).join(", ")} onChange={(event) => updateField("allowed_image_types", event.target.value.split(",").map((v) => v.trim()).filter(Boolean))} inputCls={inputCls} labelCls={labelCls} />
               </Grid>
             </Section>
           )}
 
           {activeTab === "payment" && (
-            <Section title="Payment Gateway" panelCls={panelCls}>
+            <Section title="Payment Integrations" panelCls={panelCls}>
               <ToggleGrid>
-                <Toggle title="Enable SEPAY" name="sepay_enabled" checked={config.sepay_enabled} onChange={handleInputChange} />
-                <Toggle title="Enable VNPay" name="vnpay_enabled" checked={config.vnpay_enabled} onChange={handleInputChange} />
-                <Toggle title="Enable Mock Payment" name="mock_payment_enabled" checked={config.mock_payment_enabled} onChange={handleInputChange} />
+                <Toggle title="SEPAY Gateway" name="sepay_enabled" checked={config.sepay_enabled} onChange={handleInputChange} />
+                <Toggle title="VNPay Gateway" name="vnpay_enabled" checked={config.vnpay_enabled} onChange={handleInputChange} />
+                <Toggle title="Mock Processor (Dev)" name="mock_payment_enabled" checked={config.mock_payment_enabled} onChange={handleInputChange} />
               </ToggleGrid>
-
-              <div className="mt-6">
+              <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
                 <Grid>
-                  <Select label="Default Gateway" name="payment_gateway_default" value={config.payment_gateway_default} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} options={["sepay", "vnpay", "mock"]} />
-                  <Input label="SEPAY Bank Name" name="sepay_bank_name" value={config.sepay_bank_name || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="SEPAY Account Number" name="sepay_account_number" value={config.sepay_account_number || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="SEPAY Account Name" name="sepay_account_name" value={config.sepay_account_name || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="VNPay Return URL" name="vnpay_return_url" value={config.vnpay_return_url || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="VNPay IPN URL" name="vnpay_ipn_url" value={config.vnpay_ipn_url || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Select label="Primary Gateway" name="payment_gateway_default" value={config.payment_gateway_default} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} options={["sepay", "vnpay", "mock"]} />
+                  <Input label="SEPAY Inst Name" name="sepay_bank_name" value={config.sepay_bank_name || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="SEPAY Account No." name="sepay_account_number" value={config.sepay_account_number || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="SEPAY Account Holder" name="sepay_account_name" value={config.sepay_account_name || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="VNPay Return URI" name="vnpay_return_url" value={config.vnpay_return_url || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="VNPay Webhook URI" name="vnpay_ipn_url" value={config.vnpay_ipn_url || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
                 </Grid>
               </div>
             </Section>
           )}
 
           {activeTab === "billing" && (
-            <Section title="Token Billing" panelCls={panelCls}>
+            <Section title="Billing Engine" panelCls={panelCls}>
               <ToggleGrid>
-                <Toggle title="Enable Token Billing" name="token_billing_enabled" checked={config.token_billing_enabled} onChange={handleInputChange} />
-                <Toggle title="Dynamic AI Token Billing" name="dynamic_ai_token_billing_enabled" checked={config.dynamic_ai_token_billing_enabled} onChange={handleInputChange} />
-                <Toggle title="Refund on System Error" name="refund_on_system_error" checked={config.refund_on_system_error} onChange={handleInputChange} />
-                <Toggle title="Refund on Agent Failure" name="refund_on_agent_failure" checked={config.refund_on_agent_failure} onChange={handleInputChange} />
-                <Toggle title="Charge Needs Review" name="charge_when_needs_review" checked={config.charge_when_needs_review} onChange={handleInputChange} />
-                <Toggle title="Save Token Usage Logs" name="save_token_usage_logs" checked={config.save_token_usage_logs} onChange={handleInputChange} />
-                <Toggle title="Show Usage To User" name="show_token_usage_to_user" checked={config.show_token_usage_to_user} onChange={handleInputChange} />
-                <Toggle title="Show AI Usage To Admin" name="show_ai_token_usage_to_admin" checked={config.show_ai_token_usage_to_admin} onChange={handleInputChange} />
+                <Toggle title="Enable Metering" name="token_billing_enabled" checked={config.token_billing_enabled} onChange={handleInputChange} />
+                <Toggle title="Dynamic AI Metering" name="dynamic_ai_token_billing_enabled" checked={config.dynamic_ai_token_billing_enabled} onChange={handleInputChange} />
+                <Toggle title="SLA Error Refund" name="refund_on_system_error" checked={config.refund_on_system_error} onChange={handleInputChange} />
+                <Toggle title="Agent Timeout Refund" name="refund_on_agent_failure" checked={config.refund_on_agent_failure} onChange={handleInputChange} />
+                <Toggle title="Bill Review Cases" name="charge_when_needs_review" checked={config.charge_when_needs_review} onChange={handleInputChange} />
+                <Toggle title="Retain Metering Logs" name="save_token_usage_logs" checked={config.save_token_usage_logs} onChange={handleInputChange} />
+                <Toggle title="Client Telemetry UI" name="show_token_usage_to_user" checked={config.show_token_usage_to_user} onChange={handleInputChange} />
+                <Toggle title="Admin Telemetry UI" name="show_ai_token_usage_to_admin" checked={config.show_ai_token_usage_to_admin} onChange={handleInputChange} />
               </ToggleGrid>
-
-              <div className="mt-6">
+              <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
                 <Grid>
-                  <Select label="Billing Mode" name="token_billing_mode" value={config.token_billing_mode} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} options={["fixed", "dynamic"]} />
-                  <Input label="token-count Model" name="token_count_model" value={config.token_count_model} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="AI Tokens / 1 System Token" name="ai_token_to_system_token_rate" type="number" value={config.ai_token_to_system_token_rate} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="Tax / Surcharge Rate" name="token_billing_tax_rate" type="number" step="0.01" value={config.token_billing_tax_rate} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Select label="Rounding Mode" name="token_billing_rounding_mode" value={config.token_billing_rounding_mode} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} options={["ceil", "round", "floor"]} />
-                  <Input label="Min Tokens / Scan" name="min_tokens_per_scan" type="number" value={config.min_tokens_per_scan} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="Max Tokens / Scan" name="max_tokens_per_scan" type="number" value={config.max_tokens_per_scan} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Select label="Pricing Strategy" name="token_billing_mode" value={config.token_billing_mode} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} options={["fixed", "dynamic"]} />
+                  <Input label="Tokenizer Model" name="token_count_model" value={config.token_count_model} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="Conversion Multiplier" name="ai_token_to_system_token_rate" type="number" value={config.ai_token_to_system_token_rate} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="Surcharge Rate" name="token_billing_tax_rate" type="number" step="0.01" value={config.token_billing_tax_rate} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Select label="Fraction Rounding" name="token_billing_rounding_mode" value={config.token_billing_rounding_mode} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} options={["ceil", "round", "floor"]} />
+                  <Input label="Floor Cost Limit" name="min_tokens_per_scan" type="number" value={config.min_tokens_per_scan} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="Ceiling Cost Limit" name="max_tokens_per_scan" type="number" value={config.max_tokens_per_scan} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
                 </Grid>
-              </div>
-
-              <div className="mt-6 rounded-2xl border border-teal-500/20 bg-teal-500/10 p-4 text-sm text-teal-700 dark:text-teal-300">
-                Dynamic billing formula: <b>ceil((input_tokens + output_tokens) × (1 + tax_rate) / rate)</b>.
-                Recommended: keep fixed mode for user charging, use dynamic mode first for logging/admin analytics.
               </div>
             </Section>
           )}
 
           {activeTab === "email" && (
-            <Section title="Email Notifications" panelCls={panelCls}>
+            <Section title="SMTP Configuration" panelCls={panelCls}>
               <ToggleGrid>
-                <Toggle title="Enable Email Notifications" name="email_notifications_enabled" checked={config.email_notifications_enabled} onChange={handleInputChange} />
-                <Toggle title="Register Success" name="email_on_register" checked={config.email_on_register} onChange={handleInputChange} />
-                <Toggle title="Google First Login" name="email_on_google_first_login" checked={config.email_on_google_first_login} onChange={handleInputChange} />
-                <Toggle title="Password Reset" name="email_on_password_reset" checked={config.email_on_password_reset} onChange={handleInputChange} />
-                <Toggle title="Payment Created" name="email_on_payment_created" checked={config.email_on_payment_created} onChange={handleInputChange} />
-                <Toggle title="Payment Success" name="email_on_payment_success" checked={config.email_on_payment_success} onChange={handleInputChange} />
-                <Toggle title="Payment Failed" name="email_on_payment_failed" checked={config.email_on_payment_failed} onChange={handleInputChange} />
-                <Toggle title="Recognition Completed" name="email_on_recognition_completed" checked={config.email_on_recognition_completed} onChange={handleInputChange} />
-                <Toggle title="Recognition Failed" name="email_on_recognition_failed" checked={config.email_on_recognition_failed} onChange={handleInputChange} />
-                <Toggle title="Feedback Created" name="email_on_feedback_created" checked={config.email_on_feedback_created} onChange={handleInputChange} />
-                <Toggle title="Feedback Replied" name="email_on_feedback_replied" checked={config.email_on_feedback_replied} onChange={handleInputChange} />
-                <Toggle title="Admin System Error Alert" name="email_admin_on_system_error" checked={config.email_admin_on_system_error} onChange={handleInputChange} />
+                <Toggle title="Service Enabled" name="email_notifications_enabled" checked={config.email_notifications_enabled} onChange={handleInputChange} />
+                <Toggle title="Trigger: Registration" name="email_on_register" checked={config.email_on_register} onChange={handleInputChange} />
+                <Toggle title="Trigger: OAuth Init" name="email_on_google_first_login" checked={config.email_on_google_first_login} onChange={handleInputChange} />
+                <Toggle title="Trigger: Password Reset" name="email_on_password_reset" checked={config.email_on_password_reset} onChange={handleInputChange} />
+                <Toggle title="Trigger: Payment Setup" name="email_on_payment_created" checked={config.email_on_payment_created} onChange={handleInputChange} />
+                <Toggle title="Trigger: Payment Auth" name="email_on_payment_success" checked={config.email_on_payment_success} onChange={handleInputChange} />
+                <Toggle title="Trigger: Payment Decline" name="email_on_payment_failed" checked={config.email_on_payment_failed} onChange={handleInputChange} />
+                <Toggle title="Trigger: Task Complete" name="email_on_recognition_completed" checked={config.email_on_recognition_completed} onChange={handleInputChange} />
+                <Toggle title="Trigger: Task Abort" name="email_on_recognition_failed" checked={config.email_on_recognition_failed} onChange={handleInputChange} />
+                <Toggle title="Trigger: Ticket Open" name="email_on_feedback_created" checked={config.email_on_feedback_created} onChange={handleInputChange} />
+                <Toggle title="Trigger: Ticket Reply" name="email_on_feedback_replied" checked={config.email_on_feedback_replied} onChange={handleInputChange} />
+                <Toggle title="Trigger: Core Dump/Error" name="email_admin_on_system_error" checked={config.email_admin_on_system_error} onChange={handleInputChange} />
               </ToggleGrid>
-
-              <div className="mt-6">
+              <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
                 <Grid>
-                  <Input label="SMTP Host" name="smtp_host" value={config.smtp_host || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="SMTP Port" name="smtp_port" type="number" value={config.smtp_port} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="SMTP Username" name="smtp_username" value={config.smtp_username || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="From Email" name="smtp_from_email" value={config.smtp_from_email || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="From Name" name="smtp_from_name" value={config.smtp_from_name || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="Admin Alert Email" name="admin_alert_email" value={config.admin_alert_email || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="Host Name" name="smtp_host" value={config.smtp_host || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="TCP Port" name="smtp_port" type="number" value={config.smtp_port} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="Authentication ID" name="smtp_username" value={config.smtp_username || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="Sender Identity" name="smtp_from_email" value={config.smtp_from_email || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="Sender Alias" name="smtp_from_name" value={config.smtp_from_name || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="Ops Alert Address" name="admin_alert_email" value={config.admin_alert_email || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
                 </Grid>
               </div>
             </Section>
           )}
 
           {activeTab === "maint" && (
-            <Section title="Maintenance" panelCls={panelCls}>
+            <Section title="Operations Manager" panelCls={panelCls}>
               <ToggleGrid>
-                <Toggle title="Enable Maintenance Mode" name="maintenance_mode" checked={config.maintenance_mode} onChange={handleInputChange} />
-                <Toggle title="Allow Admin Login During Maintenance" name="allow_admin_login_during_maintenance" checked={config.allow_admin_login_during_maintenance} onChange={handleInputChange} />
+                <Toggle title="Suspend Public Access" name="maintenance_mode" checked={config.maintenance_mode} onChange={handleInputChange} />
+                <Toggle title="Allow Staff Bypass" name="allow_admin_login_during_maintenance" checked={config.allow_admin_login_during_maintenance} onChange={handleInputChange} />
               </ToggleGrid>
-
               <div className="mt-6">
-                <label className={labelCls}>Maintenance Message</label>
+                <label className={labelCls}>Status Page Message</label>
                 <textarea
                   name="maintenance_message"
                   value={config.maintenance_message || ""}
                   onChange={handleInputChange}
-                  className={`${inputCls} min-h-[110px] py-3 resize-y`}
+                  className={`w-full h-24 p-3 rounded-md border outline-none text-sm transition-colors resize-y ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-300 text-slate-900"}`}
                 />
               </div>
             </Section>
           )}
 
           {activeTab === "sec" && (
-            <Section title="Security" panelCls={panelCls}>
+            <Section title="Security Constraints" panelCls={panelCls}>
               <Grid>
-                <Input label="Session Timeout Minutes" name="session_timeout_minutes" type="number" value={config.session_timeout_minutes} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                <Input label="Max Login Attempts" name="max_login_attempts" type="number" value={config.max_login_attempts} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                <Input label="Password Min Length" name="password_min_length" type="number" value={config.password_min_length} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                <Input label="Feedback SLA Days" name="feedback_review_sla_days" type="number" value={config.feedback_review_sla_days} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                <Input label="Auth Token TTL (m)" name="session_timeout_minutes" type="number" value={config.session_timeout_minutes} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                <Input label="Max Brute Attempts" name="max_login_attempts" type="number" value={config.max_login_attempts} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                <Input label="Entropy Threshold" name="password_min_length" type="number" value={config.password_min_length} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                <Input label="Ticket SLA Deadline (d)" name="feedback_review_sla_days" type="number" value={config.feedback_review_sla_days} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
               </Grid>
-
-              <div className="mt-6">
+              <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
                 <ToggleGrid>
-                  <Toggle title="Require Email Verification" name="require_email_verification" checked={config.require_email_verification} onChange={handleInputChange} />
+                  <Toggle title="Enforce Email Verification" name="require_email_verification" checked={config.require_email_verification} onChange={handleInputChange} />
                 </ToggleGrid>
               </div>
             </Section>
@@ -531,68 +456,37 @@ export default function Settings() {
 
 function Section({ title, panelCls, children }) {
   return (
-    <section className={`rounded-3xl border shadow-sm p-5 md:p-6 ${panelCls}`}>
-      <h2 className="text-xl font-black mb-5">{title}</h2>
+    <section className={`rounded-xl border shadow-sm p-6 ${panelCls}`}>
+      <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-6 pb-4 border-b border-slate-100 dark:border-slate-800">{title}</h2>
       {children}
     </section>
   );
 }
 
 function Grid({ children }) {
-  return <div className="grid grid-cols-1 md:grid-cols-2 gap-5">{children}</div>;
+  return <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">{children}</div>;
 }
 
 function ToggleGrid({ children }) {
-  return <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{children}</div>;
+  return <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{children}</div>;
 }
 
-function Input({
-  label,
-  name,
-  value,
-  onChange,
-  inputCls,
-  labelCls,
-  type = "text",
-  step,
-}) {
+function Input({ label, name, value, onChange, inputCls, labelCls, type = "text", step }) {
   return (
     <div>
       <label className={labelCls}>{label}</label>
-      <input
-        name={name}
-        type={type}
-        step={step}
-        value={value ?? ""}
-        onChange={onChange}
-        className={inputCls}
-      />
+      <input name={name} type={type} step={step} value={value ?? ""} onChange={onChange} className={inputCls} />
     </div>
   );
 }
 
-function Select({
-  label,
-  name,
-  value,
-  onChange,
-  inputCls,
-  labelCls,
-  options,
-}) {
+function Select({ label, name, value, onChange, inputCls, labelCls, options }) {
   return (
     <div>
       <label className={labelCls}>{label}</label>
-      <select
-        name={name}
-        value={value ?? ""}
-        onChange={onChange}
-        className={inputCls}
-      >
+      <select name={name} value={value ?? ""} onChange={onChange} className={inputCls}>
         {options.map((option) => (
-          <option key={option} value={option}>
-            {String(option).toUpperCase()}
-          </option>
+          <option key={option} value={option}>{String(option).toUpperCase()}</option>
         ))}
       </select>
     </div>
@@ -601,15 +495,12 @@ function Select({
 
 function Toggle({ title, name, checked, onChange }) {
   return (
-    <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 cursor-pointer hover:border-teal-500/50 transition">
-      <span className="text-sm font-bold">{title}</span>
-      <input
-        type="checkbox"
-        name={name}
-        checked={Boolean(checked)}
-        onChange={onChange}
-        className="h-5 w-5 accent-teal-600"
-      />
+    <label className="flex items-center justify-between gap-4 py-3 cursor-pointer group">
+      <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">{title}</span>
+      <div className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${checked ? "bg-slate-900 dark:bg-white" : "bg-slate-300 dark:bg-slate-700"}`}>
+        <span className={`inline-block h-3 w-3 transform rounded-full bg-white dark:bg-slate-900 transition-transform ${checked ? "translate-x-5" : "translate-x-1"}`} />
+      </div>
+      <input type="checkbox" name={name} checked={Boolean(checked)} onChange={onChange} className="sr-only" />
     </label>
   );
 }

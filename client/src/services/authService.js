@@ -1,4 +1,4 @@
-import api from "./api";
+import api, { ROOT_API_URL } from "./api";
 
 export const authService = {
   login: async (email, password) => {
@@ -21,11 +21,6 @@ export const authService = {
   },
 
   getGoogleLoginUrl: () => {
-    const root =
-      import.meta.env.VITE_API_BASE_URL ||
-      import.meta.env.VITE_API_URL ||
-      "http://localhost:8000";
-
-    return `${root}/api/v1/auth/google/login`;
+    return `${ROOT_API_URL}/api/v1/auth/google/login`;
   },
 };
