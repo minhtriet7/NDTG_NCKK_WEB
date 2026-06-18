@@ -266,6 +266,34 @@ class EmailService:
         )
 
     @staticmethod
+    async def send_email_verification_email(
+        user: User,
+        verify_url: str,
+        expires_hours: int = 24,
+    ):
+        if not await EmailService.is_enabled("email_on_email_verification"):
+            print("[EMAIL OFF] email_verification")
+            return None
+
+        data = templates.email_verification_email(
+            user.full_name,
+            verify_url,
+            expires_hours,
+        )
+
+        return await EmailService.send_email(
+            to_email=user.email,
+            subject=data["subject"],
+            html_body=data["html"],
+            template_key="email_verification",
+            user_id=str(user.id),
+            metadata={
+                "event": "email_verification",
+                "expires_hours": expires_hours,
+            },
+        )
+
+    @staticmethod
     async def send_login_email(user_or_email: Any, full_name: Optional[str] = None):
         if not await EmailService.is_enabled("email_on_login"):
             print("📧 [EMAIL OFF] login")

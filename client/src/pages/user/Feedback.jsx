@@ -18,10 +18,11 @@ import {
   Bug,
   CreditCard,
   HelpCircle,
-  ChevronDown,
-  ChevronUp,
   Eye,
   RefreshCw,
+  Search,
+  X,
+  ExternalLink,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -81,9 +82,14 @@ const content = {
     supportTitle: "Support status",
     supportDesc:
       "Most feedback is reviewed within 1-3 business days. Payment issues may require transaction details.",
+    submitHint: "Usually reviewed within 1-3 business days.",
     recentTitle: "Recent feedback",
     noTicketsTitle: "No tickets found",
     noTicketsDesc: "You have not submitted any feedback yet.",
+    noSubject: "No subject",
+    noRelatedScan: "No related scan",
+    noRating: "No rating",
+    ratingLabel: "Rating",
     loadingTickets: "Loading your tickets...",
     refresh: "Refresh",
     pending: "Pending",
@@ -106,6 +112,23 @@ const content = {
     currency: "Currency",
     noImage: "No image",
     noData: "N/A",
+    ticketDetails: "Ticket details",
+    close: "Close",
+    viewRelatedResult: "View related result",
+    adminReply: "Admin reply",
+    scanImage: "Scan image",
+    filterAll: "All",
+    filterPending: "New / Pending",
+    filterReviewing: "Reviewing",
+    filterResolved: "Resolved",
+    filterHighPriority: "High priority",
+    searchTickets: "Search tickets",
+    clearFilter: "Clear filter",
+    noFilteredTitle: "No matching tickets",
+    noFilteredDesc: "Try a different search term or filter.",
+    wrongReportSubject: "Wrong recognition result",
+    wrongReportMessage:
+      "The recognition result looks incorrect. Please review this scan.\n\nDetected result: {actual}\nCountry: {country}\nConfidence: {confidence}\n\nExpected result:",
   },
 
   VI: {
@@ -156,9 +179,14 @@ const content = {
     supportTitle: "Trạng thái hỗ trợ",
     supportDesc:
       "Hầu hết phản hồi được xem xét trong 1-3 ngày làm việc. Vấn đề thanh toán có thể cần mã giao dịch.",
+    submitHint: "Thường được xem xét trong 1-3 ngày làm việc.",
     recentTitle: "Phản hồi gần đây",
     noTicketsTitle: "Chưa có phản hồi",
     noTicketsDesc: "Bạn chưa gửi phản hồi nào.",
+    noSubject: "Chưa có tiêu đề",
+    noRelatedScan: "Không có scan liên quan",
+    noRating: "Chưa đánh giá",
+    ratingLabel: "Đánh giá",
     loadingTickets: "Đang tải phản hồi...",
     refresh: "Làm mới",
     pending: "Đang chờ",
@@ -180,6 +208,23 @@ const content = {
     currency: "Tiền tệ",
     noImage: "Không có ảnh",
     noData: "N/A",
+    ticketDetails: "Chi tiet ticket",
+    close: "Dong",
+    viewRelatedResult: "Xem ket qua lien quan",
+    adminReply: "Phan hoi admin",
+    scanImage: "Anh scan",
+    filterAll: "Tat ca",
+    filterPending: "Moi / Dang cho",
+    filterReviewing: "Dang xem xet",
+    filterResolved: "Da xu ly",
+    filterHighPriority: "Uu tien cao",
+    searchTickets: "Tim ticket",
+    clearFilter: "Xoa loc",
+    noFilteredTitle: "Khong co ticket phu hop",
+    noFilteredDesc: "Thu tu khoa hoac bo loc khac.",
+    wrongReportSubject: "Wrong recognition result",
+    wrongReportMessage:
+      "Ket qua nhan dien co ve chua dung. Vui long kiem tra scan nay.\n\nKet qua hien tai: {actual}\nQuoc gia: {country}\nDo tin cay: {confidence}\n\nKet qua mong muon:",
   },
 };
 
@@ -277,10 +322,127 @@ function getStatusBadgeInfo(item, t) {
     };
   }
 
+  if (raw.includes("reject")) {
+    return {
+      label: t.closed,
+      className:
+        "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/20",
+    };
+  }
+
   return {
     label: t.pending,
     className:
       "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/20",
+  };
+}
+
+function getPriorityBadgeInfo(priority, t) {
+  const raw = String(priority || "").toLowerCase();
+
+  if (raw === "high" || raw.includes("urgent")) {
+    return {
+      label: t.priorityHigh,
+      className:
+        "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/20",
+    };
+  }
+
+  if (raw === "medium") {
+    return {
+      label: t.priorityMedium,
+      className:
+        "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/20",
+    };
+  }
+
+  return {
+    label: t.priorityLow,
+    className:
+      "bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-500/10 dark:text-cyan-300 dark:border-cyan-500/20",
+  };
+}
+
+function safeText(value, fallback = "-") {
+  if (value === null || value === undefined) return fallback;
+
+  const text = String(value).trim();
+
+  if (!text || text === "N/A" || text === "undefined" || text === "null") {
+    return fallback;
+  }
+
+  return text;
+}
+
+function parseBracketMeta(message = "") {
+  const meta = {};
+  const bodyLines = [];
+
+  String(message || "")
+    .split(/\r?\n/)
+    .forEach((line) => {
+      const match = line.match(/^\[([^\]]+)\]\s*(.*)$/);
+
+      if (!match) {
+        bodyLines.push(line);
+        return;
+      }
+
+      const key = match[1]
+        .toLowerCase()
+        .replace(/\s+/g, "_")
+        .replace(/[^a-z0-9_]/g, "");
+      meta[key] = match[2]?.trim() || "";
+    });
+
+  return {
+    meta,
+    body: bodyLines.join("\n").trim(),
+  };
+}
+
+function normalizeFeedbackItem(item, t) {
+  const parsed = parseBracketMeta(item?.message);
+  const priority = item?.priority || parsed.meta.priority || "medium";
+  const rawRating = item?.rating ?? parsed.meta.rating;
+  const ratingText = String(rawRating ?? "").replace(/\/5$/i, "").trim();
+  const relatedScan =
+    item?.related_result_id ||
+    item?.scan_result_id ||
+    parsed.meta.related_scan_id ||
+    parsed.meta.related_result_id ||
+    "";
+
+  return {
+    id: item?.id || item?._id,
+    type: item?.feedback_type || item?.type || "other",
+    subject: safeText(item?.subject || parsed.meta.subject, t.noSubject),
+    priority,
+    rating: safeText(ratingText, t.noRating),
+    relatedScan: safeText(relatedScan, t.noRelatedScan),
+    createdAt: item?.created_at || item?.createdAt || item?.updated_at,
+    message: safeText(parsed.body || item?.message, "-"),
+    actualResult: safeText(item?.actual_result || parsed.meta.actual_result, "-"),
+    expectedResult: safeText(
+      item?.expected_result || parsed.meta.expected_result,
+      "-",
+    ),
+    scanImage: safeText(
+      item?.attached_image_url ||
+        item?.scan_image_url ||
+        item?.image_url ||
+        parsed.meta.scan_image,
+      "",
+    ),
+    adminReply: safeText(
+      item?.admin_reply ||
+        item?.admin_response ||
+        item?.reply ||
+        parsed.meta.admin_reply,
+      "-",
+    ),
+    rawStatus: item?.status || item?.ticket_status || "",
   };
 }
 
@@ -334,43 +496,161 @@ function formatDate(value) {
   }
 }
 
+function formatConfidence(value, t) {
+  if (value === null || value === undefined || value === "") return t.noData;
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return safeText(value, t.noData);
+
+  return numberValue <= 1
+    ? `${Math.round(numberValue * 100)}%`
+    : `${Math.round(numberValue)}%`;
+}
+
+function isLowConfidence(value) {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return false;
+
+  return numberValue <= 1 ? numberValue < 0.75 : numberValue < 75;
+}
+
+function buildWrongRecognitionMessage(template, draft, t) {
+  const actual = safeText(draft.actual_result || draft.actualResult, t.noData);
+  const country = safeText(draft.country, t.noData);
+  const confidence = formatConfidence(draft.confidence, t);
+
+  return template
+    .replace("{actual}", actual)
+    .replace("{country}", country)
+    .replace("{confidence}", confidence);
+}
+
+function hasRelatedScan(data, t) {
+  return Boolean(data.relatedScan && data.relatedScan !== t.noRelatedScan);
+}
+
+function filterFeedbackItems(items, t, filter, search) {
+  const query = search.trim().toLowerCase();
+
+  return (items || []).filter((item) => {
+    const data = normalizeFeedbackItem(item, t);
+    const rawStatus = String(data.rawStatus || "").toLowerCase();
+    const rawPriority = String(data.priority || "").toLowerCase();
+
+    const matchesFilter =
+      filter === "all" ||
+      (filter === "pending" &&
+        !item?.is_resolved &&
+        (!rawStatus ||
+          rawStatus.includes("new") ||
+          rawStatus.includes("pending") ||
+          rawStatus.includes("open"))) ||
+      (filter === "reviewing" &&
+        (rawStatus.includes("review") || rawStatus.includes("progress"))) ||
+      (filter === "resolved" &&
+        (item?.is_resolved ||
+          rawStatus.includes("resolved") ||
+          rawStatus.includes("closed"))) ||
+      (filter === "high" &&
+        (rawPriority === "high" || rawPriority.includes("urgent")));
+
+    if (!matchesFilter) return false;
+    if (!query) return true;
+
+    const typeMeta = getTypeMeta(data.type, t);
+    const searchable = [
+      data.subject,
+      data.message,
+      data.type,
+      typeMeta.label,
+      data.priority,
+      data.relatedScan,
+      data.adminReply,
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return searchable.includes(query);
+  });
+}
+
 export default function Feedback() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const { lang, theme } = useAppStore();
-  const isDark = theme === "dark";
+  const { lang, theme, resolvedTheme } = useAppStore();
+  const isDark = (resolvedTheme || theme) === "dark";
   const t = content[lang] || content["EN"];
 
-  const scanResult = location.state?.scanResult || null;
+  const feedbackDraft =
+    location.state?.feedbackDraft || location.state?.reportDraft || {};
+  const scanResult = feedbackDraft.scanResult || location.state?.scanResult || null;
+  const draftImageUrl =
+    feedbackDraft.image_url || feedbackDraft.imageUrl || getScanImage(scanResult);
   const relatedResultId =
+    feedbackDraft.related_result_id ||
+    feedbackDraft.relatedResultId ||
+    feedbackDraft.resultId ||
     location.state?.resultId ||
     location.state?.scan_result_id ||
     scanResult?.id ||
     "";
 
-  const cameFromResult = Boolean(scanResult || relatedResultId);
+  const cameFromResult = Boolean(
+    scanResult || relatedResultId || Object.keys(feedbackDraft).length,
+  );
 
-  const initialActualResult = scanResult
-    ? `${getScanDenomination(scanResult)} - ${getScanCountry(scanResult)}`
-    : "";
+  const initialActualResult =
+    feedbackDraft.actual_result ||
+    feedbackDraft.actualResult ||
+    (scanResult
+      ? `${getScanDenomination(scanResult)} - ${getScanCountry(scanResult)}`
+      : "");
 
-  const initialType = cameFromResult ? "wrong_result" : "suggestion";
+  const initialType =
+    feedbackDraft.feedback_type ||
+    feedbackDraft.feedbackType ||
+    (cameFromResult ? "wrong_result" : "suggestion");
+  const initialMessage =
+    feedbackDraft.message ||
+    (cameFromResult
+      ? buildWrongRecognitionMessage(
+          t.wrongReportMessage,
+          {
+            actual_result: initialActualResult,
+            country: feedbackDraft.country || getScanCountry(scanResult),
+            confidence: feedbackDraft.confidence,
+          },
+          t,
+        )
+      : "");
 
-  const [activeTab, setActiveTab] = useState("new");
+  const [activeTab, setActiveTab] = useState(
+    location.state?.tab === "history" ? "history" : "new",
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
   const [history, setHistory] = useState([]);
   const [submitted, setSubmitted] = useState(false);
   const [showJson, setShowJson] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [ticketFilter, setTicketFilter] = useState("all");
+  const [ticketSearch, setTicketSearch] = useState("");
 
   const [formData, setFormData] = useState({
     feedback_type: initialType,
-    priority: cameFromResult ? "high" : "medium",
+    priority:
+      feedbackDraft.priority ||
+      (cameFromResult || isLowConfidence(feedbackDraft.confidence)
+        ? "high"
+        : "medium"),
     rating: 0,
-    subject: cameFromResult ? "Incorrect recognition result" : "",
-    message: "",
-    expected_result: "",
+    subject: feedbackDraft.subject || (cameFromResult ? t.wrongReportSubject : ""),
+    message: initialMessage,
+    expected_result:
+      feedbackDraft.expected_result || feedbackDraft.expectedResult || "",
     actual_result: initialActualResult,
     related_result_id: relatedResultId,
   });
@@ -382,6 +662,27 @@ export default function Feedback() {
       getScanDenomination(scanResult) === "Needs review"
     );
   }, [scanResult]);
+
+  const isFormValid = useMemo(() => {
+    const hasBaseFields =
+      Boolean(formData.feedback_type) &&
+      Boolean(formData.priority) &&
+      formData.subject.trim().length >= 5 &&
+      formData.message.trim().length >= 10;
+
+    if (!hasBaseFields) return false;
+
+    if (formData.feedback_type === "wrong_result") {
+      return Boolean(formData.expected_result.trim());
+    }
+
+    return true;
+  }, [formData]);
+
+  const filteredHistory = useMemo(
+    () => filterFeedbackItems(history, t, ticketFilter, ticketSearch),
+    [history, t, ticketFilter, ticketSearch],
+  );
 
   useEffect(() => {
     if (activeTab === "history") {
@@ -470,7 +771,7 @@ export default function Feedback() {
         message: buildBackendMessage(),
         related_result_id: formData.related_result_id || null,
         related_transaction_id: null,
-        attached_image_url: scanResult ? getScanImage(scanResult) || null : null,
+        attached_image_url: draftImageUrl || null,
       };
 
       await submitFeedback(payload);
@@ -511,19 +812,31 @@ export default function Feedback() {
     navigate("/history");
   };
 
+  const handleViewRelatedResult = (resultId) => {
+    navigate("/history", {
+      state: {
+        highlightedResultId: resultId,
+      },
+    });
+  };
+
   return (
-    <div className="page-inner pt-6 relative pb-24 font-sans transition-colors duration-300">
-      <div className="page-orb-indigo top-0 right-[10%]" />
-      <div
-        className={`border-b pt-10 pb-10 mb-8 relative z-10 ${
-          isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-200"
-        }`}
-      >
-        <div className="max-w-6xl mx-auto px-4 md:px-8">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+    <div
+      className={`min-h-screen px-4 py-6 font-sans transition-colors duration-300 sm:px-6 lg:px-8 ${
+        isDark ? "bg-slate-950" : "bg-slate-50"
+      }`}
+    >
+      <div className="mx-auto max-w-7xl space-y-6">
+        <section
+          className={`overflow-hidden rounded-2xl border shadow-sm ${
+            isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+          }`}
+        >
+          <div className="h-1 bg-gradient-to-r from-slate-900 via-cyan-700 to-violet-600 dark:from-slate-200 dark:via-cyan-400 dark:to-violet-400" />
+          <div className="flex flex-col gap-5 p-5 sm:p-6 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-4">
               <div
-                className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${
+                className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border shadow-sm ${
                   isDark
                     ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-300"
                     : "bg-indigo-50 border-indigo-100 text-indigo-600"
@@ -541,7 +854,7 @@ export default function Feedback() {
                   {t.pageTitle}
                 </h1>
                 <p
-                  className={`mt-2 max-w-2xl ${
+                  className={`mt-2 max-w-3xl text-sm leading-6 ${
                     isDark ? "text-slate-400" : "text-slate-500"
                   }`}
                 >
@@ -550,11 +863,12 @@ export default function Feedback() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:justify-end">
               {cameFromResult && (
                 <button
+                  type="button"
                   onClick={handleBackToResult}
-                  className={`inline-flex items-center gap-2 px-4 py-2.5 border rounded-xl font-bold text-sm ${
+                  className={`inline-flex items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-sm font-bold transition ${
                     isDark
                       ? "bg-slate-900 border-slate-700 text-slate-200 hover:bg-slate-800"
                       : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
@@ -566,8 +880,9 @@ export default function Feedback() {
               )}
 
               <button
+                type="button"
                 onClick={() => navigate("/workspace")}
-                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white ${
+                className={`inline-flex items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold text-white transition ${
                   isDark
                     ? "bg-indigo-600 hover:bg-indigo-500"
                     : "bg-slate-900 hover:bg-slate-800"
@@ -578,25 +893,24 @@ export default function Feedback() {
               </button>
             </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      <div className="max-w-6xl mx-auto px-4 md:px-8 relative z-10">
         <div
-          className={`flex gap-2 mb-6 border-b pb-px ${
-            isDark ? "border-slate-800" : "border-slate-200"
+          className={`grid grid-cols-2 gap-2 rounded-xl border p-1 ${
+            isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"
           }`}
         >
           <button
+            type="button"
             onClick={() => setActiveTab("new")}
-            className={`flex items-center gap-2 px-5 py-3 font-bold text-sm transition-all border-b-2 rounded-t-xl ${
+            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-bold transition-all ${
               activeTab === "new"
                 ? isDark
-                  ? "border-indigo-400 text-indigo-300 bg-indigo-500/10"
-                  : "border-indigo-600 text-indigo-700 bg-indigo-50/70"
+                  ? "bg-indigo-500/15 text-indigo-200 shadow-sm"
+                  : "bg-slate-900 text-white shadow-sm"
                 : isDark
-                  ? "border-transparent text-slate-400 hover:text-white hover:bg-slate-900"
-                  : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                  ? "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
             }`}
           >
             <Ticket className="w-4 h-4" />
@@ -604,15 +918,16 @@ export default function Feedback() {
           </button>
 
           <button
+            type="button"
             onClick={() => setActiveTab("history")}
-            className={`flex items-center gap-2 px-5 py-3 font-bold text-sm transition-all border-b-2 rounded-t-xl ${
+            className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-bold transition-all ${
               activeTab === "history"
                 ? isDark
-                  ? "border-indigo-400 text-indigo-300 bg-indigo-500/10"
-                  : "border-indigo-600 text-indigo-700 bg-indigo-50/70"
+                  ? "bg-indigo-500/15 text-indigo-200 shadow-sm"
+                  : "bg-slate-900 text-white shadow-sm"
                 : isDark
-                  ? "border-transparent text-slate-400 hover:text-white hover:bg-slate-900"
-                  : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                  ? "text-slate-400 hover:bg-slate-800 hover:text-white"
+                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
             }`}
           >
             <History className="w-4 h-4" />
@@ -621,8 +936,8 @@ export default function Feedback() {
         </div>
 
         {activeTab === "new" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-8 space-y-6">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+            <div className="space-y-6 xl:col-span-8">
               {scanResult && (
                 <RelatedScanCard
                   t={t}
@@ -635,15 +950,15 @@ export default function Feedback() {
               )}
 
               <div
-                className={`p-6 md:p-8 rounded-3xl border shadow-sm ${
+                className={`rounded-2xl border p-5 shadow-sm sm:p-6 ${
                   isDark
                     ? "bg-slate-900 border-slate-800"
                     : "bg-white border-slate-200"
                 }`}
               >
                 {submitted ? (
-                  <div className="py-20 text-center">
-                    <CheckCircle2 className="w-20 h-20 text-indigo-500 mx-auto mb-6" />
+                  <div className="py-16 text-center">
+                    <CheckCircle2 className="w-16 h-16 text-indigo-500 mx-auto mb-5" />
                     <h2
                       className={`text-2xl font-bold mb-2 ${
                         isDark ? "text-white" : "text-slate-900"
@@ -656,8 +971,9 @@ export default function Feedback() {
                     </p>
                   </div>
                 ) : (
-                  <form onSubmit={handleSubmit} className="space-y-6">
-                    <div>
+                  <form onSubmit={handleSubmit} className="space-y-5">
+                    <div className="flex flex-col gap-3 border-b border-slate-100 pb-5 dark:border-slate-800 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
                       <h2
                         className={`text-xl font-extrabold ${
                           isDark ? "text-white" : "text-slate-900"
@@ -672,11 +988,19 @@ export default function Feedback() {
                       >
                         {t.formSubtitle}
                       </p>
+                      </div>
+                      <div
+                        className={`hidden rounded-lg p-2 sm:block ${
+                          isDark ? "bg-slate-950 text-indigo-300" : "bg-indigo-50 text-indigo-600"
+                        }`}
+                      >
+                        <Send className="h-5 w-5" />
+                      </div>
                     </div>
 
                     {formData.related_result_id && (
                       <div
-                        className={`border rounded-2xl p-4 flex items-start gap-3 ${
+                        className={`flex items-start gap-3 rounded-xl border p-4 ${
                           isDark
                             ? "bg-blue-500/10 border-blue-500/20"
                             : "bg-blue-50 border-blue-200"
@@ -707,7 +1031,7 @@ export default function Feedback() {
                       </div>
                     )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <Field label={t.feedbackType}>
                         <select
                           value={formData.feedback_type}
@@ -740,13 +1064,14 @@ export default function Feedback() {
                     </div>
 
                     <Field label={t.rating}>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {[1, 2, 3, 4, 5].map((value) => (
                           <button
                             key={value}
                             type="button"
+                            aria-label={`${t.ratingLabel} ${value}`}
                             onClick={() => updateForm("rating", value)}
-                            className={`w-10 h-10 rounded-xl border flex items-center justify-center transition ${
+                            className={`flex h-10 w-10 items-center justify-center rounded-xl border transition hover:-translate-y-0.5 ${
                               formData.rating >= value
                                 ? isDark
                                   ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
@@ -779,7 +1104,7 @@ export default function Feedback() {
                     </Field>
 
                     {formData.feedback_type === "wrong_result" && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <Field label={t.actualResult}>
                           <input
                             value={formData.actual_result}
@@ -806,7 +1131,7 @@ export default function Feedback() {
 
                     <Field label={t.message}>
                       <textarea
-                        rows="6"
+                        rows="5"
                         value={formData.message}
                         onChange={(e) => updateForm("message", e.target.value)}
                         className={`${inputClass(isDark)} resize-none`}
@@ -815,18 +1140,18 @@ export default function Feedback() {
                     </Field>
 
                     <div
-                      className={`pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t ${
+                      className={`flex flex-col gap-4 border-t pt-4 sm:flex-row sm:items-center sm:justify-between ${
                         isDark ? "border-slate-800" : "border-slate-100"
                       }`}
                     >
-                      <p className="text-xs text-slate-400 font-medium">
-                        {t.supportDesc}
+                      <p className="text-xs font-medium leading-5 text-slate-400">
+                        {t.submitHint}
                       </p>
 
                       <button
                         type="submit"
-                        disabled={isLoading}
-                        className={`inline-flex justify-center items-center gap-2 px-8 py-3.5 text-white rounded-xl font-bold transition-all disabled:opacity-70 disabled:cursor-not-allowed shadow-sm active:scale-95 ${
+                        disabled={isLoading || !isFormValid}
+                        className={`inline-flex min-w-[180px] shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md px-6 py-3 text-sm font-bold text-white shadow-sm transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 ${
                           isDark
                             ? "bg-indigo-600 hover:bg-indigo-500"
                             : "bg-slate-900 hover:bg-slate-800"
@@ -845,7 +1170,7 @@ export default function Feedback() {
               </div>
             </div>
 
-            <div className="lg:col-span-4 space-y-6">
+            <aside className="space-y-6 xl:col-span-4">
               <GuideCard t={t} isDark={isDark} />
               <SupportCard t={t} isDark={isDark} />
               <RecentFeedbackPreview
@@ -855,8 +1180,9 @@ export default function Feedback() {
                 fetchHistory={fetchHistory}
                 isFetchingHistory={isFetchingHistory}
                 setActiveTab={setActiveTab}
+                onOpenTicket={setSelectedTicket}
               />
-            </div>
+            </aside>
           </div>
         )}
 
@@ -864,9 +1190,29 @@ export default function Feedback() {
           <FeedbackHistory
             t={t}
             isDark={isDark}
-            history={history}
+            history={filteredHistory}
+            allHistory={history}
             isFetchingHistory={isFetchingHistory}
             fetchHistory={fetchHistory}
+            filter={ticketFilter}
+            search={ticketSearch}
+            onFilterChange={setTicketFilter}
+            onSearchChange={setTicketSearch}
+            onClearFilter={() => {
+              setTicketFilter("all");
+              setTicketSearch("");
+            }}
+            onOpenTicket={setSelectedTicket}
+          />
+        )}
+
+        {selectedTicket && (
+          <TicketDetailDrawer
+            item={selectedTicket}
+            t={t}
+            isDark={isDark}
+            onClose={() => setSelectedTicket(null)}
+            onViewRelatedResult={handleViewRelatedResult}
           />
         )}
       </div>
@@ -1082,7 +1428,7 @@ function GuideCard({ t, isDark }) {
 
   return (
     <div
-      className={`rounded-3xl border shadow-sm p-6 ${
+      className={`rounded-2xl border p-5 shadow-sm ${
         isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
       }`}
     >
@@ -1118,7 +1464,7 @@ function GuideCard({ t, isDark }) {
 function SupportCard({ t, isDark }) {
   return (
     <div
-      className={`rounded-3xl border shadow-sm p-6 ${
+      className={`rounded-2xl border p-5 shadow-sm ${
         isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
       }`}
     >
@@ -1153,6 +1499,7 @@ function RecentFeedbackPreview({
   fetchHistory,
   isFetchingHistory,
   setActiveTab,
+  onOpenTicket,
 }) {
   useEffect(() => {
     if (!history || history.length === 0) {
@@ -1161,11 +1508,11 @@ function RecentFeedbackPreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const previewItems = (history || []).slice(0, 3);
+  const previewItems = (history || []).slice(0, 5);
 
   return (
     <div
-      className={`rounded-3xl border shadow-sm p-6 ${
+      className={`rounded-2xl border p-5 shadow-sm ${
         isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
       }`}
     >
@@ -1202,13 +1549,14 @@ function RecentFeedbackPreview({
           {t.noTicketsDesc}
         </p>
       ) : (
-        <div className="space-y-3">
+        <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
           {previewItems.map((item, index) => (
             <FeedbackMiniItem
               key={item.id || index}
               item={item}
               t={t}
               isDark={isDark}
+              onOpen={onOpenTicket}
             />
           ))}
         </div>
@@ -1221,16 +1569,88 @@ function FeedbackHistory({
   t,
   isDark,
   history,
+  allHistory,
   isFetchingHistory,
   fetchHistory,
+  filter,
+  search,
+  onFilterChange,
+  onSearchChange,
+  onClearFilter,
+  onOpenTicket,
 }) {
-  useEffect(() => {
-    fetchHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const hasAnyTickets = Boolean(allHistory && allHistory.length > 0);
+  const hasActiveFilter = filter !== "all" || Boolean(search.trim());
+  const filters = [
+    { value: "all", label: t.filterAll },
+    { value: "pending", label: t.filterPending },
+    { value: "reviewing", label: t.filterReviewing },
+    { value: "resolved", label: t.filterResolved },
+    { value: "high", label: t.filterHighPriority },
+  ];
 
   return (
     <div className="space-y-4">
+      <div
+        className={`rounded-2xl border p-4 shadow-sm ${
+          isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+        }`}
+      >
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {filters.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => onFilterChange(item.value)}
+                className={`rounded-xl border px-3 py-2 text-xs font-bold transition ${
+                  filter === item.value
+                    ? isDark
+                      ? "border-indigo-500/40 bg-indigo-500/15 text-indigo-200"
+                      : "border-slate-900 bg-slate-900 text-white"
+                    : isDark
+                      ? "border-slate-700 text-slate-300 hover:bg-slate-800"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <label className="relative block">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder={t.searchTickets}
+                className={`h-11 w-full rounded-xl border pl-9 pr-3 text-sm font-semibold outline-none transition sm:w-72 ${
+                  isDark
+                    ? "bg-slate-950 border-slate-700 text-white placeholder:text-slate-500 focus:border-indigo-400"
+                    : "bg-slate-50 border-slate-200 text-slate-700 placeholder:text-slate-400 focus:border-indigo-500"
+                }`}
+              />
+            </label>
+
+            {hasActiveFilter && (
+              <button
+                type="button"
+                onClick={onClearFilter}
+                className={`inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-bold ${
+                  isDark
+                    ? "border-slate-700 text-slate-200 hover:bg-slate-800"
+                    : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <X size={15} />
+                {t.clearFilter}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="flex justify-end">
         <button
           onClick={fetchHistory}
@@ -1254,7 +1674,7 @@ function FeedbackHistory({
             {t.loadingTickets}
           </p>
         </div>
-      ) : !history || history.length === 0 ? (
+      ) : !hasAnyTickets ? (
         <div
           className={`rounded-3xl border shadow-sm p-16 text-center ${
             isDark
@@ -1276,6 +1696,28 @@ function FeedbackHistory({
             {t.noTicketsDesc}
           </p>
         </div>
+      ) : !history || history.length === 0 ? (
+        <div
+          className={`rounded-3xl border shadow-sm p-16 text-center ${
+            isDark
+              ? "bg-slate-900 border-slate-800"
+              : "bg-white border-slate-200"
+          }`}
+        >
+          <Search
+            className={`w-14 h-14 mx-auto mb-4 ${isDark ? "text-slate-700" : "text-slate-200"}`}
+          />
+          <h3
+            className={`text-lg font-bold ${isDark ? "text-white" : "text-slate-900"}`}
+          >
+            {t.noFilteredTitle}
+          </h3>
+          <p
+            className={`text-sm mt-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}
+          >
+            {t.noFilteredDesc}
+          </p>
+        </div>
       ) : (
         history.map((item, index) => (
           <FeedbackHistoryItem
@@ -1283,6 +1725,7 @@ function FeedbackHistory({
             item={item}
             t={t}
             isDark={isDark}
+            onOpen={onOpenTicket}
           />
         ))
       )}
@@ -1290,88 +1733,115 @@ function FeedbackHistory({
   );
 }
 
-function FeedbackMiniItem({ item, t, isDark }) {
-  const meta = getTypeMeta(item.feedback_type, t);
-  const badge = getStatusBadgeInfo(item, t);
+function FeedbackMiniItem({ item, t, isDark, onOpen }) {
+  const data = normalizeFeedbackItem(item, t);
+  const meta = getTypeMeta(data.type, t);
+  const statusBadge = getStatusBadgeInfo(item, t);
+  const priorityBadge = getPriorityBadgeInfo(data.priority, t);
 
   return (
-    <div
-      className={`p-4 rounded-2xl border ${
+    <button
+      type="button"
+      onClick={() => onOpen?.(item)}
+      className={`w-full rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/10 ${
         isDark
           ? "bg-slate-950 border-slate-800"
           : "bg-slate-50 border-slate-100"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {meta.icon}
           <span
-            className={`text-sm font-bold ${isDark ? "text-white" : "text-slate-900"}`}
+            className={`truncate text-xs font-bold uppercase tracking-wide ${isDark ? "text-slate-300" : "text-slate-500"}`}
           >
             {meta.label}
           </span>
         </div>
-        <span
-          className={`px-2 py-1 text-[10px] rounded-lg border font-bold uppercase tracking-wider ${badge.className}`}
-        >
-          {badge.label}
-        </span>
+        <FeedbackBadge label={statusBadge.label} className={statusBadge.className} />
       </div>
       <p
-        className={`text-xs mt-2 line-clamp-2 ${isDark ? "text-slate-400" : "text-slate-500"}`}
+        className={`mt-3 line-clamp-2 text-sm font-bold ${isDark ? "text-white" : "text-slate-900"}`}
       >
-        {item.message}
+        {data.subject}
       </p>
-    </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <FeedbackBadge label={priorityBadge.label} className={priorityBadge.className} />
+        <span className="text-xs font-medium text-slate-400">
+          {data.rating === t.noRating ? data.rating : `${data.rating}`}
+        </span>
+      </div>
+    </button>
   );
 }
 
-function FeedbackHistoryItem({ item, t, isDark }) {
-  const [open, setOpen] = useState(false);
-  const meta = getTypeMeta(item.feedback_type, t);
-  const badge = getStatusBadgeInfo(item, t);
+function FeedbackHistoryItem({ item, t, isDark, onOpen }) {
+  const data = normalizeFeedbackItem(item, t);
+  const meta = getTypeMeta(data.type, t);
+  const statusBadge = getStatusBadgeInfo(item, t);
+  const priorityBadge = getPriorityBadgeInfo(data.priority, t);
+  const openTicket = () => onOpen?.(item);
 
   return (
     <div
-      className={`p-6 rounded-2xl border shadow-sm hover:shadow-md transition-shadow ${
+      role="button"
+      tabIndex={0}
+      onClick={openTicket}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openTicket();
+        }
+      }}
+      className={`cursor-pointer rounded-2xl border p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-indigo-500/10 ${
         isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
       }`}
     >
-      <div className="flex flex-col md:flex-row gap-5">
+      <div className="flex flex-col gap-5 md:flex-row">
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-3 mb-3">
             {meta.icon}
             <span
-              className={`font-bold ${isDark ? "text-white" : "text-slate-900"}`}
+              className={`text-xs font-bold uppercase tracking-wide ${isDark ? "text-slate-300" : "text-slate-500"}`}
             >
               {meta.label}
             </span>
-            <span
-              className={`px-2.5 py-1 text-[10px] rounded-lg border font-bold uppercase tracking-wider ${badge.className}`}
-            >
-              {badge.label}
-            </span>
+            <FeedbackBadge label={priorityBadge.label} className={priorityBadge.className} />
+            <FeedbackBadge label={statusBadge.label} className={statusBadge.className} />
           </div>
 
+          <h3
+            className={`mb-2 text-base font-extrabold ${isDark ? "text-white" : "text-slate-900"}`}
+          >
+            {data.subject}
+          </h3>
+
           <p
-            className={`text-sm leading-relaxed ${!open ? "line-clamp-3" : ""} ${
+            className={`line-clamp-3 text-sm leading-relaxed ${
               isDark ? "text-slate-300" : "text-slate-600"
             }`}
           >
-            {item.message}
+            {data.message}
           </p>
 
           <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-400 mt-4">
-            <span>{formatDate(item.created_at)}</span>
+            <span>{formatDate(data.createdAt)}</span>
+            <span
+              className={`w-1 h-1 rounded-full ${isDark ? "bg-slate-700" : "bg-slate-300"}`}
+            />
+            <span className="flex items-center gap-1">
+              <Star size={12} />
+              {data.rating}
+            </span>
 
-            {item.related_result_id && (
+            {data.relatedScan !== t.noRelatedScan && (
               <>
                 <span
                   className={`w-1 h-1 rounded-full ${isDark ? "bg-slate-700" : "bg-slate-300"}`}
                 />
                 <span className="flex items-center gap-1">
                   <ScanLine size={12} />
-                  Scan ID: {String(item.related_result_id).slice(-8)}
+                  Scan ID: {String(data.relatedScan).slice(-8)}
                 </span>
               </>
             )}
@@ -1379,7 +1849,11 @@ function FeedbackHistoryItem({ item, t, isDark }) {
         </div>
 
         <button
-          onClick={() => setOpen((prev) => !prev)}
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            openTicket();
+          }}
           className={`h-fit inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm ${
             isDark
               ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
@@ -1387,10 +1861,221 @@ function FeedbackHistoryItem({ item, t, isDark }) {
           }`}
         >
           <Eye size={15} />
-          {open ? t.less : t.detail}
-          {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          {t.detail}
         </button>
       </div>
     </div>
+  );
+}
+
+function TicketDetailDrawer({
+  item,
+  t,
+  isDark,
+  onClose,
+  onViewRelatedResult,
+}) {
+  const data = normalizeFeedbackItem(item, t);
+  const meta = getTypeMeta(data.type, t);
+  const statusBadge = getStatusBadgeInfo(item, t);
+  const priorityBadge = getPriorityBadgeInfo(data.priority, t);
+  const canViewRelated = hasRelatedScan(data, t);
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <button
+        type="button"
+        aria-label={t.close}
+        onClick={onClose}
+        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+      />
+
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ticket-detail-title"
+        className={`relative flex h-full w-full max-w-2xl flex-col shadow-2xl ${
+          isDark ? "bg-slate-950 text-slate-100" : "bg-white text-slate-900"
+        }`}
+      >
+        <div
+          className={`flex items-start justify-between gap-4 border-b p-5 ${
+            isDark ? "border-slate-800" : "border-slate-200"
+          }`}
+        >
+          <div className="min-w-0">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {meta.icon}
+              <FeedbackBadge
+                label={statusBadge.label}
+                className={statusBadge.className}
+              />
+              <FeedbackBadge
+                label={priorityBadge.label}
+                className={priorityBadge.className}
+              />
+            </div>
+            <h2 id="ticket-detail-title" className="text-xl font-black">
+              {data.subject}
+            </h2>
+            <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              {meta.label} - {formatDate(data.createdAt)}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className={`rounded-xl border p-2 transition focus:outline-none focus:ring-4 focus:ring-indigo-500/10 ${
+              isDark
+                ? "border-slate-700 text-slate-300 hover:bg-slate-800"
+                : "border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-5 overflow-y-auto p-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <DetailField label={t.feedbackType} value={meta.label} isDark={isDark} />
+            <DetailField label={t.priority} value={priorityBadge.label} isDark={isDark} />
+            <DetailField label={t.rating} value={data.rating} isDark={isDark} />
+            <DetailField label={t.relatedScan} value={data.relatedScan} isDark={isDark} />
+            <DetailField label={t.actualResult} value={data.actualResult} isDark={isDark} />
+            <DetailField label={t.expectedResult} value={data.expectedResult} isDark={isDark} />
+          </div>
+
+          <div
+            className={`rounded-2xl border p-4 ${
+              isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-slate-50"
+            }`}
+          >
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+              {t.message}
+            </p>
+            <p
+              className={`whitespace-pre-wrap text-sm leading-relaxed ${
+                isDark ? "text-slate-200" : "text-slate-700"
+              }`}
+            >
+              {data.message}
+            </p>
+          </div>
+
+          {data.adminReply !== "-" && (
+            <div
+              className={`rounded-2xl border p-4 ${
+                isDark
+                  ? "border-emerald-500/20 bg-emerald-500/10"
+                  : "border-emerald-200 bg-emerald-50"
+              }`}
+            >
+              <p className="mb-2 text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-300">
+                {t.adminReply}
+              </p>
+              <p
+                className={`whitespace-pre-wrap text-sm leading-relaxed ${
+                  isDark ? "text-emerald-100" : "text-emerald-800"
+                }`}
+              >
+                {data.adminReply}
+              </p>
+            </div>
+          )}
+
+          <div
+            className={`rounded-2xl border p-4 ${
+              isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-slate-50"
+            }`}
+          >
+            <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+              {t.scanImage}
+            </p>
+            {data.scanImage ? (
+              <img
+                src={data.scanImage}
+                alt={t.scanImage}
+                className={`max-h-72 w-full rounded-xl border object-contain ${
+                  isDark
+                    ? "border-slate-800 bg-slate-950"
+                    : "border-slate-200 bg-white"
+                }`}
+              />
+            ) : (
+              <div
+                className={`flex h-32 items-center justify-center rounded-xl border border-dashed text-sm font-semibold ${
+                  isDark
+                    ? "border-slate-700 text-slate-500"
+                    : "border-slate-300 text-slate-400"
+                }`}
+              >
+                {t.noImage}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div
+          className={`flex flex-col gap-3 border-t p-5 sm:flex-row sm:justify-end ${
+            isDark ? "border-slate-800" : "border-slate-200"
+          }`}
+        >
+          {canViewRelated && (
+            <button
+              type="button"
+              onClick={() => onViewRelatedResult(data.relatedScan)}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-500"
+            >
+              <ExternalLink size={16} />
+              {t.viewRelatedResult}
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onClose}
+            className={`inline-flex items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-bold transition ${
+              isDark
+                ? "border-slate-700 text-slate-200 hover:bg-slate-800"
+                : "border-slate-200 text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            {t.close}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function DetailField({ label, value, isDark }) {
+  return (
+    <div
+      className={`rounded-2xl border p-3 ${
+        isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-slate-50"
+      }`}
+    >
+      <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+        {label}
+      </p>
+      <p
+        className={`break-words text-sm font-bold ${
+          isDark ? "text-slate-100" : "text-slate-800"
+        }`}
+      >
+        {value || "-"}
+      </p>
+    </div>
+  );
+}
+
+function FeedbackBadge({ label, className }) {
+  return (
+    <span
+      className={`inline-flex shrink-0 rounded-md border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${className}`}
+    >
+      {label}
+    </span>
   );
 }

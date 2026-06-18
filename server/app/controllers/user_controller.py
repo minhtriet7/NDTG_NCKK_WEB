@@ -1,6 +1,6 @@
 from app.models.user_model import User
 from app.schemas.user_schema import UserUpdate, ChangePasswordRequest, UserPreferencesUpdate
-from app.services.user_service import UserService
+from app.services.user_service import UserService, is_email_verified
 
 
 def serialize_user_profile(user: User):
@@ -12,6 +12,7 @@ def serialize_user_profile(user: User):
         "provider": getattr(user, "provider", "local"),
         "token_balance": getattr(user, "token_balance", 0),
         "is_active": getattr(user, "is_active", True),
+        "email_verified": is_email_verified(user),
         "phone": getattr(user, "phone", None),
         "country": getattr(user, "country", None),
         "avatar_url": getattr(user, "avatar_url", None),
@@ -37,6 +38,10 @@ class UserController:
     async def upload_avatar(user: User, file):
         updated_user = await UserService.upload_avatar(user, file)
         return serialize_user_profile(updated_user)
+
+    @staticmethod
+    async def resend_email_verification(user: User, base_url: str):
+        return await UserService.resend_email_verification(user, base_url)
 
     @staticmethod
     async def get_stats(user: User):

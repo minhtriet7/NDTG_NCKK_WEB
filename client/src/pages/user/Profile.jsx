@@ -37,7 +37,11 @@ import {
 } from "lucide-react";
 
 import { useAppStore } from "../../store/appStore";
-import { useAuthStore } from "../../store/authStore";
+import {
+  getAvatarImageSrc,
+  getUserAvatar,
+  useAuthStore,
+} from "../../store/authStore";
 import { getFeedbackHistory } from "../../services/feedbackService";
 import { getMyTokenUsage } from "../../services/tokenUsageService";
 import {
@@ -49,6 +53,7 @@ import {
   getProfileConfig,
   getProfileStats,
   logoutSession,
+  resendVerificationEmail,
   setPassword,
   updatePreferences,
   uploadAvatar,
@@ -122,6 +127,7 @@ const text = {
     save: "Save changes",
     saving: "Saving...",
     saved: "Profile updated successfully.",
+    noChanges: "No unsaved changes",
     saveFailed: "Unable to update profile.",
     passwordSaved: "Password updated successfully.",
     passwordFailed: "Unable to update password.",
@@ -133,6 +139,7 @@ const text = {
     personalInfo: "Personal Information",
     tokenBalance: "Token Balance",
     scanStats: "Scan Statistics",
+    usageOverview: "Usage Overview",
     recentActivity: "Recent Activity",
     accountSecurity: "Account Security",
     tokenActivity: "Token / Payment Activity",
@@ -173,6 +180,10 @@ const text = {
     inactive: "Inactive",
     verified: "Verified",
     unverified: "Unverified",
+    resendVerification: "Resend verification",
+    resendingVerification: "Sending...",
+    verificationSent: "Verification email sent if email delivery is available.",
+    verificationFailed: "Unable to send verification email.",
     notProvided: "Not provided",
     localEmail: "Email",
     google: "Google",
@@ -228,6 +239,7 @@ const text = {
     save: "Lưu thay đổi",
     saving: "Đang lưu...",
     saved: "Đã cập nhật hồ sơ.",
+    noChanges: "Không có thay đổi mới",
     saveFailed: "Không thể cập nhật hồ sơ.",
     passwordSaved: "Đã cập nhật mật khẩu.",
     passwordFailed: "Không thể cập nhật mật khẩu.",
@@ -239,6 +251,7 @@ const text = {
     personalInfo: "Thông Tin Cá Nhân",
     tokenBalance: "Số Dư Token",
     scanStats: "Thống Kê Nhận Diện",
+    usageOverview: "Tổng Quan Sử Dụng",
     recentActivity: "Hoạt Động Gần Đây",
     accountSecurity: "Bảo Mật Tài Khoản",
     tokenActivity: "Token / Thanh Toán",
@@ -279,6 +292,10 @@ const text = {
     inactive: "Không hoạt động",
     verified: "Đã xác minh",
     unverified: "Chưa xác minh",
+    resendVerification: "Gửi lại xác minh",
+    resendingVerification: "Đang gửi...",
+    verificationSent: "Đã gửi email xác minh nếu hệ thống mail khả dụng.",
+    verificationFailed: "Không thể gửi email xác minh.",
     notProvided: "Chưa có dữ liệu",
     localEmail: "Email",
     google: "Google",
@@ -320,6 +337,18 @@ function normalizeList(data) {
   return [];
 }
 
+function extractUserPayload(data) {
+  return (
+    data?.user ||
+    data?.profile ||
+    data?.data?.user ||
+    data?.data?.profile ||
+    data?.data ||
+    data ||
+    {}
+  );
+}
+
 function normalizeProfile(raw) {
   if (!raw) return null;
 
@@ -331,7 +360,7 @@ function normalizeProfile(raw) {
     email: raw?.email || "",
     phone: raw?.phone || raw?.phone_number || "",
     country: raw?.country || "Vietnam",
-    avatar_url: raw?.avatar_url || raw?.avatar || "",
+    avatar_url: getUserAvatar(raw),
     preferences: raw?.preferences || {},
     role: raw?.role || "user",
     is_active: raw?.is_active !== false,
@@ -392,10 +421,24 @@ function updateAuthStoreUser(updatedProfile) {
     const state = useAuthStore.getState?.();
     if (!state?.user) return;
 
+    const avatarUrl = getUserAvatar(updatedProfile);
+    const nextUser = avatarUrl
+      ? {
+          ...updatedProfile,
+          avatar: avatarUrl,
+          avatar_url: avatarUrl,
+        }
+      : updatedProfile;
+
+    if (typeof state.updateUser === "function") {
+      state.updateUser(nextUser);
+      return;
+    }
+
     useAuthStore.setState({
       user: {
         ...state.user,
-        ...updatedProfile,
+        ...nextUser,
       },
     });
   } catch {
@@ -452,16 +495,40 @@ function formatNumber(value, lang = "EN") {
 }
 
 function formatMoney(value, currency = "VND", lang = "EN") {
-  const amount = Number(value || 0);
+  const currencyCode = String(currency || "VND").trim().toUpperCase();
+  const rawValue = String(value ?? "").trim();
+  let amount = Number(value || 0);
+
+  if (!Number.isFinite(amount)) {
+    const normalized = rawValue.replace(/[^\d,.-]/g, "");
+    const hasComma = normalized.includes(",");
+    const hasDot = normalized.includes(".");
+    let canonical = normalized;
+
+    if (hasComma && hasDot) {
+      canonical = normalized.replace(/\./g, "").replace(",", ".");
+    } else if (!hasComma && /^\d{1,3}(\.\d{3})+$/.test(normalized)) {
+      canonical = normalized.replace(/\./g, "");
+    } else {
+      canonical = normalized.replace(/,/g, "");
+    }
+
+    amount = Number(canonical);
+  }
+
+  if (!Number.isFinite(amount)) {
+    return rawValue || `0 ${currencyCode}`;
+  }
+
   const locale = lang === "VI" ? "vi-VN" : "en-US";
 
-  if (currency === "VND") {
+  if (currencyCode === "VND") {
     return `${new Intl.NumberFormat("vi-VN").format(amount)} VND`;
   }
 
   return `${new Intl.NumberFormat(locale, {
     maximumFractionDigits: 2,
-  }).format(amount)} ${currency}`;
+  }).format(amount)} ${currencyCode}`;
 }
 
 function firstValue(...values) {
@@ -733,6 +800,7 @@ export default function Profile() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const hasPassword = getHasPassword(profile);
@@ -1026,9 +1094,17 @@ export default function Profile() {
 
     try {
       const updated = await uploadAvatar(avatarFile);
+      const updatedUser = extractUserPayload(updated);
+      const avatarUrl = getUserAvatar(updated) || getUserAvatar(updatedUser);
       const normalized = normalizeProfile({
         ...(profile || {}),
-        ...updated,
+        ...updatedUser,
+        ...(avatarUrl
+          ? {
+              avatar: avatarUrl,
+              avatar_url: avatarUrl,
+            }
+          : {}),
       });
 
       setProfile(normalized);
@@ -1040,6 +1116,32 @@ export default function Profile() {
       toast.error(getErrorMessage(error, copy.avatarFailed));
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!profile || profile.email_verified !== false) return;
+
+    setResendingVerification(true);
+
+    try {
+      const result = await resendVerificationEmail();
+
+      if (typeof result?.email_verified === "boolean") {
+        const updatedProfile = {
+          ...profile,
+          email_verified: result.email_verified,
+        };
+
+        setProfile(updatedProfile);
+        updateAuthStoreUser(updatedProfile);
+      }
+
+      toast.success(copy.verificationSent);
+    } catch (error) {
+      toast.error(getErrorMessage(error, copy.verificationFailed));
+    } finally {
+      setResendingVerification(false);
     }
   };
 
@@ -1193,7 +1295,7 @@ export default function Profile() {
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
-        <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               BanknoteAI
@@ -1207,19 +1309,6 @@ export default function Profile() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {isAdmin && (
-              <ActionButton
-                icon={LayoutDashboard}
-                label={copy.adminDashboard}
-                onClick={() => navigate("/admin/dashboard")}
-                variant="dark"
-              />
-            )}
-            <ActionButton
-              icon={MessageSquare}
-              label={copy.myFeedback}
-              onClick={() => navigate("/feedback", { state: { tab: "history" } })}
-            />
             <ActionButton
               icon={RefreshCw}
               label={anyLoading ? copy.refreshing : copy.refresh}
@@ -1241,43 +1330,27 @@ export default function Profile() {
           </div>
         )}
 
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-          <div className="space-y-6 xl:col-span-4">
-            <ProfileSummaryCard
-              avatarFile={avatarFile}
-              avatarPreview={avatarPreview}
-              copy={copy}
-              isAdmin={isAdmin}
-              loading={loading.profile && !profile}
-              lang={lang}
-              onAdmin={() => navigate("/admin/dashboard")}
-              onAvatarCancel={clearAvatarSelection}
-              onAvatarSelect={handleAvatarSelect}
-              onAvatarUpload={handleUploadAvatar}
-              profile={profile}
-              uploadingAvatar={uploadingAvatar}
-            />
-            <TokenBalanceCard
-              copy={copy}
-              lang={lang}
-              loading={loading.profile && !profile}
-              onBuy={() => navigate("/pricing")}
-              profile={profile}
-              profileConfig={profileConfig}
-              transactions={recentTransactions}
-            />
-            <QuickActionsCard
-              copy={copy}
-              isAdmin={isAdmin}
-              onAdmin={() => navigate("/admin/dashboard")}
-              onBuy={() => navigate("/pricing")}
-              onFeedback={() => navigate("/feedback", { state: { tab: "history" } })}
-              onHistory={() => navigate("/history")}
-              onScan={() => navigate("/recognize")}
-            />
-          </div>
+        <ProfileSummaryCard
+          avatarFile={avatarFile}
+          avatarPreview={avatarPreview}
+          copy={copy}
+          isAdmin={isAdmin}
+          loading={loading.profile && !profile}
+          lang={lang}
+          onAdmin={() => navigate("/admin/dashboard")}
+          onAvatarCancel={clearAvatarSelection}
+          onAvatarSelect={handleAvatarSelect}
+          onAvatarUpload={handleUploadAvatar}
+          onBuy={() => navigate("/pricing")}
+          onFeedback={() => navigate("/feedback", { state: { tab: "history" } })}
+          onResendVerification={handleResendVerification}
+          profile={profile}
+          resendingVerification={resendingVerification}
+          uploadingAvatar={uploadingAvatar}
+        />
 
-          <div className="space-y-6 xl:col-span-8">
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+          <div className="space-y-6 xl:col-span-5">
             <PersonalInformationCard
               copy={copy}
               form={form}
@@ -1287,6 +1360,16 @@ export default function Profile() {
               onChange={handleFormChange}
               onSubmit={handleSaveProfile}
               saving={savingProfile}
+            />
+
+            <TokenBalanceCard
+              copy={copy}
+              lang={lang}
+              loading={loading.profile && !profile}
+              onBuy={() => navigate("/pricing")}
+              profile={profile}
+              profileConfig={profileConfig}
+              transactions={recentTransactions}
             />
 
             <PreferencesCard
@@ -1299,7 +1382,9 @@ export default function Profile() {
               onSubmit={handleSavePreferences}
               saving={savingPreferences}
             />
+          </div>
 
+          <div className="space-y-6 xl:col-span-7">
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <ScanStatisticsCard
                 copy={copy}
@@ -1373,91 +1458,114 @@ function ProfileSummaryCard({
   onAvatarCancel,
   onAvatarSelect,
   onAvatarUpload,
+  onBuy,
+  onFeedback,
+  onResendVerification,
   profile,
+  resendingVerification,
   uploadingAvatar,
 }) {
+  const avatarUrl = avatarPreview || getAvatarImageSrc(profile);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [avatarUrl]);
+
   if (loading) {
     return <CardSkeleton rows={5} />;
   }
 
   const provider = isGoogleUser(profile) ? copy.google : copy.localEmail;
   const active = profile?.is_active !== false;
-  const avatarUrl = avatarPreview || profile?.avatar_url;
   const emailStatus =
     profile?.email_verified === null
       ? copy.notProvided
       : profile?.email_verified
         ? copy.verified
         : copy.unverified;
+  const emailTone =
+    profile?.email_verified === null
+      ? "neutral"
+      : profile?.email_verified
+        ? "success"
+        : "warning";
 
   return (
-    <SectionCard
-      title={copy.profileSummary}
-      icon={User}
-      action={
-        isAdmin ? (
-          <button
-            type="button"
-            onClick={onAdmin}
-            className={`inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-white dark:text-slate-950 ${buttonFocus}`}
-          >
-            <LayoutDashboard className="h-4 w-4" />
-            {copy.adminDashboard}
-          </button>
-        ) : null
-      }
-    >
-      <div className="flex flex-col items-center text-center">
-        <div className="relative">
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={`${getDisplayName(profile)} avatar`}
-              className="h-24 w-24 rounded-full border-4 border-white object-cover shadow-sm dark:border-slate-900"
-            />
-          ) : (
-            <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br from-slate-900 via-cyan-800 to-emerald-700 text-4xl font-bold text-white shadow-sm dark:border-slate-900">
-              {getInitial(profile)}
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="h-1 bg-gradient-to-r from-slate-900 via-cyan-700 to-emerald-600 dark:from-slate-200 dark:via-cyan-400 dark:to-emerald-400" />
+      <div className="p-5 sm:p-6">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="relative mx-auto shrink-0 sm:mx-0">
+              {avatarUrl && !avatarLoadFailed ? (
+                <img
+                  src={avatarUrl}
+                  alt={`${getDisplayName(profile)} avatar`}
+                  className="h-24 w-24 rounded-full border-4 border-white object-cover shadow-md dark:border-slate-900"
+                  onError={() => setAvatarLoadFailed(true)}
+                />
+              ) : (
+                <div className="flex h-24 w-24 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br from-slate-900 via-cyan-800 to-emerald-700 text-4xl font-bold text-white shadow-md dark:border-slate-900">
+                  {getInitial(profile)}
+                </div>
+              )}
+              <span
+                className={`absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-white dark:border-slate-900 ${
+                  active ? "bg-emerald-500" : "bg-slate-400"
+                }`}
+                aria-label={active ? copy.active : copy.inactive}
+              />
             </div>
-          )}
-          <span
-            className={`absolute bottom-1 right-1 h-4 w-4 rounded-full border-2 border-white dark:border-slate-900 ${
-              active ? "bg-emerald-500" : "bg-slate-400"
-            }`}
-            aria-label={active ? copy.active : copy.inactive}
-          />
-        </div>
 
-        <h2 className="mt-4 text-xl font-bold text-slate-950 dark:text-white">
-          {getDisplayName(profile)}
-        </h2>
-        <p className="mt-1 max-w-full truncate text-sm text-slate-500 dark:text-slate-400">
-          {profile?.email || "N/A"}
-        </p>
+            <div className="min-w-0 text-center sm:text-left">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                {copy.profileSummary}
+              </p>
+              <h2 className="mt-2 truncate text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
+                {getDisplayName(profile)}
+              </h2>
+              <p className="mt-1 truncate text-sm text-slate-500 dark:text-slate-400">
+                {profile?.email || "N/A"}
+              </p>
 
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          <input
-            id="profile-avatar-file"
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            className="hidden"
-            onChange={onAvatarSelect}
-          />
-          <label
-            htmlFor="profile-avatar-file"
-            className={`inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900 ${buttonFocus}`}
-          >
-            <Camera className="h-4 w-4" />
-            {copy.changeAvatar}
-          </label>
+              <div className="mt-4 flex flex-wrap justify-center gap-2 sm:justify-start">
+                <StatusBadge tone="neutral">
+                  {String(profile?.role || "user").toUpperCase()}
+                </StatusBadge>
+                <StatusBadge tone={active ? "success" : "neutral"}>
+                  {active ? copy.active : copy.inactive}
+                </StatusBadge>
+                <StatusBadge tone={isGoogleUser(profile) ? "info" : "neutral"}>
+                  {provider}
+                </StatusBadge>
+                <StatusBadge tone={emailTone}>{emailStatus}</StatusBadge>
+              </div>
+            </div>
+          </div>
 
-          {avatarFile && (
-            <>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center lg:max-w-md lg:justify-end">
+            <input
+              id="profile-avatar-file"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={onAvatarSelect}
+            />
+            <label
+              htmlFor="profile-avatar-file"
+              className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 ${buttonFocus}`}
+            >
+              <Camera className="h-4 w-4" />
+              {copy.changeAvatar}
+            </label>
+
+            {avatarFile && (
               <button
                 type="button"
                 onClick={onAvatarUpload}
                 disabled={uploadingAvatar}
-                className={`inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 ${buttonFocus}`}
+                className={`inline-flex items-center justify-center gap-2 rounded-md bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 ${buttonFocus}`}
               >
                 {uploadingAvatar ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1466,39 +1574,106 @@ function ProfileSummaryCard({
                 )}
                 {uploadingAvatar ? copy.uploadingAvatar : copy.uploadAvatar}
               </button>
+            )}
+
+            {avatarFile && (
               <button
                 type="button"
                 onClick={onAvatarCancel}
                 disabled={uploadingAvatar}
-                className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-slate-800 dark:hover:text-white ${buttonFocus}`}
+                className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-slate-800 dark:hover:text-white ${buttonFocus}`}
               >
                 {copy.cancelAvatar}
               </button>
-            </>
-          )}
-        </div>
-        <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-          {copy.avatarHint}
-        </p>
+            )}
 
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          <StatusBadge tone="neutral">{String(profile?.role || "user").toUpperCase()}</StatusBadge>
-          <StatusBadge tone={active ? "success" : "neutral"}>
-            {active ? copy.active : copy.inactive}
-          </StatusBadge>
-          <StatusBadge tone={isGoogleUser(profile) ? "info" : "neutral"}>
-            {provider}
-          </StatusBadge>
-        </div>
-      </div>
+            <button
+              type="button"
+              onClick={onBuy}
+              className={`inline-flex items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 ${buttonFocus}`}
+            >
+              <Wallet className="h-4 w-4" />
+              {copy.buyTokens}
+            </button>
 
-      <div className="mt-6 grid grid-cols-1 gap-3 border-t border-slate-100 pt-5 dark:border-slate-800 sm:grid-cols-2">
-        <InfoTile icon={CalendarDays} label={copy.createdAt} value={formatDate(profile?.created_at, lang)} />
-        <InfoTile icon={Clock} label={copy.lastLogin} value={formatDate(profile?.last_login_at, lang)} />
-        <InfoTile icon={Mail} label={copy.emailStatus} value={emailStatus} />
-        <InfoTile icon={BadgeCheck} label={copy.accountId} value={profile?.id || "N/A"} />
+            <button
+              type="button"
+              onClick={onFeedback}
+              className={`inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 ${buttonFocus}`}
+            >
+              <MessageSquare className="h-4 w-4" />
+              {copy.myFeedback}
+            </button>
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={onAdmin}
+                className={`inline-flex items-center justify-center gap-2 rounded-md bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200 ${buttonFocus}`}
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                {copy.adminDashboard}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {avatarFile && (
+          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+            {copy.avatarHint}
+          </p>
+        )}
+
+        <div className="mt-6 grid grid-cols-1 gap-3 border-t border-slate-100 pt-5 dark:border-slate-800 sm:grid-cols-2 lg:grid-cols-4">
+          <InfoTile
+            icon={CalendarDays}
+            label={copy.createdAt}
+            value={formatDate(profile?.created_at, lang)}
+          />
+          <InfoTile
+            icon={Clock}
+            label={copy.lastLogin}
+            value={formatDate(profile?.last_login_at, lang)}
+          />
+          <InfoTile
+            icon={Coins}
+            label={copy.balance}
+            value={`${formatNumber(profile?.token_balance, lang)} tokens`}
+          />
+          <InfoTile
+            icon={BadgeCheck}
+            label={copy.accountId}
+            value={profile?.id || "N/A"}
+          />
+        </div>
+
+        {profile?.email_verified === false && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-2 text-sm text-amber-900 dark:text-amber-100">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{copy.unverified}</span>
+              </div>
+              <button
+                type="button"
+                onClick={onResendVerification}
+                disabled={resendingVerification}
+                className={`inline-flex items-center justify-center gap-2 rounded-md bg-amber-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-amber-200 dark:text-amber-950 dark:hover:bg-amber-100 ${buttonFocus}`}
+              >
+                {resendingVerification ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Mail className="h-4 w-4" />
+                )}
+                {resendingVerification
+                  ? copy.resendingVerification
+                  : copy.resendVerification}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
-    </SectionCard>
+    </section>
   );
 }
 
@@ -1575,7 +1750,7 @@ function PersonalInformationCard({
 
         <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            {isDirty ? copy.save : copy.saved}
+            {isDirty ? copy.save : copy.noChanges}
           </p>
           <button
             type="submit"
@@ -1696,7 +1871,6 @@ function TokenBalanceCard({
   copy,
   lang,
   loading,
-  onBuy,
   profile,
   profileConfig,
   transactions,
@@ -1712,18 +1886,30 @@ function TokenBalanceCard({
 
   return (
     <SectionCard title={copy.tokenBalance} icon={Coins}>
-      <div className="rounded-lg border border-slate-200 bg-slate-950 p-5 text-white dark:border-slate-700">
-        <p className="text-sm font-medium text-slate-300">{copy.balance}</p>
-        <div className="mt-3 flex items-end gap-2">
-          <span className="text-4xl font-bold">
-            {formatNumber(profile?.token_balance, lang)}
-          </span>
-          <span className="pb-1 text-sm font-semibold text-slate-300">tokens</span>
+      <div className="rounded-lg border border-slate-200 bg-slate-950 p-5 text-white shadow-sm dark:border-slate-700">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              {copy.balance}
+            </p>
+            <div className="mt-3 flex items-end gap-2">
+              <span className="text-4xl font-bold tracking-tight">
+                {formatNumber(profile?.token_balance, lang)}
+              </span>
+              <span className="pb-1 text-sm font-semibold text-slate-300">
+                tokens
+              </span>
+            </div>
+          </div>
+          <div className="rounded-md bg-white/10 p-2 text-emerald-200">
+            <Wallet className="h-5 w-5" />
+          </div>
         </div>
-        <p className="mt-4 text-sm text-slate-300">
+
+        <p className="mt-5 text-sm font-semibold text-slate-200">
           {copy.costPerScan}: {scanCost} {scanCost === 1 ? "token" : "tokens"} / scan
         </p>
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs leading-5 text-slate-400">
           {profileConfig?.billing_note || copy.defaultCostHint}
         </p>
       </div>
@@ -1740,15 +1926,6 @@ function TokenBalanceCard({
           value={formatNumber(successfulTransactions.length, lang)}
         />
       </div>
-
-      <button
-        type="button"
-        onClick={onBuy}
-        className={`mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 ${buttonFocus}`}
-      >
-        <Wallet className="h-4 w-4" />
-        {copy.buyTokens}
-      </button>
     </SectionCard>
   );
 }
@@ -1756,7 +1933,7 @@ function TokenBalanceCard({
 function ScanStatisticsCard({ copy, lang, loading, onHistory, stats }) {
   return (
     <SectionCard
-      title={copy.scanStats}
+      title={copy.usageOverview || copy.scanStats}
       icon={ScanLine}
       action={
         <TextButton icon={History} label={copy.viewHistory} onClick={onHistory} />
@@ -1771,21 +1948,29 @@ function ScanStatisticsCard({ copy, lang, loading, onHistory, stats }) {
           description={copy.noScansDesc}
         />
       ) : (
-        <div className="grid grid-cols-2 gap-3">
-          <StatCard label={copy.totalScans} value={formatNumber(stats.total, lang)} />
-          <StatCard label={copy.successfulScans} value={formatNumber(stats.success, lang)} tone="success" />
-          <StatCard label={copy.failedScans} value={formatNumber(stats.failed, lang)} tone="danger" />
-          <StatCard
-            label={copy.tokensUsed}
-            value={stats.tokensUsed === null ? "N/A" : formatNumber(stats.tokensUsed, lang)}
-          />
-          <div className="col-span-2">
-            <InfoTile
-              icon={Clock}
-              label={copy.lastScan}
-              value={formatDate(stats.lastScanAt, lang)}
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard label={copy.totalScans} value={formatNumber(stats.total, lang)} />
+            <StatCard
+              label={copy.successfulScans}
+              value={formatNumber(stats.success, lang)}
+              tone="success"
+            />
+            <StatCard
+              label={copy.failedScans}
+              value={formatNumber(stats.failed, lang)}
+              tone="danger"
+            />
+            <StatCard
+              label={copy.tokensUsed}
+              value={stats.tokensUsed === null ? "N/A" : formatNumber(stats.tokensUsed, lang)}
             />
           </div>
+          <InfoTile
+            icon={Clock}
+            label={copy.lastScan}
+            value={formatDate(stats.lastScanAt, lang)}
+          />
         </div>
       )}
     </SectionCard>
@@ -1808,11 +1993,12 @@ function RecentActivityCard({ copy, lang, loading, onHistory, records }) {
           description={copy.noScansDesc}
         />
       ) : (
-        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        <div className="space-y-3">
           {records.map((record, index) => {
             const denomination = getRecordDenomination(record);
             const currency = getRecordCurrency(record);
             const country = getRecordCountry(record);
+            const statusTone = getStatusTone(record?.status);
             const title = firstValue(
               [denomination, currency].filter(Boolean).join(" "),
               country,
@@ -1824,21 +2010,37 @@ function RecentActivityCard({ copy, lang, loading, onHistory, records }) {
                 key={record?.id || record?._id || index}
                 type="button"
                 onClick={onHistory}
-                className={`flex w-full items-center justify-between gap-4 py-4 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900/60 ${buttonFocus}`}
+                className={`flex w-full items-center gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 text-left transition hover:border-slate-200 hover:bg-white hover:shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700 dark:hover:bg-slate-900 ${buttonFocus}`}
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-950 dark:text-white">
-                    {title}
-                  </p>
+                <div
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${
+                    statusTone === "success"
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                      : statusTone === "danger"
+                        ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300"
+                        : statusTone === "warning"
+                          ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+                          : "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                  }`}
+                >
+                  <ScanLine className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="truncate text-sm font-semibold text-slate-950 dark:text-white">
+                      {title}
+                    </p>
+                    <StatusBadge tone={statusTone}>
+                      {getStatusLabel(record?.status, lang)}
+                    </StatusBadge>
+                  </div>
                   <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
-                    {[country, formatDate(record?.created_at, lang)]
+                    {[firstValue(country, currency), formatDate(record?.created_at, lang)]
                       .filter(Boolean)
-                      .join(" - ")}
+                      .join(" · ")}
                   </p>
                 </div>
-                <StatusBadge tone={getStatusTone(record?.status)}>
-                  {getStatusLabel(record?.status, lang)}
-                </StatusBadge>
+                <ArrowRight className="hidden h-4 w-4 shrink-0 text-slate-400 sm:block" />
               </button>
             );
           })}
@@ -1899,21 +2101,27 @@ function AccountSecurityCard({
         onSubmit={onSubmit}
         className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950"
       >
-        <div className="flex items-start gap-3">
-          <div className="rounded-md bg-white p-2 text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-200">
-            <KeyRound className="h-5 w-5" />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="rounded-md bg-white p-2 text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-200">
+              <KeyRound className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950 dark:text-white">
+                {passwordTitle}
+              </h3>
+              <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-400">
+                {passwordNote}
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-sm font-semibold text-slate-950 dark:text-white">
-              {passwordTitle}
-            </h3>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              {passwordNote}
-            </p>
+          <div className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 sm:flex">
+            <KeyRound className="h-4 w-4" />
+            <span className="sr-only">{passwordTitle}</span>
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className={`mt-5 grid grid-cols-1 gap-4 ${shouldSetPassword ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
           {!shouldSetPassword && (
             <PasswordInput
               id="current-password"
@@ -1958,17 +2166,7 @@ function AccountSecurityCard({
           ))}
         </div>
 
-        <div className="mt-5 flex flex-col gap-3 border-t border-slate-200 pt-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            type="button"
-            onClick={onLogout}
-            disabled={loggingOut}
-            className={`inline-flex items-center justify-center gap-2 rounded-md border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900/60 dark:bg-slate-950 dark:text-rose-300 dark:hover:bg-rose-950/30 ${buttonFocus}`}
-          >
-            {loggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
-            {loggingOut ? copy.loggingOut : copy.logout}
-          </button>
-
+        <div className="mt-5 flex justify-end border-t border-slate-200 pt-4 dark:border-slate-800">
           <button
             type="submit"
             disabled={saving || !passwordFormValid}
@@ -1979,6 +2177,28 @@ function AccountSecurityCard({
           </button>
         </div>
       </form>
+
+      <div className="mt-4 rounded-lg border border-rose-100 bg-rose-50/60 p-4 dark:border-rose-900/40 dark:bg-rose-950/20">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-rose-900 dark:text-rose-200">
+              {copy.session}
+            </h3>
+            <p className="mt-1 text-sm text-rose-700/80 dark:text-rose-300/80">
+              {copy.sessionDesc}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            disabled={loggingOut}
+            className={`inline-flex items-center justify-center gap-2 rounded-md border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900/60 dark:bg-slate-950 dark:text-rose-300 dark:hover:bg-rose-950/30 ${buttonFocus}`}
+          >
+            {loggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+            {loggingOut ? copy.loggingOut : copy.logout}
+          </button>
+        </div>
+      </div>
     </SectionCard>
   );
 }
@@ -2008,44 +2228,87 @@ function TokenPaymentActivityCard({
           onAction={onBuy}
         />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                <th className="py-3 pr-4">Package</th>
-                <th className="py-3 pr-4">Tokens</th>
-                <th className="py-3 pr-4">Amount</th>
-                <th className="py-3 pr-4">Date</th>
-                <th className="py-3 text-right">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.map((item, index) => (
-                <tr
-                  key={item?.id || item?._id || item?.transaction_id || index}
-                  className="border-b border-slate-50 dark:border-slate-800/70"
+        <div>
+          <div className="space-y-3 md:hidden">
+            {transactions.map((item, index) => {
+              const key = item?.id || item?._id || item?.transaction_id || index;
+              const title =
+                item?.package_name ||
+                item?.payment_gateway ||
+                item?.gateway ||
+                "Token recharge";
+              const tokens = formatNumber(item?.tokens_added || item?.tokens || 0, lang);
+
+              return (
+                <div
+                  key={key}
+                  className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950"
                 >
-                  <td className="py-3 pr-4 font-medium text-slate-950 dark:text-white">
-                    {item?.package_name || item?.payment_gateway || item?.gateway || "Token recharge"}
-                  </td>
-                  <td className="py-3 pr-4 font-semibold text-emerald-700 dark:text-emerald-300">
-                    +{formatNumber(item?.tokens_added || item?.tokens || 0, lang)}
-                  </td>
-                  <td className="py-3 pr-4 text-slate-600 dark:text-slate-300">
-                    {formatMoney(item?.amount, item?.currency || "VND", lang)}
-                  </td>
-                  <td className="py-3 pr-4 text-slate-600 dark:text-slate-300">
-                    {formatDate(item?.paid_at || item?.created_at, lang)}
-                  </td>
-                  <td className="py-3 text-right">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-950 dark:text-white">
+                        {title}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {formatDate(item?.paid_at || item?.created_at, lang)}
+                      </p>
+                    </div>
                     <StatusBadge tone={getStatusTone(item?.status)}>
                       {getStatusLabel(item?.status, lang)}
                     </StatusBadge>
-                  </td>
+                  </div>
+                  <div className="mt-3 flex items-end justify-between gap-3">
+                    <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                      +{tokens} tokens
+                    </p>
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                      {formatMoney(item?.amount, item?.currency || "VND", lang)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="hidden overflow-hidden rounded-lg border border-slate-100 dark:border-slate-800 md:block">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 dark:bg-slate-950">
+                <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <th className="px-4 py-3">Package</th>
+                  <th className="px-4 py-3">Tokens</th>
+                  <th className="px-4 py-3">Amount</th>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3 text-right">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {transactions.map((item, index) => (
+                  <tr
+                    key={item?.id || item?._id || item?.transaction_id || index}
+                    className="bg-white transition hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-950"
+                  >
+                    <td className="px-4 py-3 font-medium text-slate-950 dark:text-white">
+                      {item?.package_name || item?.payment_gateway || item?.gateway || "Token recharge"}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-emerald-700 dark:text-emerald-300">
+                      +{formatNumber(item?.tokens_added || item?.tokens || 0, lang)}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-700 dark:text-slate-200">
+                      {formatMoney(item?.amount, item?.currency || "VND", lang)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {formatDate(item?.paid_at || item?.created_at, lang)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <StatusBadge tone={getStatusTone(item?.status)}>
+                        {getStatusLabel(item?.status, lang)}
+                      </StatusBadge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </SectionCard>
@@ -2124,15 +2387,15 @@ function QuickActionsCard({ copy, isAdmin, onAdmin, onBuy, onFeedback, onHistory
 
 function SectionCard({ action, children, icon: Icon, title }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-900">
       <div className="mb-5 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           {Icon && (
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-700 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700">
               <Icon className="h-5 w-5" />
             </div>
           )}
-          <h2 className="truncate text-base font-bold text-slate-950 dark:text-white">
+          <h2 className="truncate text-base font-bold tracking-tight text-slate-950 dark:text-white">
             {title}
           </h2>
         </div>
@@ -2230,12 +2493,12 @@ function PasswordInput({ id, label, onChange, onToggle, value, visible }) {
 
 function InfoTile({ icon: Icon, label, value }) {
   return (
-    <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950">
-      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+    <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3 transition-colors dark:border-slate-800 dark:bg-slate-950">
+      <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         <Icon className="h-3.5 w-3.5" />
         <span className="truncate">{label}</span>
       </div>
-      <p className="mt-2 truncate text-sm font-semibold text-slate-950 dark:text-white">
+      <p className="mt-2 truncate text-sm font-semibold leading-5 text-slate-950 dark:text-white">
         {value || "N/A"}
       </p>
     </div>
@@ -2251,11 +2514,11 @@ function StatCard({ label, tone = "neutral", value }) {
   }[tone];
 
   return (
-    <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+    <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 transition-colors dark:border-slate-800 dark:bg-slate-950">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
         {label}
       </p>
-      <p className={`mt-2 text-2xl font-bold ${toneClass}`}>{value}</p>
+      <p className={`mt-2 text-2xl font-bold tracking-tight ${toneClass}`}>{value}</p>
     </div>
   );
 }
@@ -2276,7 +2539,7 @@ function StatusBadge({ children, tone = "neutral" }) {
 
   return (
     <span
-      className={`inline-flex w-fit items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold ${toneClass}`}
+      className={`inline-flex w-fit shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold ${toneClass}`}
     >
       {tone === "success" && <CheckCircle2 className="h-3.5 w-3.5" />}
       {tone === "danger" && <XCircle className="h-3.5 w-3.5" />}
@@ -2288,9 +2551,11 @@ function StatusBadge({ children, tone = "neutral" }) {
 function EmptyState({ actionLabel, description, icon: Icon, onAction, title }) {
   return (
     <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-6 text-center dark:border-slate-800 dark:bg-slate-950">
-      <Icon className="mx-auto h-8 w-8 text-slate-400" />
+      <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-md bg-white text-slate-400 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+        <Icon className="h-5 w-5" />
+      </div>
       <p className="mt-3 font-semibold text-slate-950 dark:text-white">{title}</p>
-      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>
+      <p className="mx-auto mt-1 max-w-sm text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p>
       {actionLabel && onAction && (
         <button
           type="button"

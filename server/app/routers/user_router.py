@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 
 from app.controllers.payment_controller import PaymentController
 from app.controllers.user_controller import UserController
@@ -33,6 +33,17 @@ async def upload_my_avatar(
     current_user: User = Depends(get_current_user),
 ):
     return await UserController.upload_avatar(current_user, file)
+
+
+@router.post("/me/email/resend-verification")
+async def resend_my_email_verification(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    return await UserController.resend_email_verification(
+        current_user,
+        str(request.base_url),
+    )
 
 
 @router.get("/me/stats")

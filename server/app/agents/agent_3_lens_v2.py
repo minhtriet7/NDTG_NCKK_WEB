@@ -92,6 +92,9 @@ class Agent3LensV2(BaseAgent):
         if not bool(getattr(config, "agent3_v2_enabled", True)):
             return self._disabled_response("Agent 3 v2 Selenium đang bị tắt theo cấu hình admin.")
 
+        if not bool(getattr(settings, "AGENT3_SELENIUM_ENABLED", False)):
+            return self._disabled_response("Agent 3 Selenium đang bị tắt theo cấu hình env.")
+
         image_url = self._upload_to_imgbb(image_bytes)
 
         if not image_url:
@@ -102,7 +105,11 @@ class Agent3LensV2(BaseAgent):
         max_results = int(getattr(config, "max_results", 5) or 5)
         max_visual_matches = int(getattr(config, "max_visual_matches", 10) or 10)
         max_exact_matches = int(getattr(config, "max_exact_matches", 5) or 5)
-        timeout_seconds = int(getattr(config, "request_timeout_seconds", 20) or 20)
+        timeout_seconds = int(
+            getattr(settings, "AGENT3_SELENIUM_TIMEOUT_SECONDS", None)
+            or getattr(config, "request_timeout_seconds", 35)
+            or 35
+        )
 
         lens_url = self._build_lens_url(
             image_url=image_url,
@@ -111,7 +118,7 @@ class Agent3LensV2(BaseAgent):
         )
 
         evidence: List[Dict[str, Any]] = []
-        max_retries = 3
+        max_retries = max(1, int(getattr(settings, "AGENT3_SELENIUM_MAX_RETRIES", 0) or 0) + 1)
 
         for attempt in range(max_retries):
             chrome_service = ChromeDriver()
@@ -309,6 +316,8 @@ class Agent3LensV2(BaseAgent):
                     "dac_diem_chinh": [],
                     "status": "Failed",
                     "provider": "selenium",
+                    "error_type": "technical_error",
+                    "technical_error": True,
                 }
             ],
             ensure_ascii=False,
@@ -318,18 +327,18 @@ class Agent3LensV2(BaseAgent):
 class _EnvFallbackConfig:
     enable_agent_3 = True
     lens_enabled = True
-    agent3_v2_enabled = True
+    agent3_v2_enabled = False
 
-    lens_provider = "selenium"
-    lens_fallback_enabled = True
-    lens_fallback_provider = "serpapi"
+    lens_provider = "serpapi"
+    lens_fallback_enabled = False
+    lens_fallback_provider = "selenium"
 
     language_code = "vi"
     country_code = "vn"
     max_results = 5
     max_visual_matches = 10
     max_exact_matches = 5
-    request_timeout_seconds = 20
+    request_timeout_seconds = 35
 
 
 async def run_agent3_lens_v2(image_bytes: bytes, context: str = "", debug_log: Optional[Dict] = None) -> str:

@@ -19,6 +19,7 @@ import Register from "../pages/auth/Register.jsx";
 import ForgotPassword from "../pages/auth/ForgotPassword.jsx";
 import AdminLogin from "../pages/auth/AdminLogin.jsx";
 import GoogleSuccess from "../pages/auth/GoogleSuccess.jsx";
+import VerifyEmail from "../pages/auth/VerifyEmail.jsx";
 
 // Pages - User
 import Home from "../pages/user/Home.jsx";
@@ -149,6 +150,7 @@ export default function AppRoutes() {
           <Route path="login" element={<Login />} />
           <Route path="register" element={<Register />} />
           <Route path="forgot-password" element={<ForgotPassword />} />
+          <Route path="verify-email" element={<VerifyEmail />} />
 
           {/* Admin login */}
           <Route path="admin-login" element={<AdminLogin />} />

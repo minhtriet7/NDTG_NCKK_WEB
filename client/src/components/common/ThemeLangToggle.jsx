@@ -9,7 +9,7 @@ export default function ThemeLangToggle() {
 
   const theme = appStore.theme || "light";
   const lang = appStore.lang || "EN";
-  const isDark = theme === "dark";
+  const isDark = (appStore.resolvedTheme || theme) === "dark";
 
   const handleToggleTheme = () => {
     if (typeof appStore.toggleTheme === "function") {
@@ -51,14 +51,20 @@ export default function ThemeLangToggle() {
   };
 
   return (
-    <div className="flex items-center gap-2 sm:gap-3">
+    <div
+      className={`inline-flex items-center gap-1 rounded-2xl border p-1 shadow-sm ${
+        isDark
+          ? "border-slate-700/80 bg-slate-900/80"
+          : "border-slate-200/80 bg-white/75"
+      }`}
+    >
       <button
         type="button"
         onClick={handleToggleLang}
-        className={`flex items-center gap-1.5 px-3 py-2 shadow-sm border rounded-xl text-sm font-bold transition-all duration-200 hover:scale-[1.05] active:scale-95 ${
+        className={`inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-sm font-black transition-all duration-200 active:scale-95 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 ${
           isDark
-            ? "bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700"
-            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+            ? "text-slate-200 hover:bg-slate-800 hover:text-cyan-300"
+            : "text-slate-600 hover:bg-slate-100 hover:text-indigo-600"
         }`}
         title="Toggle language"
       >
@@ -69,10 +75,10 @@ export default function ThemeLangToggle() {
       <button
         type="button"
         onClick={handleToggleTheme}
-        className={`flex items-center justify-center p-2 shadow-sm border rounded-xl transition-all duration-200 hover:scale-[1.05] active:scale-95 ${
+        className={`inline-flex h-9 w-9 items-center justify-center rounded-xl transition-all duration-200 active:scale-95 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 ${
           isDark
-            ? "bg-slate-800 border-slate-700 text-amber-400 hover:bg-slate-700"
-            : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+            ? "bg-amber-400/10 text-amber-300 hover:bg-amber-400/15"
+            : "text-slate-600 hover:bg-slate-100 hover:text-indigo-600"
         }`}
         title="Toggle theme"
       >

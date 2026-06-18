@@ -1,7 +1,7 @@
 from fastapi import UploadFile, HTTPException
 
 from app.models.user_model import User
-from app.services.recognition_service import RecognitionService
+from app.services.recognition_service import RecognitionService, serialize_result
 
 
 def _derive_currency(denomination: str) -> str:
@@ -30,51 +30,58 @@ def _extract_agent(agent_results, name):
 def _format_result_detail(result: dict):
     final_result = result.get("final_result") or {}
     agent_results = result.get("agent_results") or []
-
+    detected_objects = (
+        result.get("detected_objects")
+        or final_result.get("detected_objects")
+        or []
+    )
+    first_object = detected_objects[0] if detected_objects else {}
     status = final_result.get("status") or result.get("status")
-    is_completed = status == "Completed" or result.get("status") == "Completed"
+    denomination = (
+        final_result.get("final_denomination")
+        or final_result.get("menh_gia")
+        or final_result.get("denomination")
+        or ("Needs review" if status != "Completed" else "N/A")
+    )
+    country = (
+        final_result.get("quoc_gia")
+        or final_result.get("country")
+        or final_result.get("final_country")
+        or "Không xác định"
+    )
+    material = (
+        final_result.get("chat_lieu")
+        or final_result.get("material")
+        or "Không xác định"
+    )
+    description = (
+        final_result.get("mo_ta")
+        or final_result.get("description")
+        or final_result.get("quan_diem_trong_tai")
+        or ""
+    )
+    confidence = final_result.get("confidence")
+    if confidence is None:
+        confidence = final_result.get("do_tin_cay")
 
-    if is_completed:
-        denomination = (
-            final_result.get("final_denomination")
-            or final_result.get("menh_gia")
-            or "N/A"
-        )
-        country = (
-            final_result.get("quoc_gia")
-            or final_result.get("country")
-            or "Không xác định"
-        )
-        material = (
-            final_result.get("chat_lieu")
-            or final_result.get("material")
-            or "Không xác định"
-        )
-        description = (
-            final_result.get("mo_ta")
-            or final_result.get("description")
-            or ""
-        )
-    else:
-        denomination = "Needs review"
-        country = "Không xác định"
-        material = "Không xác định"
-        description = (
-            "Các Agent chưa đạt đồng thuận đủ tin cậy. "
-            "Cần quét lại hoặc kiểm tra thủ công."
-        )
-
-    return {
+    formatted = dict(result)
+    formatted.update({
         "id": result.get("id"),
         "status": result.get("status"),
         "data": {
             "denomination": denomination,
-            "currency": _derive_currency(denomination),
+            "currency": (
+                final_result.get("currency")
+                or final_result.get("currency_code")
+                or final_result.get("ma_tien_te")
+                or _derive_currency(denomination)
+            ),
             "country": country,
             "origin": country,
             "description": description,
             "material": material,
             "estimated_usd": "N/A",
+            "confidence": confidence,
         },
         "agents": {
             "ml_dl": _extract_agent(agent_results, "OpenAI"),
@@ -89,15 +96,47 @@ def _format_result_detail(result: dict):
             "referee_view": final_result.get("quan_diem_trong_tai", ""),
             "valid_votes": final_result.get("valid_votes", []),
             "debate_log": final_result.get("debate_log", ""),
+            "consensus_pattern": final_result.get("consensus_pattern"),
+            "partial": final_result.get("partial", False),
+            "completed_objects": final_result.get("completed_objects"),
+            "needs_better_image_objects": final_result.get("needs_better_image_objects"),
+            "total_objects": final_result.get("total_objects"),
         },
+        "detected_objects": detected_objects,
+        "multi_object": len(detected_objects) > 1,
+        "confidence": confidence,
+        "crop_checker": first_object.get("crop_checker") or result.get("crop_checker"),
+        "selected_box_reason": (
+            first_object.get("selected_box_reason")
+            or result.get("selected_box_reason")
+        ),
+        "box_selection_trace": (
+            first_object.get("box_selection_trace")
+            or result.get("box_selection_trace")
+        ),
+        "rejected_boxes": (
+            first_object.get("rejected_boxes")
+            or result.get("rejected_boxes")
+            or []
+        ),
+        "consensus_trace": (
+            first_object.get("consensus_trace")
+            or result.get("consensus_trace")
+            or []
+        ),
         "uploaded_image_url": result.get("uploaded_image_url"),
+        "input_image_url": (
+            result.get("input_image_url")
+            or result.get("uploaded_image_url")
+        ),
         "image_url": result.get("uploaded_image_url"),
         "task_id": result.get("task_id"),
         "processing_time_ms": result.get("processing_time_ms"),
         "error_message": result.get("error_message"),
         "created_at": result.get("created_at"),
         "updated_at": result.get("updated_at"),
-    }
+    })
+    return formatted
 
 
 class RecognitionController:
@@ -111,16 +150,9 @@ class RecognitionController:
 
         image_bytes = await file.read()
         record = await RecognitionService.process_banknote(user, image_bytes)
-
-        return {
-            "id": str(record.id),
-            "status": record.status,
-            "message": "Banknote recognized successfully. 1 Token deducted.",
-            "final_result": record.final_result,
-            "agent_results": record.agent_results,
-            "uploaded_image_url": record.uploaded_image_url,
-            "created_at": record.created_at,
-        }
+        payload = serialize_result(record)
+        payload["message"] = "Banknote recognized successfully. 1 Token deducted."
+        return payload
 
     @staticmethod
     async def start_task(user: User, file: UploadFile):

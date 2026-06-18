@@ -6,6 +6,8 @@ import {
   Activity,
   AlertTriangle,
   RefreshCw,
+  Database,
+  Globe
 } from "lucide-react";
 import { getRates } from "../../services/currencyService";
 import { useNavigate } from "react-router-dom";
@@ -179,29 +181,52 @@ export default function CurrencyConverter() {
   }
 
   return (
-    <div className="page-inner pt-6 relative pb-24 font-sans transition-colors duration-300">
-      <div className="page-orb-indigo top-0 right-[-10%]" />
-      <div className="max-w-4xl mx-auto space-y-8 relative z-10">
-        <div className="text-center space-y-3">
-          <h1 className="text-3xl font-bold tracking-tight">{t.title}</h1>
-          <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+    <div className="min-h-screen bg-background text-foreground transition-colors duration-300 pb-20 relative overflow-hidden flex flex-col items-center pt-24">
+      {/* ── Gradient orbs ── */}
+      <div
+        className="absolute top-[-10%] left-[-5%] w-[500px] h-[500px] rounded-full bg-indigo-600/10 dark:bg-indigo-600/10 blur-[120px] pointer-events-none animate-float"
+        style={{ animationDuration: "8s" }}
+      />
+      <div
+        className="absolute bottom-[-5%] right-[-5%] w-[400px] h-[400px] rounded-full bg-purple-600/10 dark:bg-purple-600/10 blur-[100px] pointer-events-none animate-float"
+        style={{ animationDelay: "2s", animationDuration: "10s" }}
+      />
+
+      {/* ── Grid background ── */}
+      <div
+        className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_right,rgba(99,102,241,0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgba(99,102,241,0.05)_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,#1E293B40_1px,transparent_1px),linear-gradient(to_bottom,#1E293B40_1px,transparent_1px)] bg-[size:2.5rem_2.5rem] [mask-image:radial-gradient(ellipse_80%_80%_at_50%_0%,#000_40%,transparent_100%)]"
+      />
+
+      {/* ── Top glow bar ── */}
+      <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-indigo-500/50 to-transparent" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[150px] opacity-[0.1] dark:opacity-[0.15] bg-indigo-500 blur-[100px] rounded-full pointer-events-none" />
+
+      <div className="max-w-4xl mx-auto w-full px-4 sm:px-6 space-y-10 relative z-10">
+        <div className="text-center space-y-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-bold uppercase tracking-wider mb-2 shadow-sm">
+            Finance & AI
+          </div>
+          <h1 className="text-4xl sm:text-5xl md:text-[3.4rem] font-black tracking-tight leading-tight gradient-text-brand">
+            {t.title}
+          </h1>
+          <p className="text-base sm:text-lg font-medium text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
             {t.subtitle}
           </p>
-          <div className="flex justify-center items-center gap-3 flex-wrap">
+          <div className="flex justify-center items-center gap-3 flex-wrap mt-4">
             <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border backdrop-blur-md ${
                 isDark
-                  ? "bg-blue-900/30 text-blue-400 border-blue-800"
-                  : "bg-blue-50 text-blue-600 border-blue-100"
+                  ? "bg-blue-900/20 text-blue-400 border-blue-800/50"
+                  : "bg-blue-50/80 text-blue-700 border-blue-200"
               }`}
             >
               <Activity className="w-3.5 h-3.5" /> {t.provider}: {ratesData?.provider || "N/A"}
             </span>
             <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full border ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full border backdrop-blur-md ${
                 stale
-                  ? "bg-rose-900/30 text-rose-400 border-rose-800"
-                  : "bg-emerald-900/30 text-emerald-400 border-emerald-800"
+                  ? "bg-rose-900/20 text-rose-400 border-rose-800/50"
+                  : "bg-emerald-900/20 text-emerald-500 border-emerald-800/50"
               }`}
             >
               {stale ? t.stale : t.fresh}
@@ -209,35 +234,38 @@ export default function CurrencyConverter() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <MetaCard label={t.source} value={ratesData?.source || "database"} isDark={isDark} />
-          <MetaCard label={t.provider} value={ratesData?.provider || "system"} isDark={isDark} />
-          <MetaCard label={t.active} value={currencyCodes.length} isDark={isDark} />
-          <MetaCard label={t.lastUpdated} value={formatDate(ratesData?.last_updated, lang)} isDark={isDark} />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <MetaCard icon={<Database className="w-4 h-4 text-indigo-500" />} label={t.source} value={ratesData?.source || "database"} isDark={isDark} />
+          <MetaCard icon={<Activity className="w-4 h-4 text-indigo-500" />} label={t.provider} value={ratesData?.provider || "system"} isDark={isDark} />
+          <MetaCard icon={<Globe className="w-4 h-4 text-indigo-500" />} label={t.active} value={currencyCodes.length} isDark={isDark} />
+          <MetaCard icon={<RefreshCw className="w-4 h-4 text-indigo-500" />} label={t.lastUpdated} value={formatDate(ratesData?.last_updated, lang)} isDark={isDark} />
         </div>
 
         {stale && (
           <div
-            className={`p-4 rounded-xl flex items-start gap-3 border ${
+            className={`p-4 rounded-2xl flex items-start gap-3 border backdrop-blur-md shadow-sm ${
               isDark
                 ? "bg-rose-950/30 border-rose-900/50 text-rose-300"
-                : "bg-rose-50 border-rose-200 text-rose-700"
+                : "bg-rose-50/80 border-rose-200 text-rose-700"
             }`}
           >
-            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
             <p className="text-sm font-semibold">{t.staleWarn}</p>
           </div>
         )}
 
-        <div className="card-base p-6 md:p-10 rounded-3xl relative overflow-hidden">
+        {/* Main Converter Card */}
+        <div className="bg-white/80 dark:bg-[#0F172A]/80 backdrop-blur-xl shadow-[0_0_40px_rgba(99,102,241,0.08)] dark:shadow-[0_0_40px_rgba(99,102,241,0.05)] border border-slate-200/60 dark:border-slate-800/60 rounded-[2rem] p-6 md:p-10 relative overflow-hidden group hover:border-indigo-500/30 dark:hover:border-indigo-400/30 transition-colors duration-500">
+          <div className="absolute top-0 left-0 w-64 h-64 bg-gradient-to-br from-indigo-500/5 to-transparent rounded-full pointer-events-none" />
+          
           <div className="flex flex-col md:flex-row items-center gap-6 relative z-10">
-            <div className="w-full md:w-2/5 space-y-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            <div className="w-full md:w-[42%] space-y-3">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 {t.amtFrom}
               </label>
               <div
-                className={`flex border rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500/50 ${
-                  isDark ? "bg-slate-950 border-slate-700" : "bg-slate-50 border-slate-200"
+                className={`flex border rounded-2xl overflow-hidden focus-within:ring-4 focus-within:ring-indigo-500/20 transition-all duration-300 ${
+                  isDark ? "bg-slate-900/50 border-slate-700/80" : "bg-slate-50 border-slate-200"
                 }`}
               >
                 <input
@@ -245,17 +273,17 @@ export default function CurrencyConverter() {
                   min="0"
                   value={amount}
                   onChange={(e) => setAmount(Number(e.target.value))}
-                  className="w-full p-4 bg-transparent outline-none font-mono text-lg font-bold"
+                  className="w-full p-4 bg-transparent outline-none font-sans text-2xl md:text-3xl font-black text-slate-800 dark:text-white"
                 />
                 <select
                   value={fromCurr}
                   onChange={(e) => setFromCurr(e.target.value)}
-                  className={`bg-transparent border-l p-4 font-bold outline-none cursor-pointer ${
-                    isDark ? "border-slate-700" : "border-slate-200"
+                  className={`bg-transparent border-l p-4 font-bold outline-none cursor-pointer text-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
+                    isDark ? "border-slate-700/80 text-white" : "border-slate-200 text-slate-800"
                   }`}
                 >
                   {currencyCodes.map((c) => (
-                    <option key={c} value={c}>{c}</option>
+                    <option key={c} value={c} className="text-slate-800 dark:bg-slate-900 dark:text-white">{c}</option>
                   ))}
                 </select>
               </div>
@@ -266,25 +294,25 @@ export default function CurrencyConverter() {
                 setFromCurr(toCurr);
                 setToCurr(fromCurr);
               }}
-              className={`p-4 rounded-full shadow-sm hover:border-indigo-500 transition-all z-10 border ${
-                isDark ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
+              className={`p-4 rounded-full shadow-md hover:shadow-lg hover:scale-110 active:scale-95 transition-all duration-300 z-10 border group ${
+                isDark ? "bg-indigo-600 border-indigo-500 text-white hover:bg-indigo-500" : "bg-indigo-600 border-indigo-500 text-white hover:bg-indigo-500"
               }`}
             >
-              <ArrowRightLeft className="w-5 h-5 text-slate-400 hover:text-indigo-500" />
+              <ArrowRightLeft className="w-5 h-5 group-hover:-rotate-180 transition-transform duration-500" />
             </button>
 
-            <div className="w-full md:w-2/5 space-y-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            <div className="w-full md:w-[42%] space-y-3">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 {t.convertedTo}
               </label>
               <div
-                className={`flex border rounded-xl overflow-hidden ${
-                  isDark ? "bg-slate-950 border-slate-700" : "bg-slate-50 border-slate-200"
+                className={`flex border rounded-2xl overflow-hidden focus-within:ring-4 focus-within:ring-indigo-500/20 transition-all duration-300 ${
+                  isDark ? "bg-slate-900/80 border-slate-700/80" : "bg-indigo-50/50 border-indigo-100"
                 }`}
               >
                 <div
-                  className={`w-full p-4 font-mono text-lg font-bold flex items-center overflow-x-auto ${
-                    isDark ? "text-indigo-400 bg-slate-900" : "text-indigo-700 bg-slate-100"
+                  className={`w-full p-4 font-sans text-2xl md:text-3xl font-black flex items-center overflow-x-auto ${
+                    isDark ? "text-indigo-400" : "text-indigo-600"
                   }`}
                 >
                   {calculateResult()}
@@ -292,45 +320,45 @@ export default function CurrencyConverter() {
                 <select
                   value={toCurr}
                   onChange={(e) => setToCurr(e.target.value)}
-                  className={`bg-transparent border-l p-4 font-bold outline-none cursor-pointer ${
-                    isDark ? "border-slate-700" : "border-slate-200"
+                  className={`bg-transparent border-l p-4 font-bold outline-none cursor-pointer text-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
+                    isDark ? "border-slate-700/80 text-white" : "border-indigo-100 text-indigo-900"
                   }`}
                 >
                   {currencyCodes.map((c) => (
-                    <option key={c} value={c}>{c}</option>
+                    <option key={c} value={c} className="text-slate-800 dark:bg-slate-900 dark:text-white">{c}</option>
                   ))}
                 </select>
               </div>
             </div>
           </div>
 
-          <div className="mt-4 text-center">
-            <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-md">
+          <div className="mt-6 text-center">
+            <span className="inline-flex items-center justify-center text-xs font-semibold text-slate-500 dark:text-slate-400 bg-slate-100/80 dark:bg-slate-800/80 px-4 py-1.5 rounded-full border border-slate-200 dark:border-slate-700">
               {getExplanation()}
             </span>
           </div>
 
           <div
-            className={`mt-8 pt-6 border-t flex flex-col md:flex-row justify-between items-center gap-4 ${
-              isDark ? "border-slate-800" : "border-slate-100"
+            className={`mt-10 pt-6 border-t flex flex-col md:flex-row justify-between items-center gap-4 ${
+              isDark ? "border-slate-800/80" : "border-slate-200"
             }`}
           >
-            <p className="text-xs text-slate-400 flex items-center gap-1.5">
-              <Info className="w-4 h-4" /> {t.info}
+            <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
+              <Info className="w-4 h-4 text-indigo-500" /> {t.info}
             </p>
-            <div className="flex gap-2">
+            <div className="flex gap-3">
               <button
                 onClick={fetchRates}
                 disabled={isFetching}
-                className={`p-2.5 rounded-xl border ${
-                  isDark ? "border-slate-700 text-slate-400" : "border-slate-200 text-slate-600"
+                className={`flex items-center justify-center w-11 h-11 rounded-xl border transition-colors ${
+                  isDark ? "border-slate-700 text-slate-400 hover:text-white hover:bg-slate-800" : "border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-indigo-600"
                 }`}
               >
-                <RefreshCw size={16} className={isFetching ? "animate-spin" : ""} />
+                <RefreshCw size={18} className={isFetching ? "animate-spin text-indigo-500" : ""} />
               </button>
               <button
                 onClick={() => navigate("/recognize")}
-                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-sm transition-all shadow-sm active:scale-95"
+                className="px-6 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-xl text-sm transition-all shadow-md hover:shadow-xl hover:-translate-y-0.5 active:scale-95"
               >
                 {t.scanBtn}
               </button>
@@ -338,39 +366,45 @@ export default function CurrencyConverter() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {quickPairs.map((pair, idx) => (
-            <div
-              key={idx}
-              onClick={() => {
-                const parts = pair.split(" ");
-                setAmount(Number(parts[0]));
-                setFromCurr(parts[1]);
-                setToCurr(parts[3]);
-              }}
-              className={`p-4 border rounded-2xl shadow-sm flex items-center justify-between cursor-pointer hover:border-indigo-500 transition-colors ${
-                isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
-              }`}
-            >
-              <span className="text-sm font-semibold">{pair}</span>
-              <TrendingUp className="w-4 h-4 text-indigo-500" />
-            </div>
-          ))}
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 ml-2">Quick Conversions</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {quickPairs.map((pair, idx) => (
+              <div
+                key={idx}
+                onClick={() => {
+                  const parts = pair.split(" ");
+                  setAmount(Number(parts[0]));
+                  setFromCurr(parts[1]);
+                  setToCurr(parts[3]);
+                }}
+                className={`p-4 rounded-2xl shadow-sm border backdrop-blur-sm flex items-center justify-between cursor-pointer group hover:-translate-y-0.5 transition-all duration-300 ${
+                  isDark ? "bg-slate-900/50 border-slate-800/80 hover:border-indigo-500/50 hover:bg-slate-800/50" : "bg-white/80 border-slate-200 hover:border-indigo-400 hover:shadow-md"
+                }`}
+              >
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{pair}</span>
+                <TrendingUp className="w-4 h-4 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function MetaCard({ label, value, isDark }) {
+function MetaCard({ icon, label, value, isDark }) {
   return (
     <div
-      className={`rounded-2xl border p-4 text-left ${
-        isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"
+      className={`rounded-2xl border p-5 text-left flex flex-col gap-2 backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:shadow-lg ${
+        isDark ? "bg-slate-900/50 border-slate-800/80 hover:border-indigo-500/30" : "bg-white/80 border-slate-200 hover:border-indigo-200"
       }`}
     >
-      <p className="text-[11px] uppercase tracking-wider font-bold text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-black truncate">{value}</p>
+      <div className="flex items-center gap-2">
+        {icon}
+        <p className="text-[11px] uppercase tracking-wider font-bold text-slate-500 dark:text-slate-400">{label}</p>
+      </div>
+      <p className="text-xl font-black truncate text-slate-800 dark:text-white tracking-tight">{value}</p>
     </div>
   );
 }

@@ -48,6 +48,40 @@ def register_email(full_name: str) -> Dict[str, str]:
     }
 
 
+def email_verification_email(
+    full_name: str,
+    verify_url: str,
+    expires_hours: int = 24,
+) -> Dict[str, str]:
+    subject = "Verify your BanknoteAI email"
+
+    extra = f"""
+    <div style="margin-top:18px;">
+      <a href="{verify_url}" style="display:inline-block;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:10px;padding:12px 18px;font-weight:700;font-size:14px;">
+        Verify email
+      </a>
+    </div>
+    <p style="margin-top:16px;color:#64748b;font-size:13px;line-height:1.6;">
+      This verification link expires in {expires_hours} hours. If you did not request this,
+      you can safely ignore this email.
+    </p>
+    """
+
+    html = build_email_html(
+        title="Verify your email address",
+        message=(
+            f"Hello {full_name or 'there'}, please verify your email address "
+            "to keep your BanknoteAI account status up to date."
+        ),
+        extra=extra,
+    )
+
+    return {
+        "subject": subject,
+        "html": html,
+    }
+
+
 def login_email(full_name: str) -> Dict[str, str]:
     subject = "New sign-in to your BanknoteAI account"
 
@@ -248,4 +282,4 @@ def admin_system_error_email(error_message: str, path: str = "N/A") -> Dict[str,
     return {
         "subject": subject,
         "html": html,
-    }    
+    }

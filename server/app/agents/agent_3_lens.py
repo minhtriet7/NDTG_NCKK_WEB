@@ -1,6 +1,8 @@
 import json
 import requests
 import asyncio
+import re
+import time
 from typing import Optional, List, Dict, Any
 
 from app.core.config import settings
@@ -12,6 +14,150 @@ from app.agents.agent_2_llm import (
 )
 from app.agents.base_agent import BaseAgent
 from google.genai import types # 🌟 THÊM IMPORT NÀY ĐỂ ÉP KIỂU JSON
+
+
+DENOMINATION_VALUES = [
+    500000,
+    100000,
+    50000,
+    20000,
+    10000,
+    5000,
+    2000,
+    1000,
+    500,
+]
+
+COUNTRY_RULES = [
+    {
+        "country": "Myanmar",
+        "currency": "MMK",
+        "keywords": ["myanmar", "burma", "kyat", "kyats", "mmk"],
+    },
+    {
+        "country": "Cambodia",
+        "currency": "KHR",
+        "keywords": ["cambodia", "khmer", "riel", "riels", "khr"],
+    },
+    {
+        "country": "Laos",
+        "currency": "LAK",
+        "keywords": ["laos", "lao", "kip", "lak"],
+    },
+    {
+        "country": "Thailand",
+        "currency": "THB",
+        "keywords": ["thailand", "thai", "baht", "thb"],
+    },
+    {
+        "country": "Vietnam",
+        "currency": "VND",
+        "keywords": ["vietnam", "viet nam", "vnd", "dong", "đồng"],
+    },
+]
+
+
+def _evidence_text(item: Dict[str, Any]) -> str:
+    return " ".join(
+        str(item.get(key) or "")
+        for key in ("title", "snippet", "source", "url", "link", "text")
+    )
+
+
+def _detect_country_currency(text: str) -> tuple[Optional[str], Optional[str], List[str]]:
+    lowered = text.lower()
+    best_match = None
+    best_score = 0
+    matched_keywords: List[str] = []
+
+    for rule in COUNTRY_RULES:
+        keywords = [kw for kw in rule["keywords"] if kw in lowered]
+        if len(keywords) > best_score:
+            best_match = rule
+            best_score = len(keywords)
+            matched_keywords = keywords
+
+    if not best_match:
+        return None, None, []
+
+    return best_match["country"], best_match["currency"], matched_keywords
+
+
+def _detect_amount(text: str) -> Optional[int]:
+    normalized = text.lower().replace(",", "").replace(".", "")
+
+    for amount in DENOMINATION_VALUES:
+        pattern = rf"(?<!\d){amount}(?!\d)"
+        if re.search(pattern, normalized):
+            return amount
+
+    return None
+
+
+def parse_lens_evidence_without_llm(
+    evidence_items: List[Dict[str, Any]],
+    raw_lens_text: str = "",
+) -> Dict[str, Any]:
+    """
+    Deterministic fallback parser for Google Lens evidence.
+    It avoids calling any LLM when the formatter is unavailable.
+    """
+    evidence_items = [item for item in evidence_items or [] if isinstance(item, dict)]
+    combined_text = " ".join(_evidence_text(item) for item in evidence_items)
+    country, currency, country_keywords = _detect_country_currency(combined_text)
+    amount = _detect_amount(combined_text)
+
+    visible_text = []
+    for item in evidence_items[:5]:
+        title = str(item.get("title") or item.get("text") or "").strip()
+        if title and title not in visible_text:
+            visible_text.append(title[:160])
+
+    features = []
+    if country_keywords:
+        features.append(f"country_keywords:{','.join(country_keywords[:4])}")
+    if amount:
+        features.append(f"amount:{amount}")
+    if evidence_items:
+        features.append(f"evidence_count:{len(evidence_items)}")
+
+    has_clear_identity = bool(country and currency and amount)
+    has_partial_identity = bool((country or currency) and evidence_items)
+    confidence = 0.58 if has_clear_identity else 0.32 if has_partial_identity else 0.2
+    status = "Completed" if has_clear_identity else "Partial"
+
+    if has_clear_identity:
+        denomination = f"{amount} {currency}"
+        description = (
+            f"Google Lens evidence mentions {country} / {currency} and amount {amount}. "
+            "Result was parsed without LLM formatter."
+        )
+    else:
+        denomination = "Không xác định"
+        description = (
+            "Google Lens returned raw evidence, but deterministic parser could not "
+            "identify both country/currency and denomination confidently."
+        )
+
+    return {
+        "quoc_gia": country or "Không xác định",
+        "ma_tien_te": currency or "Không xác định",
+        "menh_gia": denomination,
+        "mat_tien": "Không xác định",
+        "nam_phat_hanh": "Không xác định",
+        "chat_lieu": "Không xác định",
+        "mo_ta": description,
+        "quan_diem": description,
+        "phuong_phap": "Google Lens SerpApi parser fallback",
+        "do_tin_cay": confidence,
+        "van_ban_nhin_thay": visible_text,
+        "dac_diem_chinh": features,
+        "status": status,
+        "provider": "serpapi",
+        "raw_text": raw_lens_text,
+        "evidence": evidence_items[:5],
+        "formatter_fallback": True,
+    }
 
 class Agent3Lens(BaseAgent):
     def __init__(self):
@@ -57,7 +203,7 @@ class Agent3Lens(BaseAgent):
         response = requests.get(
             "https://serpapi.com/search.json",
             params=params,
-            timeout=15,
+            timeout=int(getattr(settings, "AGENT3_SERPAPI_TIMEOUT_SECONDS", 20) or 20),
         )
 
         try:
@@ -192,6 +338,8 @@ class Agent3Lens(BaseAgent):
             "van_ban_nhin_thay": [],
             "dac_diem_chinh": [],
             "status": "Failed",
+            "error_type": "technical_error",
+            "technical_error": True,
         }
         if evidence is not None:
             failed_data["evidence"] = evidence
@@ -267,6 +415,8 @@ Quy tắc:
             debug_log["prompt_sent"] = prompt_format
         # 🌟 CẬP NHẬT 1: Chuyển sang model lite để né Quota và phản hồi nhanh hơn
         # 🌟 CẬP NHẬT 2: Sử dụng GenerateContentConfig để ép trả về JSON cấu trúc sạch
+        formatter_timeout = int(getattr(settings, "AGENT3_FORMATTER_TIMEOUT_SECONDS", 10) or 10)
+
         try:
             response = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -278,10 +428,10 @@ Quy tắc:
                         temperature=0.1,
                     ),
                 ),
-                timeout=20.0
+                timeout=formatter_timeout,
             )
         except asyncio.TimeoutError:
-            raise RuntimeError("Gemini Lens format call timeout after 20s.")
+            raise RuntimeError(f"Gemini Lens format call timeout after {formatter_timeout}s.")
 
         raw_response = response.text or ""
         if debug_log is not None:
@@ -298,13 +448,32 @@ Quy tắc:
 
         try:
             print(f"[{self.agent_name}] Upload ảnh lên ImgBB...")
+            upload_started = time.perf_counter()
             image_url = await asyncio.to_thread(self.upload_to_imgbb, image_bytes)
+            upload_ms = int((time.perf_counter() - upload_started) * 1000)
+            print(f"[Agent3Timing] upload_ms={upload_ms}")
 
             if not image_url:
                 return self.build_visual_search_result(error=Exception("Upload ImgBB thất bại, không có image_url."))
 
             print(f"[{self.agent_name}] Gọi SerpApi Google Lens...")
-            serpapi_data = await asyncio.to_thread(self._call_serpapi_google_lens, image_url)
+            serpapi_started = time.perf_counter()
+            serpapi_data = None
+            serpapi_last_error = None
+            serpapi_attempts = max(1, int(getattr(settings, "AGENT3_SERPAPI_MAX_RETRIES", 1) or 1))
+
+            for serpapi_attempt in range(serpapi_attempts):
+                try:
+                    serpapi_data = await asyncio.to_thread(self._call_serpapi_google_lens, image_url)
+                    break
+                except Exception as exc:
+                    serpapi_last_error = exc
+                    if serpapi_attempt + 1 >= serpapi_attempts:
+                        raise
+                    await asyncio.sleep(0.5)
+
+            serpapi_ms = int((time.perf_counter() - serpapi_started) * 1000)
+            print(f"[Agent3Timing] serpapi_ms={serpapi_ms}")
             compact_data = self._compact_serpapi_result(serpapi_data)
 
             if not self._has_useful_lens_data(compact_data):
@@ -339,7 +508,17 @@ Quy tắc:
 
             # Validate links asynchronously
             from app.utils.link_validator import filter_alive_links
-            alive_evidence = await filter_alive_links(raw_evidence)
+            try:
+                alive_evidence = await asyncio.wait_for(
+                    filter_alive_links(raw_evidence),
+                    timeout=5.0,
+                )
+            except Exception as exc:
+                print(f"[{self.agent_name}] Link validation skipped: {exc}")
+                alive_evidence = raw_evidence
+
+            if not alive_evidence and raw_evidence:
+                alive_evidence = raw_evidence
 
             # Reconstruct compact_data with alive links
             compact_data["exact_matches"] = [
@@ -377,23 +556,41 @@ Quy tắc:
             print(f"[{self.agent_name}] Đã có dữ liệu Lens, đang format bằng LLM...")
 
             last_error = None
-            for attempt in range(2):
+            formatter_attempts = max(1, int(getattr(settings, "AGENT3_FORMATTER_MAX_RETRIES", 1) or 1))
+            for attempt in range(formatter_attempts):
                 try:
+                    formatter_started = time.perf_counter()
                     formatted_text = await self._format_lens_results_with_llm(compact_data, context=context, debug_log=debug_log)
+                    formatter_ms = int((time.perf_counter() - formatter_started) * 1000)
+                    print(f"[Agent3Timing] formatter_ms={formatter_ms}")
                     print(f"[{self.agent_name}] Hoàn tất format Lens!")
                     return self.parse_formatted_result(formatted_text, raw_lens_data, evidence=top_evidence)
                 except Exception as e:
                     last_error = e
                     error_text = str(e)
-                    print(f"[{self.agent_name}] Lens formatter failed attempt {attempt + 1}/2: {error_text}")
+                    print(f"[{self.agent_name}] Lens formatter failed attempt {attempt + 1}/{formatter_attempts}: {error_text}")
 
-                    if "503" in error_text or "429" in error_text or "RESOURCE_EXHAUSTED" in error_text or "quota" in error_text.lower():
+                    if attempt + 1 < formatter_attempts and (
+                        "503" in error_text
+                        or "429" in error_text
+                        or "RESOURCE_EXHAUSTED" in error_text
+                        or "quota" in error_text.lower()
+                        or "timeout" in error_text.lower()
+                    ):
                         await asyncio.sleep(2)
                         continue
 
-                    return self.build_visual_search_result(raw_lens_text=raw_lens_data, error=e)
+                    break
 
-            return self.build_visual_search_result(raw_lens_text=raw_lens_data, error=last_error)
+            parser_started = time.perf_counter()
+            fallback_result = parse_lens_evidence_without_llm(
+                top_evidence or alive_evidence or raw_evidence,
+                raw_lens_text=raw_lens_data,
+            )
+            fallback_result["formatter_error"] = str(last_error)[:300] if last_error else None
+            parser_fallback_ms = int((time.perf_counter() - parser_started) * 1000)
+            print(f"[Agent3Timing] parser_fallback_ms={parser_fallback_ms}")
+            return json.dumps([fallback_result], ensure_ascii=False)
 
         except Exception as e:
             print(f"[{self.agent_name}] Lỗi tổng: {e}")

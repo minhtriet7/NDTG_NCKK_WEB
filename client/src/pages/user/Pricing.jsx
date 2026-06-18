@@ -23,6 +23,7 @@ import {
 import {
   getTokenPackages,
   createCheckoutSession,
+  getPaymentGatewaySettings,
 } from "../../services/paymentService";
 
 function getPackageId(pkg) {
@@ -65,10 +66,13 @@ export default function Pricing() {
   const [packages, setPackages] = useState([]);
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [selectedGateway, setSelectedGateway] = useState("sepay");
+  const [gatewaySettings, setGatewaySettings] = useState(null);
   const [transactions, setTransactions] = useState([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
+  const [showMockConfirm, setShowMockConfirm] = useState(false);
+  const [vnpayRedirecting, setVnpayRedirecting] = useState(false);
 
   const t = {
     EN: {
@@ -83,10 +87,10 @@ export default function Pricing() {
       selected: "Selected",
       choose: "Choose",
       payMethod: "Payment Method",
-      sepay: "VietQR / SePay",
-      sepayDesc: "Scan bank QR code",
+      sepay: "VietQR",
+      sepayDesc: "Scan bank QR code (Auto)",
       bankTx: "Bank Transfer",
-      bankTxDesc: "Transfer by invoice content",
+      bankTxDesc: "Manual transfer by account number",
       vnpay: "VNPay",
       vnpayDesc: "Pay via VNPay sandbox gateway",
       mock: "Sandbox",
@@ -145,10 +149,10 @@ export default function Pricing() {
       selected: "Đã chọn",
       choose: "Chọn",
       payMethod: "Phương thức thanh toán",
-      sepay: "VietQR / SePay",
-      sepayDesc: "Quét mã QR ngân hàng",
-      bankTx: "Chuyển khoản",
-      bankTxDesc: "Chuyển khoản theo nội dung hóa đơn",
+      sepay: "VietQR",
+      sepayDesc: "Quét mã QR tự động xác nhận",
+      bankTx: "Chuyển khoản ngân hàng",
+      bankTxDesc: "Chuyển khoản thủ công bằng STK",
       vnpay: "VNPay",
       vnpayDesc: "Thanh toán qua cổng VNPay sandbox",
       mock: "Sandbox",
@@ -236,6 +240,17 @@ export default function Pricing() {
     setIsLoading(true);
 
     try {
+      try {
+        const settings = await getPaymentGatewaySettings();
+        setGatewaySettings(settings);
+        if (settings?.payment_gateway_default) {
+          setSelectedGateway(settings.payment_gateway_default);
+        }
+      } catch (err) {
+        console.error("Failed to load gateway settings:", err);
+        toast.error(lang === "VI" ? "Không tải được cấu hình thanh toán." : "Unable to load payment configuration.");
+      }
+
       const pkgs = await getTokenPackages();
       const normalizedPkgs = normalizePackages(pkgs);
 
@@ -276,6 +291,20 @@ export default function Pricing() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, token]);
 
+  const handleCheckoutClick = () => {
+    if (!selectedPackage) {
+      toast.error(t.errSelect);
+      return;
+    }
+
+    if (selectedGateway === "mock") {
+      setShowMockConfirm(true);
+      return;
+    }
+
+    handleCheckout();
+  };
+
   const handleCheckout = async () => {
     if (!selectedPackage) {
       toast.error(t.errSelect);
@@ -304,23 +333,9 @@ export default function Pricing() {
 
         try {
           await syncProfile?.();
-        } catch {
-          if (user) {
-            const currentBalance = Number(user?.token_balance || 0);
-            const addedTokens = Number(
-              invoiceData?.tokens_added ||
-                selectedPackage.tokens_included ||
-                selectedPackage.tokens ||
-                0,
-            );
-
-            useAuthStore.setState({
-              user: {
-                ...user,
-                token_balance: currentBalance + addedTokens,
-              },
-            });
-          }
+        } catch (err) {
+          console.error("Failed to sync profile after mock payment:", err);
+          // Không tự cộng token ở frontend, tránh lỗi hiển thị sai lệch với backend.
         }
 
         navigate("/recognize");
@@ -348,8 +363,10 @@ export default function Pricing() {
           return;
         }
 
-        toast.success(t.successVnpay);
-        window.location.href = paymentUrl;
+        setVnpayRedirecting(true);
+        setTimeout(() => {
+          window.location.href = paymentUrl;
+        }, 2000);
         return;
       }
     } catch (error) {
@@ -562,117 +579,125 @@ export default function Pricing() {
             </h2>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <button
-                onClick={() => setSelectedGateway("sepay")}
-                className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
-                  selectedGateway === "sepay"
-                    ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20 shadow-sm ring-1 ring-indigo-500 dark:ring-indigo-400"
-                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700"
-                }`}
-              >
-                <div className="w-10 h-10 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
-                  <QrCode
-                    className="text-blue-600 dark:text-blue-400 transition-colors"
-                    size={20}
-                  />
-                </div>
-                <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
-                  {t.sepay}
-                </span>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
-                  {t.sepayDesc}
-                </span>
-                {selectedGateway === "sepay" && (
-                  <CheckCircle2
-                    size={16}
-                    className="absolute top-3 right-3 text-indigo-600 dark:text-indigo-400 transition-colors"
-                  />
-                )}
-              </button>
+              {(!gatewaySettings || gatewaySettings?.sepay_enabled) && (
+                <button
+                  onClick={() => setSelectedGateway("sepay")}
+                  className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
+                    selectedGateway === "sepay"
+                      ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20 shadow-sm ring-1 ring-indigo-500 dark:ring-indigo-400"
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700"
+                  }`}
+                >
+                  <div className="w-10 h-10 bg-blue-50 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
+                    <QrCode
+                      className="text-blue-600 dark:text-blue-400 transition-colors"
+                      size={20}
+                    />
+                  </div>
+                  <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
+                    {t.sepay}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
+                    {t.sepayDesc}
+                  </span>
+                  {selectedGateway === "sepay" && (
+                    <CheckCircle2
+                      size={16}
+                      className="absolute top-3 right-3 text-indigo-600 dark:text-indigo-400 transition-colors"
+                    />
+                  )}
+                </button>
+              )}
 
-              <button
-                onClick={() => setSelectedGateway("bank_transfer")}
-                className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
-                  selectedGateway === "bank_transfer"
-                    ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20 shadow-sm ring-1 ring-indigo-500 dark:ring-indigo-400"
-                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700"
-                }`}
-              >
-                <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
-                  <Landmark
-                    className="text-emerald-600 dark:text-emerald-400 transition-colors"
-                    size={20}
-                  />
-                </div>
-                <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
-                  {t.bankTx}
-                </span>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
-                  {t.bankTxDesc}
-                </span>
-                {selectedGateway === "bank_transfer" && (
-                  <CheckCircle2
-                    size={16}
-                    className="absolute top-3 right-3 text-indigo-600 dark:text-indigo-400 transition-colors"
-                  />
-                )}
-              </button>
+              {(!gatewaySettings || gatewaySettings?.sepay_enabled) && (
+                <button
+                  onClick={() => setSelectedGateway("bank_transfer")}
+                  className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
+                    selectedGateway === "bank_transfer"
+                      ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20 shadow-sm ring-1 ring-indigo-500 dark:ring-indigo-400"
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700"
+                  }`}
+                >
+                  <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
+                    <Landmark
+                      className="text-emerald-600 dark:text-emerald-400 transition-colors"
+                      size={20}
+                    />
+                  </div>
+                  <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
+                    {t.bankTx}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
+                    {t.bankTxDesc}
+                  </span>
+                  {selectedGateway === "bank_transfer" && (
+                    <CheckCircle2
+                      size={16}
+                      className="absolute top-3 right-3 text-indigo-600 dark:text-indigo-400 transition-colors"
+                    />
+                  )}
+                </button>
+              )}
 
-              <button
-                onClick={() => setSelectedGateway("vnpay")}
-                className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
-                  selectedGateway === "vnpay"
-                    ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/20 shadow-sm ring-1 ring-blue-500 dark:ring-blue-400"
-                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700"
-                }`}
-              >
-                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
-                  <CreditCard
-                    className="text-blue-600 dark:text-blue-400 transition-colors"
-                    size={20}
-                  />
-                </div>
-                <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
-                  {t.vnpay}
-                </span>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
-                  {t.vnpayDesc}
-                </span>
-                {selectedGateway === "vnpay" && (
-                  <CheckCircle2
-                    size={16}
-                    className="absolute top-3 right-3 text-blue-600 dark:text-blue-400 transition-colors"
-                  />
-                )}
-              </button>
+              {(!gatewaySettings || gatewaySettings?.vnpay_enabled) && (
+                <button
+                  onClick={() => setSelectedGateway("vnpay")}
+                  className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
+                    selectedGateway === "vnpay"
+                      ? "border-blue-500 bg-blue-50/50 dark:bg-blue-900/20 shadow-sm ring-1 ring-blue-500 dark:ring-blue-400"
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700"
+                  }`}
+                >
+                  <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
+                    <CreditCard
+                      className="text-blue-600 dark:text-blue-400 transition-colors"
+                      size={20}
+                    />
+                  </div>
+                  <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
+                    {t.vnpay}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
+                    {t.vnpayDesc}
+                  </span>
+                  {selectedGateway === "vnpay" && (
+                    <CheckCircle2
+                      size={16}
+                      className="absolute top-3 right-3 text-blue-600 dark:text-blue-400 transition-colors"
+                    />
+                  )}
+                </button>
+              )}
 
-              <button
-                onClick={() => setSelectedGateway("mock")}
-                className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
-                  selectedGateway === "mock"
-                    ? "border-amber-500 bg-amber-50/50 dark:bg-amber-900/20 shadow-sm ring-1 ring-amber-500 dark:ring-amber-400"
-                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-300 dark:hover:border-amber-700"
-                }`}
-              >
-                <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
-                  <TerminalSquare
-                    className="text-amber-600 dark:text-amber-400 transition-colors"
-                    size={20}
-                  />
-                </div>
-                <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
-                  {t.mock}
-                </span>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
-                  {t.mockDesc}
-                </span>
-                {selectedGateway === "mock" && (
-                  <CheckCircle2
-                    size={16}
-                    className="absolute top-3 right-3 text-amber-600 dark:text-amber-400 transition-colors"
-                  />
-                )}
-              </button>
+              {(!gatewaySettings || gatewaySettings?.mock_payment_enabled) && (
+                <button
+                  onClick={() => setSelectedGateway("mock")}
+                  className={`relative flex flex-col items-center justify-center p-5 rounded-2xl border transition-all text-center ${
+                    selectedGateway === "mock"
+                      ? "border-amber-500 bg-amber-50/50 dark:bg-amber-900/20 shadow-sm ring-1 ring-amber-500 dark:ring-amber-400"
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-300 dark:hover:border-amber-700"
+                  }`}
+                >
+                  <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-3 transition-colors">
+                    <TerminalSquare
+                      className="text-amber-600 dark:text-amber-400 transition-colors"
+                      size={20}
+                    />
+                  </div>
+                  <span className="text-sm font-bold text-slate-900 dark:text-white mb-1 transition-colors">
+                    {t.mock}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight transition-colors">
+                    {t.mockDesc}
+                  </span>
+                  {selectedGateway === "mock" && (
+                    <CheckCircle2
+                      size={16}
+                      className="absolute top-3 right-3 text-amber-600 dark:text-amber-400 transition-colors"
+                    />
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -743,7 +768,7 @@ export default function Pricing() {
                 </div>
 
                 <button
-                  onClick={handleCheckout}
+                  onClick={handleCheckoutClick}
                   disabled={isCheckoutLoading}
                   className={`w-full py-4 rounded-xl font-bold flex justify-center items-center gap-2 transition-all shadow-sm active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed ${
                     selectedGateway === "mock"
@@ -870,6 +895,59 @@ export default function Pricing() {
           )}
         </div>
       </div>
+
+      {/* Mock Confirm Modal */}
+      {showMockConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-sm w-full shadow-2xl relative animate-[slideUp_0.2s_ease-out]">
+            <button
+              onClick={() => setShowMockConfirm(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <div className="p-1 rounded-full hover:bg-slate-100">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </div>
+            </button>
+            <div className="w-14 h-14 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <TerminalSquare size={28} />
+            </div>
+            <h3 className="text-xl font-bold text-center text-slate-900 mb-2">Đây là thanh toán thử nghiệm</h3>
+            <p className="text-sm text-slate-500 text-center mb-6 leading-relaxed">
+              Bạn đang sử dụng Mock/Sandbox. <span className="font-bold text-amber-600">Giao dịch này sẽ cộng token thật</span> vào tài khoản trong môi trường hiện tại. Chỉ dùng để test.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowMockConfirm(false)}
+                className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={() => {
+                  setShowMockConfirm(false);
+                  handleCheckout();
+                }}
+                className="flex-1 py-3 rounded-xl font-bold text-white bg-amber-600 hover:bg-amber-700 transition-colors shadow-sm"
+              >
+                Xác nhận Test
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VNPay Redirect Modal */}
+      {vnpayRedirecting && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl flex flex-col items-center animate-[slideUp_0.2s_ease-out]">
+            <div className="w-16 h-16 border-4 border-slate-100 border-t-blue-600 rounded-full animate-spin mb-6"></div>
+            <h3 className="text-xl font-bold text-center text-slate-900 mb-2">Đang chuyển đến VNPay</h3>
+            <p className="text-sm text-slate-500 text-center leading-relaxed">
+              Hệ thống đang tạo giao dịch an toàn. Vui lòng không đóng trình duyệt...
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

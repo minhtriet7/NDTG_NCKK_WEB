@@ -1,7 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { 
-  User, 
+import {
   LogOut, 
   AlertCircle, 
   Home, 
@@ -9,12 +8,15 @@ import {
   RefreshCw, 
   LayoutDashboard, 
   History, 
-  CreditCard
+  CreditCard,
+  Menu,
+  X,
+  Sparkles
 } from "lucide-react";
 import toast, { Toaster } from "react-hot-toast";
 
 import ThemeLangToggle from "../common/ThemeLangToggle";
-import { useAuthStore } from "../../store/authStore";
+import { getAvatarImageSrc, useAuthStore } from "../../store/authStore";
 import { useTranslation } from "react-i18next";
 
 function isPathActive(currentPath, linkPath, aliases = []) {
@@ -25,20 +27,64 @@ function isPathActive(currentPath, linkPath, aliases = []) {
   });
 }
 
+function getInitials(name = "User") {
+  const parts = String(name || "User")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  }
+
+  return String(parts[0]?.[0] || "U").toUpperCase();
+}
+
+function HeaderUserAvatar({ user, displayName, size = "sm" }) {
+  const avatarSrc = getAvatarImageSrc(user);
+  const [imageFailed, setImageFailed] = useState(false);
+  const sizeClass = size === "md" ? "h-9 w-9" : "h-8 w-8";
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [avatarSrc]);
+
+  if (avatarSrc && !imageFailed) {
+    return (
+      <img
+        src={avatarSrc}
+        alt={`${displayName} avatar`}
+        className={`${sizeClass} rounded-full object-cover ring-1 ring-indigo-100 transition group-hover:scale-105 dark:ring-cyan-400/20`}
+        onError={() => setImageFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <span
+      className={`${sizeClass} inline-flex items-center justify-center rounded-full bg-gradient-to-br from-cyan-100 to-violet-100 text-xs font-black text-indigo-600 ring-1 ring-indigo-100 transition group-hover:scale-105 dark:from-cyan-500/15 dark:to-violet-500/15 dark:text-cyan-300 dark:ring-cyan-400/20`}
+    >
+      {getInitials(displayName)}
+    </span>
+  );
+}
+
 export default function Header() {
   const { isAuthenticated, user, logout } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { t } = useTranslation();
 
   const publicLinks = [
-    { path: "/", label: t('header.home', 'Home') },
-    { path: "/directory", label: t('header.dir', 'Directory') },
+    { path: "/", label: t('header.home', 'Home'), icon: Home },
+    { path: "/directory", label: t('header.dir', 'Directory'), icon: BookOpen },
     {
       path: "/currency-converter",
       label: t('header.ex', 'Exchange'),
       aliases: ["/exchange"],
+      icon: RefreshCw,
     },
   ];
 
@@ -47,9 +93,10 @@ export default function Header() {
       path: "/recognize",
       label: t('header.workspace', 'Workspace'),
       aliases: ["/workspace", "/processing", "/result", "/result/detail", "/agent-result-detail"],
+      icon: LayoutDashboard,
     },
-    { path: "/history", label: t('header.history', 'History') },
-    { path: "/pricing", label: t('header.pricing', 'Pricing') },
+    { path: "/history", label: t('header.history', 'History'), icon: History },
+    { path: "/pricing", label: t('header.pricing', 'Pricing'), icon: CreditCard },
   ];
 
   const navLinks = isAuthenticated
@@ -73,78 +120,80 @@ export default function Header() {
     <>
       <Toaster position="top-center" reverseOrder={false} />
 
-      <header className="sticky top-0 z-50 w-full transition-all duration-500 bg-white/70 dark:bg-[#0B1120]/70 backdrop-blur-2xl border-b border-gray-200/50 dark:border-[#1E293B]/50 shadow-[0_4px_30px_rgba(0,0,0,0.03)] dark:shadow-[0_4px_30px_rgba(0,0,0,0.2)]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16 sm:h-20">
-            {/* Logo Section */}
+      <header className="sticky top-0 z-50 w-full border-b border-slate-200/70 bg-white/80 shadow-[0_16px_50px_rgba(15,23,42,0.08)] backdrop-blur-2xl transition-all duration-300 dark:border-slate-800/80 dark:bg-slate-950/80 dark:shadow-[0_18px_60px_rgba(0,0,0,0.28)]">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent dark:via-indigo-400/50" />
+
+        <div className="mx-auto max-w-7xl px-3 sm:px-5 lg:px-8">
+          <div className="flex h-16 items-center justify-between gap-3">
             <Link
               to="/"
-              className="flex items-center gap-3 hover:opacity-90 transition-opacity z-10 group"
+              onClick={() => setMobileMenuOpen(false)}
+              className="group flex min-w-0 items-center gap-3 rounded-2xl pr-2 transition hover:-translate-y-0.5 focus:outline-none focus:ring-4 focus:ring-indigo-500/15"
             >
-              <div className="h-9 w-9 sm:h-11 sm:w-11 flex items-center justify-center transform transition-all duration-300 group-hover:scale-110 group-hover:rotate-3">
-                <img src="/logo.png" alt="Banknote AI Logo" className="w-full h-full object-contain drop-shadow-md" />
+              <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/80 bg-white shadow-sm transition-all duration-300 group-hover:border-indigo-300 group-hover:shadow-indigo-500/15 dark:border-slate-700/80 dark:bg-slate-900 dark:group-hover:border-indigo-500/50">
+                <span className="absolute inset-0 rounded-2xl bg-gradient-to-br from-cyan-400/15 via-transparent to-violet-500/15 opacity-0 transition-opacity group-hover:opacity-100" />
+                <img
+                  src="/logo.png"
+                  alt="Banknote AI Logo"
+                  className="relative h-8 w-8 object-contain drop-shadow-md transition-transform duration-300 group-hover:scale-110"
+                />
               </div>
 
-              <span className="text-xl sm:text-2xl font-black tracking-tighter text-gray-900 dark:text-white flex items-center">
+              <span className="hidden min-[420px]:flex items-baseline text-xl font-black tracking-tight text-slate-950 dark:text-white">
                 Banknote
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-600 ml-1 font-extrabold">
+                <span className="ml-1 bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 bg-clip-text text-transparent">
                   AI
                 </span>
               </span>
             </Link>
 
-            {/* Desktop Navigation (Transparent with Animated Underline) */}
-            <nav className="hidden md:flex items-center gap-2 lg:gap-4 absolute left-1/2 -translate-x-1/2">
+            <nav className="hidden xl:flex items-center rounded-2xl border border-slate-200/70 bg-slate-100/60 p-1 shadow-inner dark:border-slate-800/80 dark:bg-slate-900/70">
               {navLinks.map((link) => {
                 const active = isPathActive(
                   location.pathname,
                   link.path,
                   link.aliases || [],
                 );
+                const Icon = link.icon;
 
                 return (
                   <Link
                     key={link.path}
                     to={link.path}
-                    className="group relative px-2 py-2 text-[14px] font-semibold transition-colors duration-300"
-                  >
-                    <span className={`relative z-10 transition-colors duration-300 ${
+                    className={`group relative inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-bold transition-all duration-200 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 ${
                       active
-                        ? "text-indigo-600 dark:text-indigo-400"
-                        : "text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white"
-                    }`}>
-                      {link.label}
-                    </span>
-
-                    {/* Animated Underline Effect */}
-                    <span className={`absolute bottom-0 left-1/2 h-[2.5px] bg-indigo-500 dark:bg-indigo-400 rounded-t-full transition-all duration-300 ease-out -translate-x-1/2
-                      ${active ? "w-full opacity-100" : "w-0 opacity-0 group-hover:w-full group-hover:opacity-100"}
-                    `} />
-                    
-                    {/* Subtle glow for active state */}
+                        ? "border border-white/60 bg-white text-slate-950 shadow-sm dark:border-indigo-400/20 dark:bg-indigo-500/15 dark:text-indigo-100"
+                        : "text-slate-500 hover:bg-white/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                    }`}
+                  >
+                    <Icon
+                      className={`h-4 w-4 transition ${
+                        active ? "text-indigo-500 dark:text-cyan-300" : "text-slate-400 group-hover:text-indigo-500"
+                      }`}
+                    />
+                    {link.label}
                     {active && (
-                      <span className="absolute bottom-0 left-1/2 w-3/4 h-[8px] bg-indigo-500/20 blur-sm -translate-x-1/2 pointer-events-none" />
+                      <span className="absolute inset-x-3 -bottom-1 h-0.5 rounded-full bg-gradient-to-r from-cyan-400 to-violet-500" />
                     )}
                   </Link>
                 );
               })}
             </nav>
 
-            {/* Right Action Section */}
-            <div className="flex items-center gap-3 sm:gap-5 z-10">
-              <ThemeLangToggle />
+            <div className="flex shrink-0 items-center justify-end gap-2">
+              <div className="hidden min-[460px]:block">
+                <ThemeLangToggle />
+              </div>
 
-              <div className="hidden sm:flex items-center gap-4 pl-4 sm:pl-5 transition-colors duration-300 border-l border-gray-200 dark:border-slate-700/50">
+              <div className="hidden xl:flex items-center gap-2 rounded-2xl border border-slate-200/70 bg-white/65 p-1.5 shadow-sm dark:border-slate-800 dark:bg-slate-900/65">
                 {isAuthenticated ? (
-                  <div className="flex items-center gap-4">
+                  <>
                     <Link
                       to="/profile"
-                      className="flex items-center gap-2 pl-1.5 pr-4 py-1.5 rounded-full transition-all duration-300 bg-white dark:bg-[#1E293B] border border-gray-200 dark:border-[#334155] hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:shadow-md hover:shadow-indigo-500/10 group"
+                      className="group inline-flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition hover:bg-slate-100 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 dark:hover:bg-slate-800"
                     >
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/40 dark:to-purple-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center ring-2 ring-white dark:ring-[#0F172A] group-hover:scale-105 transition-transform duration-300 shadow-sm">
-                        <User className="w-4 h-4" />
-                      </div>
-                      <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                      <HeaderUserAvatar user={user} displayName={displayName} />
+                      <span className="max-w-[120px] truncate text-sm font-bold text-slate-700 transition group-hover:text-indigo-600 dark:text-slate-200 dark:group-hover:text-cyan-300">
                         {displayName.split(" ")[0]}
                       </span>
                     </Link>
@@ -153,33 +202,129 @@ export default function Header() {
                       type="button"
                       onClick={() => setShowLogoutModal(true)}
                       title={t('header.confirm', 'Log out')}
-                      className="p-2.5 rounded-full transition-all duration-300 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 border border-transparent hover:border-red-200 dark:hover:border-red-500/20"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-transparent text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-500 focus:outline-none focus:ring-4 focus:ring-red-500/10 dark:hover:border-red-500/20 dark:hover:bg-red-500/10"
                     >
-                      <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <LogOut className="h-4 w-4" />
                     </button>
-                  </div>
+                  </>
                 ) : (
                   <>
                     <Link
                       to="/auth/login"
-                      className="text-sm font-semibold transition-colors text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 px-2"
+                      className="rounded-xl px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100 hover:text-indigo-600 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-cyan-300"
                     >
                       {t('header.login', 'Log in')}
                     </Link>
 
                     <Link
                       to="/auth/register"
-                      className="relative group inline-flex items-center justify-center px-5 py-2.5 text-sm font-bold text-white transition-all duration-300 bg-gradient-to-r from-indigo-500 via-purple-600 to-indigo-500 bg-[length:200%_auto] hover:bg-[center_right_1rem] rounded-full shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:-translate-y-0.5"
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-2 text-sm font-black text-white shadow-lg shadow-indigo-500/20 transition hover:-translate-y-0.5 hover:shadow-indigo-500/30 focus:outline-none focus:ring-4 focus:ring-indigo-500/20"
                     >
+                      <Sparkles className="h-4 w-4" />
                       {t('header.signup', 'Sign up')}
-                      <div className="absolute inset-0 rounded-full ring-1 ring-white/20 transition-all group-hover:ring-white/40"></div>
                     </Link>
                   </>
                 )}
               </div>
+
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen((value) => !value)}
+                aria-expanded={mobileMenuOpen}
+                aria-label="Toggle navigation"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200/80 bg-white/70 text-slate-700 shadow-sm transition hover:bg-slate-100 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-800 xl:hidden"
+              >
+                {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              </button>
             </div>
           </div>
         </div>
+
+        {mobileMenuOpen && (
+          <div className="xl:hidden border-t border-slate-200/70 bg-white/95 shadow-2xl shadow-slate-900/10 backdrop-blur-2xl dark:border-slate-800 dark:bg-slate-950/95">
+            <div className="mx-auto max-w-7xl space-y-4 px-3 py-4 sm:px-5">
+              <nav className="grid gap-2 sm:grid-cols-2">
+                {navLinks.map((link) => {
+                  const active = isPathActive(
+                    location.pathname,
+                    link.path,
+                    link.aliases || [],
+                  );
+                  const Icon = link.icon;
+
+                  return (
+                    <Link
+                      key={link.path}
+                      to={link.path}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-bold transition ${
+                        active
+                          ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-200"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/20 dark:hover:text-white"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {link.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+
+              <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+                <div className="min-[460px]:hidden">
+                  <ThemeLangToggle />
+                </div>
+
+                {isAuthenticated ? (
+                  <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <Link
+                      to="/profile"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="flex items-center gap-3 rounded-xl bg-white px-3 py-3 font-bold text-slate-700 transition hover:text-indigo-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:text-cyan-300"
+                    >
+                      <HeaderUserAvatar
+                        user={user}
+                        displayName={displayName}
+                        size="md"
+                      />
+                      <span className="min-w-0 truncate">{displayName}</span>
+                    </Link>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setShowLogoutModal(true);
+                      }}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-600 transition hover:bg-red-100 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      {t('header.confirm', 'Log out')}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Link
+                      to="/auth/login"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-bold text-slate-700 transition hover:text-indigo-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+                    >
+                      {t('header.login', 'Log in')}
+                    </Link>
+
+                    <Link
+                      to="/auth/register"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className="rounded-xl bg-gradient-to-r from-cyan-500 via-indigo-500 to-violet-500 px-4 py-3 text-center text-sm font-black text-white shadow-lg shadow-indigo-500/20"
+                    >
+                      {t('header.signup', 'Sign up')}
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* Logout Modal */}

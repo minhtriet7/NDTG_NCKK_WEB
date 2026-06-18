@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from beanie import PydanticObjectId
 from fastapi import HTTPException, UploadFile
@@ -8,7 +9,8 @@ from app.models.user_model import User
 from app.models.recognition_model import RecognitionRequest
 from app.models.token_usage_model import TokenUsage
 from app.schemas.user_schema import UserUpdate, ChangePasswordRequest, UserPreferencesUpdate
-from app.core.security import verify_password, get_password_hash
+from app.core.config import settings
+from app.core.security import create_secure_token, get_password_hash, hash_token, verify_password
 from app.services.email_service import EmailService
 from app.utils.cloudinary_handler import upload_image_to_cloudinary
 from app.utils.file_handler import validate_and_read_image
@@ -25,6 +27,12 @@ DEFAULT_PREFERENCES = {
     "default_country": "Vietnam",
     "default_currency": "VND",
 }
+
+EMAIL_VERIFICATION_EXPIRES_HOURS = 24
+EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60
+EMAIL_VERIFICATION_MESSAGE = (
+    "If email verification is available, instructions will be sent shortly."
+)
 
 SUCCESS_STATUSES = [
     "success",
@@ -65,14 +73,17 @@ def to_object_id(value: str) -> PydanticObjectId:
 
 
 def serialize_user(user: User) -> Dict[str, Any]:
+    provider = getattr(user, "provider", "local")
+
     return {
         "id": str(user.id),
         "email": user.email,
         "full_name": getattr(user, "full_name", ""),
         "role": getattr(user, "role", "user"),
-        "provider": getattr(user, "provider", "local"),
+        "provider": provider,
         "token_balance": getattr(user, "token_balance", 0),
         "is_active": getattr(user, "is_active", True),
+        "email_verified": is_email_verified(user),
         "phone": getattr(user, "phone", None),
         "country": getattr(user, "country", None),
         "avatar_url": getattr(user, "avatar_url", None),
@@ -104,6 +115,28 @@ def serialize_history(record: RecognitionRequest) -> Dict[str, Any]:
         "created_at": getattr(record, "created_at", None),
         "updated_at": getattr(record, "updated_at", None),
     }
+
+
+def normalize_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    if not value:
+        return None
+
+    if getattr(value, "tzinfo", None) is None:
+        return value.replace(tzinfo=timezone.utc)
+
+    return value
+
+
+def is_email_verified(user: User) -> bool:
+    provider = str(getattr(user, "provider", "local") or "local").lower()
+    return bool(getattr(user, "email_verified", False)) or provider == "google"
+
+
+def build_email_verification_url(base_url: str, token: str) -> str:
+    frontend_base = str(getattr(settings, "FRONTEND_URL", "") or "").rstrip("/")
+    fallback_base = str(base_url or "").rstrip("/")
+    app_base = frontend_base or fallback_base or "http://localhost:5173"
+    return f"{app_base}/auth/verify-email?token={quote(token)}"
 
 
 def normalize_status(value: Optional[str]) -> str:
@@ -199,6 +232,66 @@ class UserService:
 
         await user.save()
         return user
+
+    @staticmethod
+    async def resend_email_verification(
+        user: User,
+        base_url: str,
+    ) -> Dict[str, Any]:
+        if is_email_verified(user):
+            if str(getattr(user, "provider", "local") or "local").lower() == "google":
+                user.email_verified = True
+                user.email_verification_token_hash = None
+                user.email_verification_expires_at = None
+                user.email_verification_sent_at = None
+
+                if hasattr(user, "updated_at"):
+                    user.updated_at = now_utc()
+
+                await user.save()
+
+            return {
+                "message": EMAIL_VERIFICATION_MESSAGE,
+                "email_verified": True,
+            }
+
+        sent_at = normalize_datetime(
+            getattr(user, "email_verification_sent_at", None)
+        )
+
+        if sent_at:
+            seconds_since_last_send = (now_utc() - sent_at).total_seconds()
+            if seconds_since_last_send < EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS:
+                return {
+                    "message": EMAIL_VERIFICATION_MESSAGE,
+                    "email_verified": False,
+                }
+
+        token = create_secure_token()
+        user.email_verification_token_hash = hash_token(token)
+        user.email_verification_expires_at = now_utc() + timedelta(
+            hours=EMAIL_VERIFICATION_EXPIRES_HOURS
+        )
+        user.email_verification_sent_at = now_utc()
+
+        if hasattr(user, "updated_at"):
+            user.updated_at = now_utc()
+
+        await user.save()
+
+        try:
+            await EmailService.send_email_verification_email(
+                user,
+                build_email_verification_url(base_url, token),
+                EMAIL_VERIFICATION_EXPIRES_HOURS,
+            )
+        except Exception:
+            pass
+
+        return {
+            "message": EMAIL_VERIFICATION_MESSAGE,
+            "email_verified": False,
+        }
 
     @staticmethod
     async def get_profile_stats(user: User) -> Dict[str, Any]:

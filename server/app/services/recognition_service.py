@@ -1,6 +1,9 @@
 import asyncio
+import hashlib
+import os
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 import inspect
 
@@ -19,9 +22,24 @@ try:
     from app.utils.image_processing import detect_banknote_objects
 except ModuleNotFoundError:
     from app.utils.image_checker import detect_and_crop_banknotes
+    import os
 
     def detect_banknote_objects(image_bytes: bytes, max_objects: int = 5):
         crops = detect_and_crop_banknotes(image_bytes)
+        
+        ENABLE_AG0_CHECKER = os.getenv("ENABLE_AG0_CHECKER", "true").lower() == "true"
+        ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK = os.getenv(
+            "ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK",
+            "false"
+        ).lower() == "true"
+
+        if crops:
+            final_crops = crops
+        elif ENABLE_AG0_CHECKER and not ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK:
+            final_crops = []
+        else:
+            final_crops = [image_bytes]
+            
         return [
             {
                 "object_index": index + 1,
@@ -33,7 +51,7 @@ except ModuleNotFoundError:
                 "height": None,
                 "source": "legacy_cropper",
             }
-            for index, crop in enumerate((crops or [image_bytes])[:max_objects])
+            for index, crop in enumerate(final_crops[:max_objects])
         ]
 
 from app.utils.cloudinary_handler import upload_image_to_cloudinary
@@ -51,6 +69,10 @@ MAX_CONSENSUS_RETRIES = 2
 MAX_BANKNOTES_PER_IMAGE = 5
 
 _CROP_LOG_PREFIX = "[Recognition/Crop]"
+SERVER_ROOT = Path(__file__).resolve().parents[2]
+TASK_IMAGE_UPLOAD_DIR = SERVER_ROOT / "uploads" / "recognition_tasks"
+TASK_CLOUDINARY_UPLOAD_TIMEOUT_SECONDS = 30.0
+TASK_PIPELINE_TIMEOUT_SECONDS = 180.0
 
 def _agent_status(agent_data):
     return agent_data.get("status") if isinstance(agent_data, dict) else "Failed"
@@ -173,10 +195,17 @@ def build_public_detected_object(object_result: Dict[str, Any]) -> Dict[str, Any
             "fallback": object_result.get("fallback"),
             "final_result": final_result,
             "agent_results": object_result.get("agent_results") or [],
+            "consensus_trace": object_result.get("consensus_trace") or [],
             "summary": object_result.get("summary") or {},
+            # AG0 Crop Checker — optional metadata field, không phá schema cũ
+            "crop_checker": object_result.get("crop_checker"),
+            "selected_box_reason": object_result.get("selected_box_reason"),
+            "box_selection_trace": object_result.get("box_selection_trace"),
+            "rejected_boxes": object_result.get("rejected_boxes") or [],
         },
         keep_crop_base64=True,
     )
+
 
 
 def is_object_resolved(object_result: Dict[str, Any]) -> bool:
@@ -197,14 +226,109 @@ def is_object_resolved(object_result: Dict[str, Any]) -> bool:
     return matched_agents >= 2
 
 
+_EVIDENCE_INVALID_VALUES = {
+    "", "none", "null", "unknown",
+    "không xác định", "khong xac dinh",
+    "n/a", "na", "needs review", "needs_review", "not a banknote",
+}
+
+def _is_valid_denomination(value: str) -> bool:
+    val = str(value or "").strip().lower()
+    if not val or val in _EVIDENCE_INVALID_VALUES:
+        return False
+    # Check if it looks like a valid denomination (e.g., 5000 VND, 1000 USD) or just numbers
+    import re
+    if re.search(r'\d+', val):
+        return True
+    return False
+
+def _is_valid_country(value: str) -> bool:
+    val = str(value or "").strip().lower()
+    if not val or val in _EVIDENCE_INVALID_VALUES:
+        return False
+    return True
+
+def _agent_has_raw_evidence(agent_data: dict) -> bool:
+    """Check if an individual agent returned valid evidence."""
+    if not agent_data:
+        return False
+    
+    denom = str(agent_data.get("menh_gia") or agent_data.get("denomination") or "")
+    country = str(agent_data.get("quoc_gia") or agent_data.get("country") or "")
+    
+    if _is_valid_denomination(denom):
+        return True
+        
+    if _is_valid_country(country):
+        features = str(agent_data.get("dac_diem_chinh") or agent_data.get("van_ban_nhin_thay") or "")
+        if features and features.lower() not in _EVIDENCE_INVALID_VALUES:
+            return True
+            
+    # Also check if it's a valid object from agent's text
+    status = str(agent_data.get("status") or "").lower()
+    if status in {"completed", "partial"} and (denom or country):
+        return True
+        
+    return False
+
+def _object_has_raw_agent_evidence(object_result: dict) -> bool:
+    """Check if the object has any raw evidence from ANY agent or valid votes."""
+    agent_results = object_result.get("agent_results") or []
+    for agent_res in agent_results:
+        raw_res = agent_res.get("result") or {}
+        if _agent_has_raw_evidence(raw_res):
+            return True
+            
+    final_res = object_result.get("final_result") or {}
+    valid_votes = final_res.get("valid_votes") or []
+    if len(valid_votes) > 0:
+        return True
+        
+    return False
+
+def _has_crop_quality_evidence(object_result: dict) -> bool:
+    """Check if the crop has enough quality (not a tiny background artifact)."""
+    # area_ratio, width/height
+    w = object_result.get("crop_width")
+    h = object_result.get("crop_height")
+    source = object_result.get("crop_source") or ""
+    try:
+        crop_confidence = float(object_result.get("crop_confidence") or 0)
+    except (TypeError, ValueError):
+        crop_confidence = 0.0
+    
+    if w and h and w > 50 and h > 50:
+        if source == "yolo" or crop_confidence > 0.5:
+            return True
+            
+    return False
+
+
 def serialize_result(record: RecognitionRequest) -> Dict[str, Any]:
+    final_result = getattr(record, "final_result", None) or {}
+    detected_objects = final_result.get("detected_objects") or []
+    first_object = detected_objects[0] if detected_objects else {}
+    uploaded_image_url = getattr(record, "uploaded_image_url", None)
+    final_confidence = final_result.get("confidence")
+    if final_confidence is None:
+        final_confidence = final_result.get("do_tin_cay")
+
     return {
         "id": str(record.id),
         "user_id": getattr(record, "user_id", None),
-        "uploaded_image_url": getattr(record, "uploaded_image_url", None),
+        "uploaded_image_url": uploaded_image_url,
+        "input_image_url": uploaded_image_url,
+        "image_url": uploaded_image_url,
         "status": getattr(record, "status", None),
-        "final_result": getattr(record, "final_result", None),
+        "final_result": final_result,
         "agent_results": getattr(record, "agent_results", []) or [],
+        "detected_objects": detected_objects,
+        "confidence": final_confidence,
+        "crop_checker": first_object.get("crop_checker"),
+        "selected_box_reason": first_object.get("selected_box_reason"),
+        "box_selection_trace": first_object.get("box_selection_trace"),
+        "rejected_boxes": first_object.get("rejected_boxes") or [],
+        "consensus_trace": first_object.get("consensus_trace") or [],
         "conversion_result": getattr(record, "conversion_result", None),
         "task_id": getattr(record, "task_id", None),
         "processing_time_ms": getattr(record, "processing_time_ms", None),
@@ -295,10 +419,20 @@ async def run_agent_with_timeout(agent_coro, timeout_sec: int, fallback_message:
         return await asyncio.wait_for(agent_coro, timeout=timeout_sec)
     except asyncio.TimeoutError:
         logger.warning("[Timeout] Agent timed out after %ss: %s", timeout_sec, fallback_message)
-        return TimeoutError(f"Agents timeout after {timeout_sec}s")
+        return json.dumps([{
+            "status": "Failed",
+            "menh_gia": "Không xác định",
+            "quoc_gia": "Không xác định",
+            "quan_diem": f"{fallback_message} timeout after {timeout_sec}s, skipped to avoid blocking pipeline."
+        }], ensure_ascii=False)
     except Exception as e:
         logger.error("[Error] Agent execution failed: %s", e)
-        return e
+        return json.dumps([{
+            "status": "Failed",
+            "menh_gia": "Không xác định",
+            "quoc_gia": "Không xác định",
+            "quan_diem": f"{fallback_message} execution failed: {str(e)[:100]}"
+        }], ensure_ascii=False)
 
 
 class RecognitionService:
@@ -307,12 +441,89 @@ class RecognitionService:
         task: RecognitionTask,
         stage: str,
         progress: int,
+        status_value: Optional[str] = None,
     ) -> RecognitionTask:
+        if status_value:
+            task.status = status_value
         task.stage = stage
         task.progress = max(0, min(progress, 100))
         task.updated_at = now_utc()
         await task.save()
         return task
+
+    @staticmethod
+    async def fail_task(
+        task: RecognitionTask,
+        stage: str,
+        error_message: str,
+    ) -> RecognitionTask:
+        task.status = "failed"
+        task.stage = stage or "failed"
+        task.progress = 100
+        task.error_message = str(error_message or "Recognition task failed.")[:1000]
+        task.finished_at = now_utc()
+        task.updated_at = now_utc()
+        await task.save()
+        return task
+
+    @staticmethod
+    async def save_task_input_image(
+        task: RecognitionTask,
+        image_bytes: bytes,
+    ) -> str:
+        if not image_bytes:
+            raise ValueError("Input image is empty.")
+
+        await RecognitionService.update_task(task, "uploading_image", 10)
+
+        def _write_input_image() -> str:
+            TASK_IMAGE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+            digest = hashlib.sha256(image_bytes).hexdigest()[:16]
+            file_path = TASK_IMAGE_UPLOAD_DIR / f"{task.id}_{digest}.jpg"
+            file_path.write_bytes(image_bytes)
+            return file_path.relative_to(SERVER_ROOT).as_posix()
+
+        image_path = await asyncio.to_thread(_write_input_image)
+        task.input_image_path = image_path
+        task.stage = "image_saved"
+        task.progress = 25
+        task.updated_at = now_utc()
+        await task.save()
+        logger.info("[RecognitionTask] image_saved task_id=%s path=%s", task.id, image_path)
+        return image_path
+
+    @staticmethod
+    async def upload_input_image_with_timeout(
+        image_bytes: bytes,
+        task: Optional[RecognitionTask] = None,
+    ) -> str:
+        try:
+            image_url = await asyncio.wait_for(
+                upload_image_to_cloudinary(image_bytes),
+                timeout=TASK_CLOUDINARY_UPLOAD_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[RecognitionTask] cloudinary_upload_timeout task_id=%s timeout=%ss",
+                task.id if task else None,
+                TASK_CLOUDINARY_UPLOAD_TIMEOUT_SECONDS,
+            )
+            return ""
+        except Exception as exc:
+            logger.exception(
+                "[RecognitionTask] cloudinary_upload_failed task_id=%s error=%s",
+                task.id if task else None,
+                exc,
+            )
+            return ""
+
+        if task and image_url:
+            task.input_image_url = image_url
+            task.updated_at = now_utc()
+            await task.save()
+            logger.info("[RecognitionTask] cloudinary_uploaded task_id=%s", task.id)
+
+        return image_url or ""
 
     @staticmethod
     async def build_agent_usages(
@@ -387,8 +598,22 @@ class RecognitionService:
                 detail="Tài khoản không đủ Token. Vui lòng nạp thêm.",
             )
 
+        image_url = ""
+
+        if task and not task.input_image_path:
+            logger.info("[RecognitionTask] input image missing before pipeline; saving now task_id=%s", task.id)
+            await RecognitionService.save_task_input_image(task, image_bytes)
+
+        image_url = await RecognitionService.upload_input_image_with_timeout(
+            image_bytes=image_bytes,
+            task=task,
+        )
+
+        if task and not task.input_image_path and not image_url:
+            raise RuntimeError("Input image could not be saved or uploaded.")
+
         if task:
-            await RecognitionService.update_task(task, "preprocessing", 10)
+            await RecognitionService.update_task(task, "cropping", 30)
 
         try:
             detected_objects = detect_banknote_objects(
@@ -411,6 +636,9 @@ class RecognitionService:
             ]
 
         # --- [3.7 + 3.8 C] Log & Trích xuất Metadata Crop ---
+        if task:
+            await RecognitionService.update_task(task, "validating_crop_ag0", 40)
+
         _all_fallback = all(bool(o.get("fallback")) for o in detected_objects)
         _raw_candidate_count = max(
             (int(o.get("raw_candidate_count") or 0) for o in detected_objects), default=0
@@ -438,30 +666,46 @@ class RecognitionService:
             )
         # -----------------------------------------------------
 
+        # --- AG0 Crop Checker: kiểm tra xem có crop hợp lệ không ---
+        # Nếu detect_banknote_objects trả [] (AG0 đã drop hết), dừng ngay,
+        # không gọi Agent 1/2/3, không dùng original_fallback.
         if not detected_objects:
-            detected_objects = [
-                {
-                    "object_index": 1,
-                    "bbox": None,
-                    "crop_bytes": image_bytes,
-                    "crop_base64": None,
-                    "confidence": 0.2,
-                    "width": None,
-                    "height": None,
-                    "source": "fallback_empty",
-                    "fallback": True,
+            logger.info(
+                "[AG0] no_banknote_detected: AG0 đã drop toàn bộ crop. "
+                "Không chạy Agent 1/2/3. task_id=%s",
+                _task_id_log,
+            )
+            if task:
+                task.status = "failed"
+                task.stage = "failed"
+                task.progress = 100
+                task.result = {
+                    "status": "no_banknote_detected",
+                    "detected_count": 0,
+                    "detected_objects": [],
+                    "message": "No valid banknote region detected by crop validation.",
+                    "task_id": str(task.id),
+                    "uploaded_image_url": image_url or None,
                 }
-            ]
+                task.error_message = "No valid banknote region detected by crop validation."
+                task.finished_at = now_utc()
+                task.updated_at = now_utc()
+                await task.save()
 
-        if task:
-            await RecognitionService.update_task(task, "uploading_image", 20)
-
-        image_url = await upload_image_to_cloudinary(image_bytes)
-
-        if task:
-            task.input_image_url = image_url
-            task.updated_at = now_utc()
-            await task.save()
+            return {
+                "status": "no_banknote_detected",
+                "detected_count": 0,
+                "detected_objects": [],
+                "message": (
+                    "Không phát hiện vùng tiền giấy hợp lệ sau khi kiểm tra YOLO/OpenCV "
+                    "bằng AG0 Checker. Vui lòng chụp lại ảnh rõ hơn."
+                ),
+                "task_id": str(task.id) if task else None,
+                "uploaded_image_url": image_url or None,
+                "debug": {
+                    "ag0_result": "all_candidates_dropped",
+                } if debug_mode else None,
+            }
 
         all_agent_results: List[Dict[str, Any]] = []
         detected_results: List[Dict[str, Any]] = []
@@ -479,7 +723,10 @@ class RecognitionService:
         enable_agent_2 = bool(getattr(system_config, "enable_agent_2", True))
         enable_agent_3 = bool(getattr(system_config, "enable_agent_3", True)) and bool(getattr(system_config, "lens_enabled", True))
         enable_aggregator = bool(getattr(system_config, "enable_aggregator", True))
-        max_retries = int(getattr(system_config, "max_retry_count", MAX_CONSENSUS_RETRIES) or MAX_CONSENSUS_RETRIES)
+        import os
+        MAX_CONFLICT_ATTEMPTS = int(os.getenv("MAX_CONFLICT_ATTEMPTS", "3"))
+        MAX_TRANSIENT_FAILURE_ATTEMPTS = int(os.getenv("MAX_TRANSIENT_FAILURE_ATTEMPTS", "2"))
+        MAX_ZERO_EVIDENCE_ATTEMPTS = int(os.getenv("MAX_ZERO_EVIDENCE_ATTEMPTS", "1"))
         agent_timeout_seconds = int(getattr(system_config, "agent_timeout_seconds", 60) or 60)
 
         for position, object_item in enumerate(detected_objects, start=1):
@@ -489,7 +736,23 @@ class RecognitionService:
             # Phân biệt crop thật / fallback ảnh gốc để gắn metadata per object
             _crop_is_fallback = bool(object_item.get("fallback", False))
 
-            progress_base = 20 + int((position - 1) / max(total_objects, 1) * 55)
+            # AG0 guard: bỏ qua object bị DROP mà vẫn lọt vào danh sách (phòng thủ)
+            _ag0_action = (object_item.get("crop_checker") or {}).get("action")
+            if _ag0_action == "DROP":
+                logger.warning(
+                    "[AG0] skipped dropped object object_index=%s (DROP action slipped through). "
+                    "reason=%s",
+                    object_index,
+                    (object_item.get("crop_checker") or {}).get("reason", ""),
+                )
+                continue
+            if _ag0_action:
+                logger.info(
+                    "[AG0] processing object_index=%s ag0_action=%s",
+                    object_index, _ag0_action,
+                )
+
+            progress_base = 50 + int((position - 1) / max(total_objects, 1) * 25)
             if task:
                 await RecognitionService.update_task(
                     task,
@@ -512,9 +775,12 @@ class RecognitionService:
                 "crop_image_base64": object_item.get("crop_base64") or "original_image",
                 "aggregator_log": {"attempts": []}
             }
+            consensus_trace = []
+            run_max_attempts = 1
 
-            for attempt in range(max_retries + 1):
-                logger.info("[Recognition/Object] start object_%s attempt=%s/%s", object_index, attempt, max_retries)
+            for attempt_idx in range(MAX_CONFLICT_ATTEMPTS):
+                attempt_no = attempt_idx + 1
+                logger.info("[Recognition/Object] start object_%s attempt=%s/%s", object_index, attempt_no, MAX_CONFLICT_ATTEMPTS)
                 
                 # --- Capture prompt & raw llm ---
                 llm_debug_log = {} if debug_mode else None
@@ -537,7 +803,7 @@ class RecognitionService:
                     else build_disabled_agent_result("Agent 2 LLM", "Agent 2 bị tắt theo cấu hình admin."),
                     run_agent_with_timeout(
                         run_agent3_lens(crop_bytes, context_for_llm, debug_log=lens_debug_log),
-                        agent_timeout_seconds,
+                        35, # Hard timeout 35s cho Agent 3
                         "Agent 3 Lens"
                     ) if enable_agent_3
                     else build_disabled_agent_result("Agent 3 Lens", "Agent 3 bị tắt theo cấu hình admin."),
@@ -549,14 +815,14 @@ class RecognitionService:
                     agent_tasks.append(
                         run_agent_with_timeout(
                             run_agent3_lens_v1(crop_bytes, context_for_llm, debug_log=lens_v1_debug),
-                            agent_timeout_seconds,
+                            35,
                             "Agent 3 Lens v1"
                         )
                     )
                     agent_tasks.append(
                         run_agent_with_timeout(
                             run_agent3_lens_v2(crop_bytes, context_for_llm, debug_log=lens_v2_debug),
-                            agent_timeout_seconds,
+                            35,
                             "Agent 3 Lens v2"
                         )
                     )
@@ -621,12 +887,41 @@ class RecognitionService:
                     )
 
                 if enable_aggregator:
-                    is_final_attempt = (attempt >= max_retries)
-                    final_consensus = await run_aggregator(r1, r2, r3, is_final_attempt=is_final_attempt)
+                    final_consensus = await run_aggregator(r1, r2, r3)
+                    pattern = final_consensus.get("consensus_pattern", "unknown")
+                    
+                    if pattern in ["1-1-1", "conflict", "1-valid-only"]:
+                        current_max_attempts = MAX_CONFLICT_ATTEMPTS
+                    elif pattern == "transient_error":
+                        current_max_attempts = MAX_TRANSIENT_FAILURE_ATTEMPTS
+                    elif pattern in ["0/3", "not_banknote_or_unclear", "zero_evidence"]:
+                        current_max_attempts = MAX_ZERO_EVIDENCE_ATTEMPTS
+                    else:
+                        current_max_attempts = 1
+                        
                     logger.info(
-                        "[Aggregator] done object_%s status=%s matched_agents=%s", 
-                        object_index, final_consensus.get('status'), final_consensus.get('matched_agents')
+                        "[ConsensusRetry] object_%s attempt=%s/%s pattern=%s matched_agents=%s", 
+                        object_index, attempt_no, current_max_attempts, pattern, final_consensus.get('matched_agents')
                     )
+                    
+                    final_consensus["attempts_used"] = attempt_no
+                    if attempt_idx == 0:
+                        run_max_attempts = current_max_attempts
+                    final_consensus["max_attempts"] = run_max_attempts
+                    
+                    if pattern not in ["2/3", "3/3"] and attempt_no < current_max_attempts:
+                        require_rerun = True
+                    else:
+                        require_rerun = False
+                        if pattern in ["1-1-1", "conflict", "1-valid-only"]:
+                            final_consensus["status"] = "consensus_failed"
+                            final_consensus["quan_diem_trong_tai"] = "Không đạt đồng thuận sau 3 lần thử. Cần ảnh rõ hơn hoặc kiểm tra thủ công."
+                        elif pattern == "transient_error":
+                            final_consensus["status"] = "agent_error"
+                            final_consensus["quan_diem_trong_tai"] = "Các agent không trả được kết quả hợp lệ do lỗi kỹ thuật sau 2 lần thử."
+                        
+                    final_consensus["require_rerun"] = require_rerun
+
                 else:
                     final_consensus = {
                         "require_rerun": False,
@@ -637,9 +932,42 @@ class RecognitionService:
                         "final_denomination": None,
                         "final_agent": None,
                         "valid_votes": [],
+                        "consensus_pattern": "unknown",
+                        "attempts_used": attempt_no,
+                        "max_attempts": 1,
                         "quan_diem_trong_tai": "Aggregator bị tắt theo cấu hình admin.",
                     }
                 final_consensus["object_index"] = object_index
+                
+                def _get_agent_summary(raw_str, agent_name):
+                    try:
+                        data = json.loads(raw_str)
+                        if isinstance(data, list) and len(data) > 0: data = data[0]
+                        if not isinstance(data, dict): data = {}
+                        return {
+                            "agent": agent_name,
+                            "status": data.get("status", "Failed"),
+                            "country": data.get("quoc_gia", "Không xác định"),
+                            "denomination": data.get("menh_gia", "Không xác định"),
+                            "confidence": data.get("do_tin_cay", 0)
+                        }
+                    except Exception:
+                        return {"agent": agent_name, "status": "Failed", "country": "Lỗi", "denomination": "Lỗi", "confidence": 0}
+
+                trace_record = {
+                    "attempt": attempt_no,
+                    "max_attempts": final_consensus.get("max_attempts", 1),
+                    "pattern": final_consensus.get("consensus_pattern", "unknown"),
+                    "matched_agents": final_consensus.get("matched_agents", 0),
+                    "decision": "retry" if final_consensus.get("require_rerun") else "completed",
+                    "reason": final_consensus.get("quan_diem_trong_tai", ""),
+                    "votes": [
+                        _get_agent_summary(r1, "OpenAI"),
+                        _get_agent_summary(r2, "LLM"),
+                        _get_agent_summary(r3, "Visual Search")
+                    ]
+                }
+                consensus_trace.append(trace_record)
                 
                 if debug_mode:
                     r3_v1_result = results[3] if enable_agent_3 and len(results) > 3 else None
@@ -663,19 +991,33 @@ class RecognitionService:
                     
                     # Log aggregator
                     current_debug_object["aggregator_log"]["attempts"].append({
-                        "attempt": attempt + 1,
+                        "attempt": attempt_no,
                         "matched_agents": final_consensus.get("matched_agents", 0),
                         "status": final_consensus.get("status"),
                         "require_rerun": final_consensus.get("require_rerun", False),
                         "votes": [v.get("vote_key") for v in final_consensus.get("valid_votes", [])],
                     })
 
-                if final_consensus.get("require_rerun") and attempt < max_retries:
-                    context_for_llm = (
-                        f"Object #{object_index} has conflicting agent results. "
-                        f"YOLO result: {r1}. Lens result: {r3}. "
-                        "Analyze the crop again carefully and return one strict JSON result."
-                    )
+                if final_consensus.get("require_rerun"):
+                    summary_r1 = json.dumps(_get_agent_summary(r1, "OpenAI"), ensure_ascii=False)
+                    summary_r2 = json.dumps(_get_agent_summary(r2, "LLM"), ensure_ascii=False)
+                    summary_r3 = json.dumps(_get_agent_summary(r3, "Visual Search"), ensure_ascii=False)
+                    
+                    context_for_llm = f"""Previous attempt produced conflicting results.
+
+Agent 1 OpenAI result:
+{summary_r1}
+
+Agent 2 LLM result:
+{summary_r2}
+
+Agent 3 Visual Search result:
+{summary_r3}
+
+Aggregator conclusion:
+{final_consensus.get('quan_diem_trong_tai')}
+
+Please re-check the same crop carefully. Focus on visible text, denomination numbers, country name, portrait/building, color and material. Return the same JSON schema only."""
                     await asyncio.sleep(1)
                     continue
 
@@ -719,6 +1061,7 @@ class RecognitionService:
                 "fallback": bool(object_item.get("fallback", False)),
                 "final_result": final_consensus,
                 "agent_results": object_agent_results,
+                "consensus_trace": consensus_trace,
                 "summary": {
                     "object_index": object_index,
                     "denomination": denomination,
@@ -727,9 +1070,15 @@ class RecognitionService:
                     "status": final_consensus.get("status") or "Completed",
                     "matched_agents": final_consensus.get("matched_agents", 0),
                 },
+                # AG0 Crop Checker — optional metadata (không phá schema cũ)
+                "crop_checker": object_item.get("crop_checker"),
+                "selected_box_reason": object_item.get("selected_box_reason"),
+                "box_selection_trace": object_item.get("box_selection_trace"),
+                "rejected_boxes": object_item.get("rejected_boxes") or [],
             }
 
             detected_results.append(object_result)
+
             object_summaries.append(object_result["summary"])
             
             if debug_mode:
@@ -737,44 +1086,126 @@ class RecognitionService:
                 debug_output_objects.append(current_debug_object)
 
         if task:
-            await RecognitionService.update_task(task, "building_result", 88)
+            await RecognitionService.update_task(task, "saving_result", 90)
 
-        # Loại bỏ các object false positive (các vùng crop không phải tiền tệ và bị nhận diện thất bại hoàn toàn)
-        # chỉ khi có ít nhất 1 object khác đã được nhận diện thành công (Completed).
-        has_completed = any(
-            str((item.get("final_result") or {}).get("status") or "").lower() == "completed"
+        # ────────────────────────────────────────────────────────────────────────
+        # OBJECT FILTER: Safely filter out absolute garbage/fragments
+        # ────────────────────────────────────────────────────────────────────────
+        logger.info("[ObjectFilter] before count = %s", len(detected_results))
+        
+        before_filter_count = len(detected_results)
+        
+        # Check if there's any object with evidence in the entire pool
+        any_has_evidence = any(
+            _object_has_raw_agent_evidence(item) or _has_crop_quality_evidence(item)
             for item in detected_results
         )
-        if has_completed and len(detected_results) > 1:
-            filtered_results = []
+        
+        filtered_results = []
+        dropped_objects = []
+        kept_objects = []
+
+        if any_has_evidence and before_filter_count > 1:
             for item in detected_results:
+                obj_idx = item.get("object_index")
                 final_res = item.get("final_result") or {}
                 status_str = str(final_res.get("status") or "").lower()
-                matched_agents = int(final_res.get("matched_agents") or final_res.get("so_luong_dong_thuan") or 0)
+                matched_agents = int(final_res.get("matched_agents") or 0)
                 
-                # Nếu là object thất bại hoàn toàn (matched_agents = 0) và trạng thái lỗi, loại bỏ
-                is_failed_val = status_str in {"failed", "needs review", "needs_review"}
-                if is_failed_val and matched_agents == 0:
-                    logger.info(
-                        "[Recognition/Filter] Bỏ qua object_%s (false positive) vì không có agent nào nhận diện được và đã có object thành công khác.",
-                        item.get("object_index")
-                    )
-                    continue
-                filtered_results.append(item)
+                has_raw = _object_has_raw_agent_evidence(item)
+                has_qual = _has_crop_quality_evidence(item)
+                valid_votes_count = len(final_res.get("valid_votes") or [])
+                
+                logger.info(
+                    "[ObjectFilter] object original_index=%s display_index=%s bbox=%s status=%s matched_agents=%s",
+                    item.get("original_object_index", obj_idx), obj_idx, item.get("bbox"), status_str, matched_agents
+                )
+                logger.info("[ObjectFilter] raw_agent_evidence=%s", has_raw)
+                logger.info("[ObjectFilter] crop_quality_evidence=%s", has_qual)
+                logger.info("[ObjectFilter] valid_votes_count=%s", valid_votes_count)
+                
+                is_zero_evidence = not has_raw and not has_qual
+                
+                if is_zero_evidence:
+                    logger.info("[ObjectFilter] DROP reason=zero_evidence_background")
+                    dropped_objects.append(item)
+                else:
+                    reason = "has_raw_agent_evidence" if has_raw else "has_crop_quality_evidence"
+                    logger.info("[ObjectFilter] KEEP reason=%s", reason)
+                    filtered_results.append(item)
+                    kept_objects.append({"original_object_index": item.get("original_object_index", obj_idx), "reason": reason})
+                    
+            after_filter_count = len(filtered_results)
             
-            if len(filtered_results) > 0:
-                # Sắp xếp và cập nhật lại index của các object còn lại
+            # PHASE 2: Safety Guard
+            if before_filter_count >= 2 and after_filter_count == 1:
+                # Trót lỡ drop về 1, cần check xem dropped object có gì vớt vát được không
+                for dropped in dropped_objects:
+                    d_has_raw = _object_has_raw_agent_evidence(dropped)
+                    d_has_qual = _has_crop_quality_evidence(dropped)
+                    if d_has_raw or d_has_qual:
+                        # Restore as Needs Review
+                        if "final_result" not in dropped:
+                            dropped["final_result"] = {}
+                        dropped["final_result"]["status"] = "Needs Review"
+                        if dropped["final_result"].get("matched_agents") is None:
+                            dropped["final_result"]["matched_agents"] = 0
+                            
+                        logger.info("[ObjectFilter] SAFETY RESTORE original_index=%s", dropped.get("original_object_index", dropped.get("object_index")))
+                        filtered_results.append(dropped)
+                        kept_objects.append({"original_object_index": dropped.get("original_object_index", dropped.get("object_index")), "reason": "safety_restore"})
+                        
+                # Cập nhật lại after_filter_count sau khi restore
+                # Sắp xếp lại theo bbox Y, X cho đúng thứ tự
+                filtered_results = sorted(
+                    filtered_results,
+                    key=lambda it: (it.get("bbox", [0,0,0,0])[1] // 50, it.get("bbox", [0,0,0,0])[0])
+                )
+                after_filter_count = len(filtered_results)
+                
+            # Cập nhật lại index (Phase 4)
+            if after_filter_count > 0:
                 for new_idx, item in enumerate(filtered_results, start=1):
+                    # Preserve original if not already there
+                    if "original_object_index" not in item:
+                        item["original_object_index"] = item.get("object_index")
+                        
                     item["object_index"] = new_idx
                     if "summary" in item:
                         item["summary"]["object_index"] = new_idx
                     if "final_result" in item:
                         item["final_result"]["object_index"] = new_idx
+                        
                 detected_results = filtered_results
+            else:
+                logger.warning("[ObjectFilter] filtered rỗng, rollback.")
+        else:
+            logger.info("[ObjectFilter] Skip filter (no evidence in any object or only 1 object)")
+
+        logger.info("[ObjectFilter] after count = %s", len(detected_results))
+        
+        if debug_mode:
+            final_consensus["debug_filter"] = {
+                "before_filter_count": before_filter_count,
+                "after_filter_count": len(detected_results),
+                "dropped_objects": [
+                    {
+                        "original_object_index": d.get("original_object_index", d.get("object_index")),
+                        "bbox": d.get("bbox"),
+                        "reason": "zero_evidence_background"
+                    } for d in dropped_objects if d not in filtered_results
+                ],
+                "kept_objects": kept_objects
+            }
 
         public_detected_results = [
             build_public_detected_object(item) for item in detected_results
         ]
+        
+        object_summaries = [item.get("summary") for item in detected_results]
+        first_trace_object = detected_results[0] if detected_results else {}
+        box_selection_trace = first_trace_object.get("box_selection_trace")
+        rejected_boxes = first_trace_object.get("rejected_boxes") or []
 
         resolved_count = sum(1 for item in detected_results if is_object_resolved(item))
 
@@ -788,7 +1219,7 @@ class RecognitionService:
         )
         _all_terminal_negative = all(
             str((item.get("final_result") or {}).get("status") or "").lower()
-            in {"failed", "needs_better_image", "conflict", "needs review", "needs_review"}
+            in {"failed", "needs_better_image", "conflict", "needs review", "needs_review", "not_banknote_or_unclear"}
             for item in detected_results
         )
         _no_banknote_detected = (
@@ -828,6 +1259,8 @@ class RecognitionService:
             final_consensus["too_many_banknotes_detected"] = _too_many
             final_consensus["raw_candidate_count"] = _raw_candidate_count
             final_consensus["max_processed_banknotes"] = MAX_BANKNOTES_PER_IMAGE
+            final_consensus["box_selection_trace"] = box_selection_trace
+            final_consensus["rejected_boxes"] = rejected_boxes
 
             _warnings = []
             if _all_crops_were_fallback:
@@ -887,6 +1320,8 @@ class RecognitionService:
                 "too_many_banknotes_detected": _too_many,
                 "raw_candidate_count": _raw_candidate_count,
                 "max_processed_banknotes": MAX_BANKNOTES_PER_IMAGE,
+                "box_selection_trace": box_selection_trace,
+                "rejected_boxes": rejected_boxes,
             }
 
             _warnings = []
@@ -966,6 +1401,9 @@ class RecognitionService:
 
         await record.insert()
 
+        if task:
+            await RecognitionService.update_task(task, "saving_result", 95)
+
         try:
             billing_result = await TokenBillingService.charge_user_for_scan(
                 user=user,
@@ -1002,8 +1440,8 @@ class RecognitionService:
         result_data = serialize_result(record)
 
         if task:
-            task.status = "done"
-            task.stage = "done"
+            task.status = "completed"
+            task.stage = "completed"
             task.progress = 100
             task.result_id = str(record.id)
             task.result = result_data
@@ -1040,6 +1478,21 @@ class RecognitionService:
         return record
 
     @staticmethod
+    def log_background_task_exception(task_id: str, background_job: asyncio.Task) -> None:
+        try:
+            exc = background_job.exception()
+        except asyncio.CancelledError:
+            logger.warning("[RecognitionTask] background_cancelled task_id=%s", task_id)
+            return
+
+        if exc:
+            logger.error(
+                "[RecognitionTask] background_unhandled_exception task_id=%s",
+                task_id,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+
+    @staticmethod
     async def start_recognition_task(user: User, image_bytes: bytes) -> Dict[str, Any]:
         if int(getattr(user, "token_balance", 0) or 0) < 1:
             raise HTTPException(
@@ -1051,19 +1504,34 @@ class RecognitionService:
             user_id=str(user.id),
             status="processing",
             stage="queued",
-            progress=0,
+            progress=5,
             created_at=now_utc(),
             updated_at=now_utc(),
         )
 
         await task.insert()
+        logger.info("[RecognitionTask] created task_id=%s user_id=%s", task.id, user.id)
 
-        asyncio.create_task(
+        try:
+            await RecognitionService.save_task_input_image(task, image_bytes)
+        except Exception as exc:
+            logger.exception("[RecognitionTask] image_save_failed task_id=%s", task.id)
+            await RecognitionService.fail_task(
+                task,
+                "failed",
+                f"Could not save uploaded image: {str(exc)[:300]}",
+            )
+            return serialize_task(task)
+
+        background_job = asyncio.create_task(
             RecognitionService.run_recognition_background_worker(
                 user_id=str(user.id),
                 task_id=str(task.id),
                 image_bytes=image_bytes,
             )
+        )
+        background_job.add_done_callback(
+            lambda job: RecognitionService.log_background_task_exception(str(task.id), job)
         )
 
         return serialize_task(task)
@@ -1080,21 +1548,37 @@ class RecognitionService:
         logger.info("[Recognition] Start scan task_id=%s", _task_id_log)
 
         if not task:
+            logger.error("[RecognitionTask] background_missing_task task_id=%s", task_id)
             return
 
         try:
+            logger.info("[RecognitionTask] worker_started task_id=%s", task.id)
             user = await User.get(to_object_id(user_id))
 
             if not user:
                 raise HTTPException(status_code=404, detail="User not found.")
 
-            await RecognitionService.run_pipeline(
-                user=user,
-                image_bytes=image_bytes,
-                task=task,
+            logger.info("[RecognitionTask] pipeline_started task_id=%s", task.id)
+            await asyncio.wait_for(
+                RecognitionService.run_pipeline(
+                    user=user,
+                    image_bytes=image_bytes,
+                    task=task,
+                ),
+                timeout=TASK_PIPELINE_TIMEOUT_SECONDS
             )
 
+        except asyncio.TimeoutError:
+            logger.exception("[RecognitionTask] pipeline_timeout task_id=%s", task.id)
+            task.status = "failed"
+            task.stage = "failed"
+            task.progress = 100
+            task.error_message = "Task timeout sau 180 giây. Vui lòng quét lại."
+            task.finished_at = now_utc()
+            task.updated_at = now_utc()
+            await task.save()
         except Exception as exc:
+            logger.exception("[RecognitionTask] pipeline_failed task_id=%s", task.id)
             task.status = "failed"
             task.stage = "failed"
             task.progress = 100

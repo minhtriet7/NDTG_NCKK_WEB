@@ -20,6 +20,12 @@ export const authService = {
     return await api.post("/auth/forgot-password", { email });
   },
 
+  verifyEmail: async (token) => {
+    return await api.get("/auth/verify-email", {
+      params: { token },
+    });
+  },
+
   getGoogleLoginUrl: () => {
     return `${ROOT_API_URL}/api/v1/auth/google/login`;
   },

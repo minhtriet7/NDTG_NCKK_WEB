@@ -42,12 +42,52 @@ const safeStr = (val) =>
 
 const getRecImage = (r) => {
   const url =
-    r?.uploaded_image_url ||
+    r?.crop_image_url ||
+    (r?.detected_objects?.length > 0 ? r.detected_objects[0]?.crop_url : null) ||
+    r?.input_image_url ||
+    r?.original_image_url ||
     r?.image_url ||
+    r?.scan_image_url ||
+    r?.cloudinary_url ||
+    r?.uploaded_image_url ||
     r?.data?.image_url ||
     r?.result?.uploaded_image_url;
 
-  return url === "temp_url_will_be_uploaded_to_cloudinary_later" ? null : url;
+  if (!url || url === "temp_url_will_be_uploaded_to_cloudinary_later") {
+    return null;
+  }
+
+  if (url.includes("mocked-cloudinary.com") || url.includes("via.placeholder.com")) {
+    return null;
+  }
+
+  if (url.startsWith("/uploads/")) {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
+    return `${baseUrl}${url}`;
+  }
+
+  return url;
+};
+
+const SafeImage = ({ src, alt, className, iconClassName }) => {
+  const [hasError, setHasError] = useState(false);
+
+  if (!src || hasError) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-800/50">
+        <ImageIcon size={14} className={iconClassName} />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt || "scan"}
+      className={className}
+      onError={() => setHasError(true)}
+    />
+  );
 };
 
 const getRecDenom = (r) =>
@@ -1237,7 +1277,11 @@ export default function History() {
                             isDark ? "bg-slate-800 border-slate-700" : "bg-slate-50 border-slate-200"
                           }`}>
                             {image ? (
-                              <img src={image} alt="scan" className="object-cover w-full h-full" />
+                              <SafeImage 
+                                src={image} 
+                                className="object-cover w-full h-full" 
+                                iconClassName={isDark ? "text-slate-600" : "text-slate-300"}
+                              />
                             ) : (
                               <ImageIcon size={14} className={isDark ? "text-slate-600" : "text-slate-300"} />
                             )}

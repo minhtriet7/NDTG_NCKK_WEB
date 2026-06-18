@@ -1,7 +1,75 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
-const ACTIVE_TASK_TTL_MS = 30 * 60 * 1000;
+export const ACTIVE_TASK_TTL_MS = 10 * 60 * 1000;
+export const STALE_TASK_THRESHOLD_MS = 10 * 60 * 1000;
+
+const ACTIVE_TASK_STORAGE_KEYS = [
+  "activeRecognitionTaskId",
+  "active_recognition_task",
+  "activeTaskId",
+  "active_task_id",
+  "processingTaskId",
+  "processing_task_id",
+  "runningTask",
+  "running_task",
+];
+
+const TERMINAL_TASK_STATUSES = new Set([
+  "done",
+  "completed",
+  "complete",
+  "success",
+  "succeeded",
+  "needs_review",
+  "needs review",
+  "failed",
+  "failure",
+  "error",
+  "cancelled",
+  "canceled",
+  "timeout",
+]);
+
+const clearActiveTaskStorage = () => {
+  ACTIVE_TASK_STORAGE_KEYS.forEach((key) => {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  });
+};
+
+const normalizeTaskId = (task) => task?.taskId || task?.task_id || task?.id || null;
+
+const normalizeStatus = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const getTaskTimestampMs = (task) => {
+  const raw =
+    task?.backendUpdatedAt ||
+    task?.updated_at ||
+    task?.updatedAt ||
+    task?.lastSeenAt ||
+    task?.created_at ||
+    task?.createdAt ||
+    task?.savedAt;
+
+  const timestamp = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(timestamp) ? timestamp : NaN;
+};
+
+export const isProcessingTaskStale = (task, now = Date.now()) => {
+  if (!task) return false;
+
+  const status = normalizeStatus(task.status);
+  if (status && TERMINAL_TASK_STATUSES.has(status)) return false;
+
+  const timestamp = getTaskTimestampMs(task);
+  if (!Number.isFinite(timestamp)) return false;
+
+  return now - timestamp > STALE_TASK_THRESHOLD_MS;
+};
 
 const safePreviewUrl = (url) => {
   if (!url) return null;
@@ -13,13 +81,14 @@ const safePreviewUrl = (url) => {
 };
 
 const isFreshTask = (task) => {
-  if (!task?.taskId || !task?.createdAt) return false;
+  const taskId = normalizeTaskId(task);
+  if (!taskId || task?.stale) return false;
 
-  const createdAtMs = new Date(task.createdAt).getTime();
+  const timestamp = getTaskTimestampMs(task);
 
-  if (!Number.isFinite(createdAtMs)) return false;
+  if (!Number.isFinite(timestamp)) return false;
 
-  return Date.now() - createdAtMs <= ACTIVE_TASK_TTL_MS;
+  return Date.now() - timestamp <= ACTIVE_TASK_TTL_MS;
 };
 
 const getBackendImageUrl = (data) => {
@@ -44,11 +113,13 @@ export const useRecognitionStore = create(
     (set, get) => ({
       currentScanSession: null,
       activeTask: null,
+      hiddenTaskIds: [],
       
       // Temporary UI states for workspace
       currentImageFile: null,
       currentPreviewUrl: null,
       isScanning: false,
+      fileInputKey: 0,
 
       setCurrentImage: (file, url) => set({
         currentImageFile: file,
@@ -65,42 +136,151 @@ export const useRecognitionStore = create(
       }),
 
       setActiveTask: (taskId, inputMeta = {}) =>
-        set({
-          activeTask: taskId
-            ? {
-                taskId,
-                inputMeta,
-                createdAt: new Date().toISOString(),
-              }
-            : null,
+        set((state) => {
+          if (!taskId || state.hiddenTaskIds.includes(String(taskId))) {
+            clearActiveTaskStorage();
+            return { activeTask: null, isScanning: false };
+          }
+
+          return {
+            activeTask: {
+              taskId,
+              inputMeta,
+              createdAt: new Date().toISOString(),
+              lastSeenAt: new Date().toISOString(),
+              stale: false,
+            },
+          };
         }),
 
       setActiveTaskId: (taskId) =>
-        set({
-          activeTask: taskId
-            ? {
-                taskId,
-                inputMeta: {},
-                createdAt: new Date().toISOString(),
-              }
-            : null,
+        set((state) => {
+          if (!taskId || state.hiddenTaskIds.includes(String(taskId))) {
+            clearActiveTaskStorage();
+            return { activeTask: null, isScanning: false };
+          }
+
+          return {
+            activeTask: {
+              taskId,
+              inputMeta: {},
+              createdAt: new Date().toISOString(),
+              lastSeenAt: new Date().toISOString(),
+              stale: false,
+            },
+          };
         }),
 
       clearActiveTask: () =>
-        set({
-          activeTask: null,
+        set(() => {
+          clearActiveTaskStorage();
+          return {
+            activeTask: null,
+            isScanning: false,
+          };
         }),
 
       clearActiveTaskId: () =>
-        set({
-          activeTask: null,
+        set(() => {
+          clearActiveTaskStorage();
+          return {
+            activeTask: null,
+            isScanning: false,
+          };
+        }),
+
+      hideTaskLocally: (taskId) =>
+        set((state) => {
+          const id = String(taskId || normalizeTaskId(state.activeTask) || "");
+          const hiddenTaskIds = id
+            ? Array.from(new Set([...(state.hiddenTaskIds || []), id])).slice(-50)
+            : state.hiddenTaskIds || [];
+
+          clearActiveTaskStorage();
+
+          return {
+            hiddenTaskIds,
+            activeTask: null,
+            isScanning: false,
+          };
+        }),
+
+      isTaskHidden: (taskId) => {
+        const id = String(taskId || "");
+        return Boolean(id && get().hiddenTaskIds.includes(id));
+      },
+
+      updateActiveTaskFromBackend: (taskId, backendTask = {}) =>
+        set((state) => {
+          const id = String(taskId || normalizeTaskId(backendTask) || "");
+
+          if (!id || state.hiddenTaskIds.includes(id)) {
+            clearActiveTaskStorage();
+            return { activeTask: null, isScanning: false };
+          }
+
+          const current = normalizeTaskId(state.activeTask) === id ? state.activeTask : {};
+          const backendUpdatedAt = backendTask?.updated_at || backendTask?.updatedAt || current.backendUpdatedAt;
+
+          return {
+            activeTask: {
+              ...current,
+              taskId: id,
+              inputMeta: current.inputMeta || {},
+              createdAt:
+                current.createdAt ||
+                backendTask?.created_at ||
+                backendTask?.createdAt ||
+                new Date().toISOString(),
+              backendUpdatedAt,
+              lastSeenAt: new Date().toISOString(),
+              status: backendTask?.status || current.status,
+              stage: backendTask?.stage || current.stage,
+              progress: backendTask?.progress ?? current.progress,
+              stale: false,
+            },
+          };
+        }),
+
+      markActiveTaskStale: (taskId, backendTask = {}) =>
+        set((state) => {
+          const id = String(taskId || normalizeTaskId(backendTask) || normalizeTaskId(state.activeTask) || "");
+          if (!id || state.hiddenTaskIds.includes(id)) {
+            clearActiveTaskStorage();
+            return { activeTask: null, isScanning: false };
+          }
+
+          const current = normalizeTaskId(state.activeTask) === id ? state.activeTask : {};
+          clearActiveTaskStorage();
+
+          return {
+            activeTask: {
+              ...current,
+              taskId: id,
+              inputMeta: current.inputMeta || {},
+              createdAt:
+                current.createdAt ||
+                backendTask?.created_at ||
+                backendTask?.createdAt ||
+                new Date().toISOString(),
+              backendUpdatedAt: backendTask?.updated_at || backendTask?.updatedAt || current.backendUpdatedAt,
+              lastSeenAt: new Date().toISOString(),
+              status: backendTask?.status || current.status || "processing",
+              stage: backendTask?.stage || current.stage || "stale",
+              progress: backendTask?.progress ?? current.progress ?? 0,
+              stale: true,
+            },
+            isScanning: false,
+          };
         }),
 
       getFreshActiveTask: () => {
         const task = get().activeTask;
+        const taskId = normalizeTaskId(task);
 
-        if (!isFreshTask(task)) {
+        if (!taskId || get().hiddenTaskIds.includes(String(taskId)) || !isFreshTask(task)) {
           set({ activeTask: null });
+          clearActiveTaskStorage();
           return null;
         }
 
@@ -150,6 +330,21 @@ export const useRecognitionStore = create(
         set({
           currentScanSession: null,
         }),
+
+      // Reset TOÀN BỘ scan state khi người dùng bấm "Scan Another" hoặc task completed.
+      resetScanSession: () => {
+        set((state) => ({
+          currentImageFile: null,
+          currentPreviewUrl: null,
+          isScanning: false,
+          activeTask: null,
+          currentScanSession: null,
+          fileInputKey: (state.fileInputKey || 0) + 1,
+        }));
+        localStorage.removeItem("activeRecognitionTaskId");
+        sessionStorage.removeItem("activeRecognitionTaskId");
+        localStorage.removeItem("active_recognition_task");
+      },
 
       // Dùng khi muốn reset sạch toàn bộ recognition.
       clearScanSession: () =>

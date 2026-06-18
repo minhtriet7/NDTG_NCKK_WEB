@@ -18,6 +18,10 @@ class User(Document):
     token_balance: int = 5
 
     is_active: bool = True
+    email_verified: bool = False
+    email_verification_token_hash: Optional[str] = None
+    email_verification_expires_at: Optional[datetime] = None
+    email_verification_sent_at: Optional[datetime] = None
     avatar_url: Optional[str] = None
     preferences: Dict[str, Any] = Field(default_factory=dict)
 

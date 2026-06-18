@@ -20,16 +20,19 @@ export default function AdminLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const { i18n } = useTranslation();
   
-  const appStore = useAppStore();
-  const lang = appStore.lang || "EN";
-  const theme = appStore.theme || "light";
-  const isDark = theme === "dark";
+  const lang = useAppStore((state) => state.lang || "EN");
+  const theme = useAppStore((state) => state.theme || "light");
+  const resolvedTheme = useAppStore((state) => state.resolvedTheme);
+  const initTheme = useAppStore((state) => state.initTheme);
+  const setLang = useAppStore((state) => state.setLang);
+  const toggleTheme = useAppStore((state) => state.toggleTheme);
+  const isDark = (resolvedTheme || theme) === "dark";
 
   useEffect(() => {
-    if (typeof appStore.initTheme === "function") {
-      appStore.initTheme();
+    if (typeof initTheme === "function") {
+      initTheme();
     }
-  }, [appStore]);
+  }, [initTheme]);
 
   useEffect(() => {
     if (i18n && typeof i18n.changeLanguage === "function") {
@@ -47,10 +50,8 @@ export default function AdminLayout() {
 
   const toggleLanguage = () => {
     const nextLang = lang === "EN" ? "VI" : "EN";
-    if (typeof appStore.setLang === "function") {
-      appStore.setLang(nextLang);
-    } else if (typeof appStore.setLanguage === "function") {
-      appStore.setLanguage(nextLang);
+    if (typeof setLang === "function") {
+      setLang(nextLang);
     } else {
       useAppStore.setState({ lang: nextLang });
     }
@@ -225,7 +226,7 @@ export default function AdminLayout() {
               <Globe size={16} /> {lang}
             </button>
 
-            <button onClick={appStore.toggleTheme} className={`p-2 rounded-lg border transition ${isDark ? "border-slate-700 bg-slate-800 text-amber-400 hover:text-amber-300" : "border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900"}`} title="Toggle Theme">
+            <button onClick={toggleTheme} className={`p-2 rounded-lg border transition ${isDark ? "border-slate-700 bg-slate-800 text-amber-400 hover:text-amber-300" : "border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900"}`} title="Toggle Theme">
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             

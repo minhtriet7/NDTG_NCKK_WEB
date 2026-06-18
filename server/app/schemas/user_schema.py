@@ -29,6 +29,7 @@ class UserResponse(BaseModel):
     token_balance: int = 0
     has_password: bool = True
     is_active: bool = True
+    email_verified: bool = False
 
     phone: Optional[str] = None
     country: Optional[str] = None
@@ -47,8 +48,13 @@ class UserResponse(BaseModel):
 
 class TokenSchema(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
     user: UserResponse
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 
 class UserUpdate(BaseModel):

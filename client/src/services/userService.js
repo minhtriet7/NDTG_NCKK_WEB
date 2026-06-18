@@ -19,6 +19,10 @@ export async function uploadAvatar(file) {
   });
 }
 
+export async function resendVerificationEmail() {
+  return await api.post("/users/me/email/resend-verification");
+}
+
 export async function getProfileStats() {
   return await api.get("/users/me/stats");
 }

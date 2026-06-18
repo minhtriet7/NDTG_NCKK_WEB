@@ -45,6 +45,11 @@ export default function Register() {
     e.preventDefault();
     setError('');
     
+    if (formData.password.length < 6) {
+      setError(lang === 'VI' ? 'Mật khẩu phải có ít nhất 6 ký tự.' : 'Password must be at least 6 characters.');
+      return;
+    }
+
     if (formData.password !== formData.confirm_password) {
       setError(t.errMatch);
       return;
@@ -56,7 +61,9 @@ export default function Register() {
       setSuccess(true);
       setTimeout(() => navigate('/auth/login'), 2000);
     } catch (err) {
-      setError(err.response?.data?.detail || "Đăng ký thất bại.");
+      const detail = err.response?.data?.detail;
+      const errMsg = Array.isArray(detail) ? detail[0]?.msg : detail;
+      setError(errMsg || (lang === 'VI' ? "Đăng ký thất bại." : "Registration failed."));
     } finally {
       setIsLoading(false);
     }

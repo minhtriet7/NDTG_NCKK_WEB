@@ -9,10 +9,11 @@ from pydantic import BaseModel
 from app.controllers.auth_controller import AuthController
 from app.core.config import settings
 from app.core.logger import get_logger
-from app.core.security import create_access_token
+from app.core.security import create_access_token, create_refresh_token
 from app.models.user_model import User
-from app.schemas.user_schema import UserRegister, UserLogin
+from app.schemas.user_schema import UserRegister, UserLogin, RefreshTokenRequest
 from app.services.email_service import EmailService
+from app.services.auth_service import AuthService
 
 
 router = APIRouter()
@@ -48,9 +49,19 @@ async def login(data: UserLogin):
     return await AuthController.login(data)
 
 
+@router.post("/refresh")
+async def refresh_token(data: RefreshTokenRequest):
+    return await AuthService.refresh_access_token(data.refresh_token)
+
+
 @router.post("/forgot-password")
 async def forgot_password(data: ForgotPasswordRequest):
     return await AuthController.forgot_password(data.email)
+
+
+@router.get("/verify-email")
+async def verify_email(token: str):
+    return await AuthController.verify_email(token)
 
 
 @router.post("/google/native")
@@ -96,6 +107,7 @@ async def google_native_login(data: NativeGoogleLogin):
                 provider="google",
                 token_balance=10,
                 is_active=True,
+                email_verified=True,
                 avatar_url=avatar_url,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
@@ -107,6 +119,11 @@ async def google_native_login(data: NativeGoogleLogin):
                 user.provider = getattr(user, "provider", None) or "google"
             if avatar_url and hasattr(user, "avatar_url"):
                 user.avatar_url = avatar_url
+            if hasattr(user, "email_verified"):
+                user.email_verified = True
+                user.email_verification_token_hash = None
+                user.email_verification_expires_at = None
+                user.email_verification_sent_at = None
             if hasattr(user, "last_login_at"):
                 user.last_login_at = datetime.now(timezone.utc)
             if hasattr(user, "updated_at"):
@@ -114,6 +131,7 @@ async def google_native_login(data: NativeGoogleLogin):
             await user.save()
 
         access_token = create_access_token(subject=str(user.id))
+        refresh_token = create_refresh_token(subject=str(user.id))
 
         if is_google_first_login:
             try:
@@ -123,12 +141,15 @@ async def google_native_login(data: NativeGoogleLogin):
 
         return {
             "access_token": access_token,
+            "refresh_token": refresh_token,
             "token_type": "bearer",
             "user": {
                 "id": str(user.id),
                 "email": user.email,
                 "full_name": user.full_name,
                 "role": user.role,
+                "provider": getattr(user, "provider", "google"),
+                "email_verified": True,
                 "token_balance": user.token_balance,
                 "avatar_url": user.avatar_url,
             }
@@ -274,6 +295,7 @@ async def google_callback(request: Request):
                 provider="google",
                 token_balance=10,
                 is_active=True,
+                email_verified=True,
                 avatar_url=avatar_url,
                 created_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
@@ -287,6 +309,12 @@ async def google_callback(request: Request):
             if avatar_url and hasattr(user, "avatar_url"):
                 user.avatar_url = avatar_url
 
+            if hasattr(user, "email_verified"):
+                user.email_verified = True
+                user.email_verification_token_hash = None
+                user.email_verification_expires_at = None
+                user.email_verification_sent_at = None
+
             if hasattr(user, "last_login_at"):
                 user.last_login_at = datetime.now(timezone.utc)
 
@@ -296,6 +324,7 @@ async def google_callback(request: Request):
             await user.save()
 
         access_token = create_access_token(subject=str(user.id))
+        refresh_token = create_refresh_token(subject=str(user.id))
 
         if is_google_first_login:
             try:
@@ -306,6 +335,7 @@ async def google_callback(request: Request):
         return _redirect_google_result(
             request,
             token=access_token,
+            refresh_token=refresh_token,
         )
 
     except Exception as exc:
@@ -321,14 +351,16 @@ def _redirect_google_result(
     request: Request,
     token: Optional[str] = None,
     error: Optional[str] = None,
+    refresh_token: Optional[str] = None,
 ):
     platform = request.session.pop("google_oauth_platform", "web")
 
     if platform == "mobile":
         if token:
-            return RedirectResponse(
-                url=f"banknoteai://auth/google/success?token={token}"
-            )
+            url = f"banknoteai://auth/google/success?token={token}"
+            if refresh_token:
+                url += f"&refresh_token={refresh_token}"
+            return RedirectResponse(url=url)
 
         return RedirectResponse(
             url=f"banknoteai://auth/google/success?error={error or 'GoogleAuthFailed'}"
@@ -339,9 +371,10 @@ def _redirect_google_result(
     frontend_url = request.session.pop("google_oauth_frontend_url", fallback_frontend)
 
     if token:
-        return RedirectResponse(
-            url=f"{frontend_url}/auth/google/success?token={token}"
-        )
+        url = f"{frontend_url}/auth/google/success?token={token}"
+        if refresh_token:
+            url += f"&refresh_token={refresh_token}"
+        return RedirectResponse(url=url)
 
     return RedirectResponse(
         url=f"{frontend_url}/auth/login?error={error or 'GoogleAuthFailed'}"

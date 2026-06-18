@@ -44,15 +44,29 @@ export default function About() {
         ) : content ? (
           <>
             <div className="text-center mb-16">
-              <h1 className="text-4xl lg:text-5xl font-black tracking-tight mb-4 text-slate-900 dark:text-white">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-50 dark:bg-purple-500/10 border border-purple-100 dark:border-purple-500/20 text-purple-600 dark:text-purple-400 text-xs font-bold uppercase tracking-wider mb-6">
+                Company Info
+              </div>
+              <h1 className="text-4xl lg:text-5xl font-black tracking-tight mb-4 text-transparent bg-clip-text bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400">
                 {isVi ? content.title_vi : content.title_en}
               </h1>
             </div>
             
-            <div className="prose prose-slate dark:prose-invert max-w-none prose-headings:text-indigo-600 dark:prose-headings:text-indigo-400 prose-a:text-indigo-500 hover:prose-a:text-indigo-600">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {isVi ? content.content_vi : content.content_en}
-              </ReactMarkdown>
+            <div className="bg-white dark:bg-[#0F172A] shadow-2xl shadow-slate-200/50 dark:shadow-black/40 border border-slate-200/60 dark:border-slate-800/60 rounded-[2rem] p-8 sm:p-12 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-64 h-64 bg-gradient-to-br from-purple-500/5 to-transparent rounded-full pointer-events-none" />
+              
+              <div className="prose prose-slate dark:prose-invert prose-indigo max-w-none 
+                              prose-headings:font-bold prose-headings:tracking-tight
+                              prose-h1:text-3xl prose-h1:mb-8
+                              prose-h2:mt-12 prose-h2:mb-6 prose-h2:pb-3 prose-h2:border-b prose-h2:border-slate-100 dark:prose-h2:border-slate-800/80
+                              prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:font-semibold prose-a:no-underline hover:prose-a:underline hover:prose-a:text-indigo-700
+                              prose-li:marker:text-indigo-500
+                              prose-p:leading-relaxed prose-p:text-slate-600 dark:prose-p:text-slate-300
+                              relative z-10">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {isVi ? content.content_vi : content.content_en}
+                </ReactMarkdown>
+              </div>
             </div>
           </>
         ) : (

@@ -11,11 +11,12 @@ class RecognitionTaskStartResponse(BaseModel):
 class RecognitionTaskStatusResponse(BaseModel):
     task_id: str
 
-    status: str = "processing"  # processing, done, failed
+    status: str = "processing"  # processing, completed, failed
     stage: str = "queued"
     progress: int = Field(default=0, ge=0, le=100)
 
     input_image_url: Optional[str] = None
+    input_image_path: Optional[str] = None
     result_id: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
 

@@ -86,10 +86,13 @@ async def payment_vnpay_return(request: Request):
     # Nếu frontend có trang riêng thì đổi URL này theo route thật của web.
     tx_id = transaction.get("id") or transaction.get("transaction_id") or ""
 
-    if status == "success":
-        return RedirectResponse(url=f"/payment/success?transaction_id={tx_id}")
+    import os
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
-    return RedirectResponse(url=f"/payment/failed?transaction_id={tx_id}")
+    if status == "success":
+        return RedirectResponse(url=f"{frontend_url}/payment/success?transaction_id={tx_id}")
+
+    return RedirectResponse(url=f"{frontend_url}/payment/failed?transaction_id={tx_id}")
 
 
 @router.get("/vnpay/ipn")

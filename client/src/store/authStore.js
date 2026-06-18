@@ -2,27 +2,81 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { getMe } from "../services/userService";
 
+export function getUserAvatar(user) {
+  const value =
+    user?.avatar_url ||
+    user?.avatar ||
+    user?.profile_image ||
+    user?.picture ||
+    user?.photoURL ||
+    user?.user?.avatar_url ||
+    user?.user?.avatar ||
+    user?.user?.profile_image ||
+    user?.user?.picture ||
+    user?.user?.photoURL ||
+    "";
+
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function getAvatarImageSrc(user) {
+  const avatarUrl = getUserAvatar(user);
+
+  if (!avatarUrl) return "";
+
+  const version =
+    user?.avatar_updated_at ||
+    user?.updated_at ||
+    user?.updatedAt ||
+    user?.user?.updated_at ||
+    user?.user?.updatedAt ||
+    "";
+
+  if (!version) return avatarUrl;
+
+  const separator = avatarUrl.includes("?") ? "&" : "?";
+  return `${avatarUrl}${separator}v=${encodeURIComponent(version)}`;
+}
+
+function normalizeUserAvatarFields(user) {
+  if (!user) return user;
+
+  const avatarUrl = getUserAvatar(user);
+
+  if (!avatarUrl) return user;
+
+  return {
+    ...user,
+    avatar: avatarUrl,
+    avatar_url: avatarUrl,
+  };
+}
+
 export const useAuthStore = create(
   persist(
     (set, get) => ({
       user: null,
       token: null,
+      refreshToken: null,
       isAuthenticated: false,
 
-      login: (userData, token) =>
+      login: (userData, token, refreshToken) =>
         set({
-          user: userData,
+          user: normalizeUserAvatarFields(userData),
           token,
+          refreshToken,
           isAuthenticated: true,
         }),
 
       logout: () => {
         localStorage.removeItem("access_token");
         localStorage.removeItem("token");
+        localStorage.removeItem("refresh_token");
 
         set({
           user: null,
           token: null,
+          refreshToken: null,
           isAuthenticated: false,
         });
       },
@@ -39,12 +93,14 @@ export const useAuthStore = create(
 
       updateUser: (payload) =>
         set((state) => ({
-          user: state.user
-            ? {
-                ...state.user,
-                ...payload,
-              }
-            : payload,
+          user: normalizeUserAvatarFields(
+            state.user
+              ? {
+                  ...state.user,
+                  ...payload,
+                }
+              : payload,
+          ),
         })),
 
       syncProfile: async () => {
@@ -56,7 +112,7 @@ export const useAuthStore = create(
           const profile = await getMe();
 
           set({
-            user: profile,
+            user: normalizeUserAvatarFields(profile),
             isAuthenticated: true,
           });
 
@@ -78,6 +134,7 @@ export const useAuthStore = create(
       partialize: (state) => ({
         user: state.user,
         token: state.token,
+        refreshToken: state.refreshToken,
         isAuthenticated: state.isAuthenticated,
       }),
     }

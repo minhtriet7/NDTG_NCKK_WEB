@@ -109,17 +109,21 @@ class VnpayGateway:
         client_ip: str = "127.0.0.1",
         config=None,
     ) -> str:
-        tmn_code = VnpayGateway._get_setting(config, "vnpay_tmn_code", None)
-        hash_secret = VnpayGateway._get_setting(config, "vnpay_hash_secret", None)
-        return_url = VnpayGateway._get_setting(config, "vnpay_return_url", None)
+        tmn_code = VnpayGateway._get_setting(config, "vnpay_tmn_code", getattr(settings, "VNP_TMNCODE", None))
+        hash_secret = VnpayGateway._get_setting(config, "vnpay_hash_secret", getattr(settings, "VNP_HASHSECRET", None))
+        return_url = VnpayGateway._get_setting(config, "vnpay_return_url", getattr(settings, "VNP_RETURNURL", None))
         pay_url = VnpayGateway._get_setting(
             config,
             "vnpay_pay_url",
-            "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
+            getattr(settings, "VNP_URL", "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"),
         )
 
         if not tmn_code or not hash_secret or not return_url:
-            return ""
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=500,
+                detail="Cổng VNPay chưa được cấu hình hệ thống (Missing TMN_CODE or HASH_SECRET).",
+            )
 
         now = datetime.now()
 
@@ -141,11 +145,25 @@ class VnpayGateway:
         secure_hash = VnpayGateway._build_secure_hash(params, str(hash_secret))
         params["vnp_SecureHash"] = secure_hash
 
-        return f"{pay_url}?{urlencode(params)}"
+        generated_url = f"{pay_url}?{urlencode(params)}"
+
+        print("\n--- VNPAY DEBUG INFO ---")
+        print(f"vnp_TmnCode: {tmn_code}")
+        print(f"vnp_ReturnUrl: {return_url}")
+        print(f"vnp_Amount: {params['vnp_Amount']}")
+        print(f"vnp_TxnRef: {params['vnp_TxnRef']}")
+        print(f"vnp_OrderInfo: {params['vnp_OrderInfo']}")
+        print(f"vnp_IpAddr: {params['vnp_IpAddr']}")
+        print(f"vnp_CreateDate: {params['vnp_CreateDate']}")
+        print(f"vnp_SecureHash EXISTS: {bool(secure_hash)}")
+        print(f"FULL URL: {generated_url}")
+        print("------------------------\n")
+
+        return generated_url
 
     @staticmethod
     def verify_return_params(params: Dict[str, str], config=None) -> bool:
-        hash_secret = VnpayGateway._get_setting(config, "vnpay_hash_secret", None)
+        hash_secret = VnpayGateway._get_setting(config, "vnpay_hash_secret", getattr(settings, "VNP_HASHSECRET", None))
 
         if not hash_secret:
             return False

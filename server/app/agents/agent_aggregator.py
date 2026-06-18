@@ -12,6 +12,66 @@ NEEDS_BETTER_IMAGE_MESSAGE = (
     "không bị lóa, và thấy toàn bộ tờ tiền."
 )
 
+TRANSIENT_ERROR_KEYWORDS = [
+    "timeout",
+    "timed out",
+    "read timed out",
+    "connection",
+    "network",
+    "quota",
+    "rate limit",
+    "resource_exhausted",
+    "503",
+    "unavailable",
+    "api error",
+    "provider unavailable",
+    "serpapi",
+    "gemini",
+    "openai",
+]
+
+def is_transient_agent_error(agent_data: dict) -> bool:
+    text = " ".join([
+        str(agent_data.get("status", "")),
+        str(agent_data.get("mo_ta", "")),
+        str(agent_data.get("quan_diem", "")),
+        str(agent_data.get("error", "")),
+        str(agent_data.get("phuong_phap", "")),
+    ]).lower()
+
+    return any(keyword in text for keyword in TRANSIENT_ERROR_KEYWORDS)
+
+def classify_consensus_pattern(agents: Dict[str, Any], valid_votes: List[Dict[str, Any]], matched_count: int) -> str:
+    if matched_count >= 2:
+        return f"{matched_count}/3"
+
+    vote_keys = [
+        tuple(v.get("vote_key"))
+        for v in valid_votes
+        if v.get("vote_key") is not None
+    ]
+
+    unique_vote_keys = set(vote_keys)
+
+    if not valid_votes:
+        transient_count = sum(
+            1 for data in agents.values()
+            if data and is_transient_agent_error(data)
+        )
+
+        if transient_count >= 1:
+            return "transient_error"
+
+        return "not_banknote_or_unclear"
+
+    if len(vote_keys) == 1:
+        return "1-valid-only"
+
+    if len(unique_vote_keys) >= 2:
+        return "1-1-1"
+
+    return "conflict"
+
 
 def _safe_parse(data_str: Any) -> Dict[str, Any]:
     try:
@@ -39,17 +99,9 @@ async def run_aggregator(
     json_1: str,
     json_2: str,
     json_3: str,
-    is_final_attempt: bool = False,
 ) -> dict:
     """
     Rule-based majority vote.
-
-    Important:
-    - Do not call Gemini here.
-    - Do not select Agent 1 by default.
-    - Only finalize when at least 2 valid agents agree on vote_key.
-    - is_final_attempt=True: nếu vẫn conflict → trả needs_better_image (terminal, no retry).
-    - is_final_attempt=False: nếu conflict → trả require_rerun=True để caller retry.
     """
     agents = {
         "ml_dl": _safe_parse(json_1),
@@ -74,23 +126,6 @@ async def run_aggregator(
         if norm_vote["vote_key"] is not None or norm_vote["country"] is not None:
             valid_votes.append(norm_vote)
 
-    if not valid_votes:
-        return {
-            "require_rerun": False,
-            "method": "majority_vote",
-            "status": "Failed",
-            "matched_agents": 0,
-            "so_luong_dong_thuan": 0,
-            "final_denomination": None,
-            "final_country": None,
-            "quoc_gia": "Không xác định",
-            "ma_tien_te": "Không xác định",
-            "country": "Không xác định",
-            "final_agent": None,
-            "valid_votes": [],
-            "quan_diem_trong_tai": "Không có Agent nào trả về kết quả hợp lệ. Cần quét lại hoặc kiểm tra thủ công.",
-        }
-
     # Đếm vote country
     country_counter = Counter([v["country"] for v in valid_votes if v["country"]])
     final_country = country_counter.most_common(1)[0][0] if country_counter else "Không xác định"
@@ -99,6 +134,8 @@ async def run_aggregator(
     # Đếm vote denomination
     key_counter = Counter([v["vote_key"] for v in valid_votes if v["vote_key"]])
     winner_key, matched_count = key_counter.most_common(1)[0] if key_counter else (None, 0)
+    
+    pattern = classify_consensus_pattern(agents, valid_votes, matched_count)
 
     # Format debug string
     raw_vote_info = []
@@ -129,13 +166,13 @@ async def run_aggregator(
         winner_data["currency_code"] = winner_currency
         winner_data["ma_tien_te"] = winner_currency
         
-        winner_data["require_rerun"] = False
         winner_data["method"] = "majority_vote"
         winner_data["status"] = "Completed"
         winner_data["matched_agents"] = matched_count
         winner_data["so_luong_dong_thuan"] = matched_count
         winner_data["final_agent"] = final_vote["agent_key"]
         winner_data["valid_votes"] = valid_votes
+        winner_data["consensus_pattern"] = pattern
         winner_data["quan_diem_trong_tai"] = (
             f"Đạt đồng thuận ({matched_count}/3). "
             f"Quyết định chọn: {final_denomination} ({winner_country})."
@@ -145,11 +182,10 @@ async def run_aggregator(
     # Không đạt đồng thuận denomination
     resolved_country = final_country if country_matched_count >= 2 else "Không xác định"
     
-    if is_final_attempt:
+    if pattern == "transient_error":
         return {
-            "require_rerun": False,
             "method": "majority_vote",
-            "status": "needs_better_image",
+            "status": "Failed",
             "matched_agents": 0,
             "so_luong_dong_thuan": 0,
             "final_denomination": None,
@@ -159,11 +195,28 @@ async def run_aggregator(
             "country": resolved_country,
             "final_agent": None,
             "valid_votes": valid_votes,
-            "quan_diem_trong_tai": NEEDS_BETTER_IMAGE_MESSAGE + f" (Các Agent trả về: {vote_values_str})",
+            "consensus_pattern": pattern,
+            "quan_diem_trong_tai": "Các agent bị lỗi kỹ thuật (timeout/API error). Cần chạy lại.",
+        }
+
+    if pattern in ("0/3", "not_banknote_or_unclear", "zero_evidence"):
+        return {
+            "method": "majority_vote",
+            "status": "not_banknote_or_unclear",
+            "matched_agents": 0,
+            "so_luong_dong_thuan": 0,
+            "final_denomination": None,
+            "final_country": resolved_country,
+            "quoc_gia": resolved_country,
+            "ma_tien_te": "Không xác định",
+            "country": resolved_country,
+            "final_agent": None,
+            "valid_votes": valid_votes,
+            "consensus_pattern": pattern,
+            "quan_diem_trong_tai": "Không có agent nào nhận diện được tiền giấy hợp lệ. Crop có thể là nền, vật thể lạ hoặc ảnh quá mờ.",
         }
 
     return {
-        "require_rerun": True,
         "method": "majority_vote",
         "status": "Conflict",
         "matched_agents": 0,
@@ -175,6 +228,7 @@ async def run_aggregator(
         "country": resolved_country,
         "final_agent": None,
         "valid_votes": valid_votes,
+        "consensus_pattern": pattern,
         "quan_diem_trong_tai": (
             f"Mâu thuẫn kết quả giữa các Agent hợp lệ ({vote_values_str}). "
             "Không đủ đồng thuận để chốt kết quả. Cần phân tích lại."

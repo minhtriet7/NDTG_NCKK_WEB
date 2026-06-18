@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Union
 
@@ -21,6 +23,14 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
+def create_secure_token(nbytes: int = 32) -> str:
+    return secrets.token_urlsafe(nbytes)
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
+
+
 def create_access_token(
     subject: Union[str, Any],
     expires_delta: Optional[timedelta] = None,
@@ -36,6 +46,32 @@ def create_access_token(
         "exp": expire,
         "sub": str(subject),
         "iat": datetime.now(timezone.utc),
+        "type": "access",
+    }
+
+    return jwt.encode(
+        to_encode,
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+
+
+def create_refresh_token(
+    subject: Union[str, Any],
+    expires_delta: Optional[timedelta] = None,
+) -> str:
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(
+            days=getattr(settings, "REFRESH_TOKEN_EXPIRE_DAYS", 30)
+        )
+
+    to_encode = {
+        "exp": expire,
+        "sub": str(subject),
+        "iat": datetime.now(timezone.utc),
+        "type": "refresh",
     }
 
     return jwt.encode(

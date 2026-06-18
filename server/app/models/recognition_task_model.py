@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 class RecognitionTask(Document):
     user_id: str
 
-    status: str = "processing"  # processing, done, failed
+    status: str = "processing"  # processing, completed, failed
     stage: str = "queued"
     progress: int = 0
 

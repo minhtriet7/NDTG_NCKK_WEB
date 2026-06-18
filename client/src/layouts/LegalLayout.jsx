@@ -48,24 +48,35 @@ export default function LegalLayout({ children, title, lastUpdated }) {
         </aside>
 
         {/* Content Area */}
-        <div className="flex-1 max-w-3xl relative z-10">
-          <div className="mb-10 lg:mb-16">
-            <h1 className="text-4xl lg:text-5xl font-black tracking-tight mb-4 text-slate-900 dark:text-white">
+        <div className="flex-1 max-w-4xl relative z-10">
+          <div className="mb-10 lg:mb-14">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-bold uppercase tracking-wider mb-6">
+              <Shield className="w-3.5 h-3.5" />
+              Legal Document
+            </div>
+            <h1 className="text-4xl lg:text-5xl font-black tracking-tight mb-4 text-transparent bg-clip-text bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400">
               {title}
             </h1>
             {lastUpdated && (
-              <p className="text-sm font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/50 inline-flex px-3 py-1 rounded-full border border-slate-200 dark:border-slate-700/50">
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-6">
                 Last updated: {lastUpdated}
               </p>
             )}
           </div>
           
-          <div className="prose prose-slate dark:prose-invert prose-indigo max-w-none 
-                          prose-headings:font-bold prose-headings:tracking-tight
-                          prose-h2:mt-12 prose-h2:mb-6 prose-h2:pb-2 prose-h2:border-b prose-h2:border-slate-200 dark:prose-h2:border-slate-800/50
-                          prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline
-                          prose-li:marker:text-indigo-500">
-            {children}
+          <div className="bg-white dark:bg-[#0F172A] shadow-2xl shadow-slate-200/50 dark:shadow-black/40 border border-slate-200/60 dark:border-slate-800/60 rounded-[2rem] p-8 sm:p-12 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-indigo-500/5 to-transparent rounded-full pointer-events-none" />
+            
+            <div className="prose prose-slate dark:prose-invert prose-indigo max-w-none 
+                            prose-headings:font-bold prose-headings:tracking-tight
+                            prose-h1:text-3xl prose-h1:mb-8
+                            prose-h2:mt-12 prose-h2:mb-6 prose-h2:pb-3 prose-h2:border-b prose-h2:border-slate-100 dark:prose-h2:border-slate-800/80
+                            prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:font-semibold prose-a:no-underline hover:prose-a:underline hover:prose-a:text-indigo-700
+                            prose-li:marker:text-indigo-500
+                            prose-p:leading-relaxed prose-p:text-slate-600 dark:prose-p:text-slate-300
+                            relative z-10">
+              {children}
+            </div>
           </div>
         </div>
       </div>

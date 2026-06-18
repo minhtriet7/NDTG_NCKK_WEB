@@ -103,56 +103,79 @@ export default function PaymentReturn({ status = "success" }) {
   const Icon = view.icon;
 
   return (
-    <section className="min-h-[60vh] bg-slate-50 px-4 py-12">
-      <div className="mx-auto max-w-2xl rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-start gap-4">
-          <Icon className={`mt-1 h-10 w-10 shrink-0 ${view.iconClass}`} />
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans animate-[fadeIn_0.4s_ease-out]">
+      <div className="max-w-md w-full bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden text-center p-8 relative">
+        {/* Decorative background blur */}
+        <div className={`absolute -top-24 -right-24 w-48 h-48 rounded-full blur-3xl opacity-20 ${
+          view.title.includes("successful") ? "bg-emerald-500" : "bg-red-500"
+        }`} />
 
-          <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-semibold text-slate-900">{view.title}</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              {view.description}
-            </p>
+        <div className="relative z-10">
+          <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center mb-6 shadow-sm border-4 ${
+            view.title.includes("successful") 
+              ? "bg-emerald-50 border-emerald-100 text-emerald-600" 
+              : "bg-red-50 border-red-100 text-red-600"
+          }`}>
+            <Icon size={40} />
+          </div>
 
-            {reference && (
-              <div className="mt-5 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                <Receipt className="h-4 w-4 shrink-0" />
-                <span className="truncate">Reference: {reference}</span>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight mb-3">
+            {view.title}
+          </h1>
+          <p className="text-slate-500 text-sm leading-relaxed mb-8">
+            {view.description}
+          </p>
+
+          {error && (
+            <div className="mb-6 bg-amber-50 border border-amber-100 text-amber-700 rounded-xl p-3 text-sm font-medium">
+              {error}
+            </div>
+          )}
+
+          {isChecking ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-6 mb-8 bg-slate-50 rounded-2xl border border-slate-100">
+              <Loader2 className="h-6 w-6 animate-spin text-indigo-500" />
+              <span className="text-sm font-medium text-slate-600">Đang đồng bộ giao dịch...</span>
+            </div>
+          ) : (
+            reference && (
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex items-center justify-between gap-3 mb-8 text-sm">
+                <div className="flex items-center gap-2 text-slate-500 font-medium">
+                  <Receipt size={16} />
+                  <span>Mã GD:</span>
+                </div>
+                <span className="font-mono font-bold text-slate-900 break-all text-right">{reference}</span>
               </div>
-            )}
+            )
+          )}
 
-            {isChecking && (
-              <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Refreshing payment status...
-              </div>
-            )}
+          <div className="flex flex-col gap-3">
+            <Link
+              to="/recognize"
+              className="w-full py-3.5 rounded-xl bg-slate-900 text-white font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors shadow-sm"
+            >
+              Vào Không gian làm việc
+              <ArrowRight size={18} />
+            </Link>
 
-            {error && (
-              <p className="mt-4 text-sm text-amber-700">
-                {error}
-              </p>
-            )}
-
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="flex gap-3">
               <Link
                 to="/transactions"
-                className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-colors"
               >
-                View transactions
-                <ArrowRight className="h-4 w-4" />
+                Lịch sử GD
               </Link>
 
               <Link
                 to="/pricing"
-                className="inline-flex items-center rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-colors"
               >
-                Back to packages
+                Trở lại bảng giá
               </Link>
             </div>
           </div>
         </div>
       </div>
-    </section>
+    </div>
   );
 }

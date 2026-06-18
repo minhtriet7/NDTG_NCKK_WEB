@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "CHANGE_ME_DEV_SECRET_KEY"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # ============================================================
     # FRONTEND / CORS
@@ -105,10 +106,19 @@ class Settings(BaseSettings):
     # ============================================================
     # AGENT 3 CONFIG DEFAULTS
     # ============================================================
+    AGENT3_PRIMARY_PROVIDER: str = "serpapi"
     AGENT3_PROVIDER: str = "serpapi"
-    AGENT3_FALLBACK_ENABLED: bool = True
-    AGENT3_FALLBACK_PROVIDER: str = "serpapi"
-    AGENT3_V2_ENABLED: bool = True
+    AGENT3_FALLBACK_PROVIDER: str = "selenium"
+    AGENT3_FALLBACK_ENABLED: bool = False
+    AGENT3_SERPAPI_TIMEOUT_SECONDS: int = 20
+    AGENT3_SERPAPI_MAX_RETRIES: int = 1
+    AGENT3_SELENIUM_ENABLED: bool = False
+    AGENT3_SELENIUM_HEADLESS: bool = True
+    AGENT3_SELENIUM_TIMEOUT_SECONDS: int = 35
+    AGENT3_SELENIUM_MAX_RETRIES: int = 0
+    AGENT3_FORMATTER_TIMEOUT_SECONDS: int = 10
+    AGENT3_FORMATTER_MAX_RETRIES: int = 1
+    AGENT3_V2_ENABLED: bool = False
 
     # ============================================================
     # SEP PAY / VIETQR PAYMENT

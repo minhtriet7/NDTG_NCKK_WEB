@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional
 
 from app.agents.agent_3_lens import run_agent3_lens as run_agent3_lens_v1
 from app.agents.agent_3_lens_v2 import run_agent3_lens_v2
+from app.core.config import settings
 from app.services.admin_service import AdminService
 
 
@@ -34,28 +35,30 @@ def _agent3_response(
     method: str = "Agent 3 Selector",
     provider: str = "disabled",
     confidence: float = 0.0,
+    technical_error: bool = False,
 ) -> str:
-    return json.dumps(
-        [
-            {
-                "quoc_gia": "Không xác định",
-                "ma_tien_te": "Không xác định",
-                "menh_gia": "Không xác định",
-                "mat_tien": "Không xác định",
-                "nam_phat_hanh": "Không xác định",
-                "chat_lieu": "Không xác định",
-                "mo_ta": message,
-                "quan_diem": message,
-                "phuong_phap": method,
-                "do_tin_cay": confidence,
-                "van_ban_nhin_thay": [],
-                "dac_diem_chinh": [],
-                "status": status,
-                "provider": provider,
-            }
-        ],
-        ensure_ascii=False,
-    )
+    payload = {
+        "quoc_gia": "Không xác định",
+        "ma_tien_te": "Không xác định",
+        "menh_gia": "Không xác định",
+        "mat_tien": "Không xác định",
+        "nam_phat_hanh": "Không xác định",
+        "chat_lieu": "Không xác định",
+        "mo_ta": message,
+        "quan_diem": message,
+        "phuong_phap": method,
+        "do_tin_cay": confidence,
+        "van_ban_nhin_thay": [],
+        "dac_diem_chinh": [],
+        "status": status,
+        "provider": provider,
+    }
+
+    if technical_error:
+        payload["error_type"] = "technical_error"
+        payload["technical_error"] = True
+
+    return json.dumps([payload], ensure_ascii=False)
 
 
 def _normalize_provider(value: Any) -> str:
@@ -75,6 +78,59 @@ def _normalize_provider(value: Any) -> str:
     }
 
     return aliases.get(provider, provider)
+
+
+def _setting_value(name: str, default: Any = None) -> Any:
+    explicit_fields = getattr(settings, "model_fields_set", set())
+    if name not in explicit_fields:
+        return default
+
+    value = getattr(settings, name, default)
+    if isinstance(value, str) and value.strip() == "":
+        return default
+    return value
+
+
+def _resolve_provider(config: Any) -> str:
+    provider = (
+        _setting_value("AGENT3_PRIMARY_PROVIDER")
+        or _setting_value("AGENT3_PROVIDER")
+        or getattr(config, "lens_provider", None)
+        or getattr(config, "agent3_provider", None)
+        or "serpapi"
+    )
+    return _normalize_provider(provider)
+
+
+def _resolve_fallback_provider(config: Any, provider: str) -> str:
+    raw_fallback = (
+        _setting_value("AGENT3_FALLBACK_PROVIDER")
+        or getattr(config, "lens_fallback_provider", None)
+        or getattr(config, "agent3_fallback_provider", None)
+    )
+
+    fallback_provider = _normalize_provider(raw_fallback)
+    if not fallback_provider or fallback_provider == provider:
+        fallback_provider = "selenium" if provider == "serpapi" else "serpapi"
+
+    return fallback_provider
+
+
+def _resolve_fallback_enabled(config: Any) -> bool:
+    if _setting_value("AGENT3_FALLBACK_ENABLED", None) is not None:
+        return bool(getattr(settings, "AGENT3_FALLBACK_ENABLED"))
+
+    return bool(
+        getattr(config, "lens_fallback_enabled", False)
+        or getattr(config, "agent3_fallback_enabled", False)
+    )
+
+
+def _is_selenium_enabled(config: Any) -> bool:
+    if _setting_value("AGENT3_SELENIUM_ENABLED", None) is not None:
+        return bool(getattr(settings, "AGENT3_SELENIUM_ENABLED"))
+
+    return bool(getattr(config, "agent3_v2_enabled", False))
 
 
 def _safe_parse_agent3_result(raw_result: Any) -> Dict[str, Any]:
@@ -140,10 +196,13 @@ def _is_weak_agent3_result(raw_result: str) -> bool:
     if status == "partial" and not evidence:
         return True
 
-    if _is_invalid_text(denomination) and _is_invalid_text(country):
-        return True
+    # Nếu SerpApi trả "Không xác định" và confidence cực thấp, đừng coi là weak
+    # để gọi Selenium, vì Selenium cũng sẽ tốn nhiều thời gian vô ích.
+    # Nhận luôn Failed/Partial.
+    if confidence <= 0.1 and _is_invalid_text(denomination):
+        return False
 
-    if confidence <= 0 and _is_invalid_text(denomination):
+    if _is_invalid_text(denomination) and _is_invalid_text(country):
         return True
 
     return False
@@ -192,6 +251,7 @@ async def _run_by_provider(provider: str, image_bytes: bytes, context: str = "",
         status="Failed",
         message=f"Agent 3 provider không hợp lệ: {provider}",
         provider=provider,
+        technical_error=True,
     )
     _log("Invalid provider", _summarize_result(result))
     return result
@@ -222,27 +282,20 @@ async def run_agent3_lens(image_bytes: bytes, context: str = "", debug_log: Opti
                 status="Failed",
                 message=f"Không đọc được cấu hình Agent 3 và fallback v1 cũng lỗi: {exc}",
                 provider="unknown",
+                technical_error=True,
             )
 
     enable_agent_3 = bool(getattr(config, "enable_agent_3", True))
     lens_enabled = bool(getattr(config, "lens_enabled", True))
-    provider = _normalize_provider(getattr(config, "lens_provider", "serpapi"))
-
-    fallback_enabled = bool(getattr(config, "lens_fallback_enabled", True))
-    raw_fallback = getattr(config, "lens_fallback_provider", None)
-
-    if not raw_fallback:
-        fallback_provider = "selenium" if provider == "serpapi" else "serpapi"
-    else:
-        fallback_provider = _normalize_provider(raw_fallback)
-        if fallback_provider == provider:
-            fallback_provider = "selenium" if provider == "serpapi" else "serpapi"
-
-    agent3_v2_enabled = bool(getattr(config, "agent3_v2_enabled", True))
+    provider = _resolve_provider(config)
+    fallback_enabled = _resolve_fallback_enabled(config)
+    fallback_provider = _resolve_fallback_provider(config, provider)
+    selenium_enabled = _is_selenium_enabled(config)
 
     _log(f"primary provider = {provider}")
     _log(f"fallback provider = {fallback_provider}")
     _log(f"fallback enabled = {fallback_enabled}")
+    _log(f"selenium enabled = {selenium_enabled}")
 
     if not enable_agent_3 or not lens_enabled or provider == "disabled":
         _log("Agent 3 disabled by admin config")
@@ -252,11 +305,11 @@ async def run_agent3_lens(image_bytes: bytes, context: str = "", debug_log: Opti
             provider="disabled",
         )
 
-    if provider == "selenium" and not agent3_v2_enabled:
+    if provider == "selenium" and not selenium_enabled:
         _log("Agent 3 v2 disabled by admin config")
         return _agent3_response(
             status="Disabled",
-            message="Agent 3 v2 Selenium đang bị tắt theo cấu hình admin.",
+            message="Agent 3 Selenium đang bị tắt theo cấu hình.",
             provider="selenium",
         )
 
@@ -279,7 +332,12 @@ async def run_agent3_lens(image_bytes: bytes, context: str = "", debug_log: Opti
             and fallback_enabled
             and fallback_provider != provider
             and fallback_provider != "disabled"
+            and (fallback_provider != "selenium" or selenium_enabled)
         ):
+            _log(
+                "fallback_used=True reason=primary_result_weak",
+                {"from_provider": provider, "fallback_provider": fallback_provider},
+            )
             _log(
                 "Primary result weak, running fallback",
                 {
@@ -320,6 +378,9 @@ async def run_agent3_lens(image_bytes: bytes, context: str = "", debug_log: Opti
 
             return fallback_result
 
+        _log(
+            f"fallback_used=False reason={'primary_weak_but_fallback_disabled' if primary_is_weak else 'primary_result_accepted'}"
+        )
         return primary_result
 
     except Exception as exc:
@@ -327,8 +388,17 @@ async def run_agent3_lens(image_bytes: bytes, context: str = "", debug_log: Opti
         error_message = str(exc)[:200].replace("\n", " ")
         _log(f"primary failed type={error_type} message={error_message}")
 
-        if fallback_enabled and fallback_provider != provider and fallback_provider != "disabled":
+        if (
+            fallback_enabled
+            and fallback_provider != provider
+            and fallback_provider != "disabled"
+            and (fallback_provider != "selenium" or selenium_enabled)
+        ):
             try:
+                _log(
+                    "fallback_used=True reason=primary_exception",
+                    {"from_provider": provider, "fallback_provider": fallback_provider},
+                )
                 fallback_result = await _run_by_provider(
                     fallback_provider,
                     image_bytes,
@@ -369,10 +439,16 @@ async def run_agent3_lens(image_bytes: bytes, context: str = "", debug_log: Opti
                         f"Fallback '{fallback_provider}' cũng lỗi: {fb_error_type}: {fb_error_message}."
                     ),
                     provider=provider,
+                    technical_error=True,
                 )
 
+        _log(
+            "fallback_used=False reason=primary_exception_no_enabled_fallback",
+            {"provider": provider, "fallback_provider": fallback_provider},
+        )
         return _agent3_response(
             status="Failed",
             message=f"Agent 3 provider '{provider}' lỗi: {error_type}: {error_message}",
             provider=provider,
+            technical_error=True,
         )

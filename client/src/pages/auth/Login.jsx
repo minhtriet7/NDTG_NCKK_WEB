@@ -46,10 +46,12 @@ export default function Login() {
     setError('');
     try {
       const data = await authService.login(formData.email, formData.password);
-      loginStore(data.user, data.access_token);
+      loginStore(data.user, data.access_token, data.refresh_token);
       navigate('/'); 
     } catch (err) {
-      setError(err.response?.data?.detail || "Sai tài khoản hoặc mật khẩu.");
+      const detail = err.response?.data?.detail;
+      const errMsg = Array.isArray(detail) ? detail[0]?.msg : detail;
+      setError(errMsg || (lang === 'VI' ? "Sai tài khoản hoặc mật khẩu." : "Incorrect email or password."));
     } finally {
       setIsLoading(false);
     }

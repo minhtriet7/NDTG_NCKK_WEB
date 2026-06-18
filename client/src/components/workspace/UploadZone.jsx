@@ -17,9 +17,10 @@ export default function UploadZone() {
     currentImageFile, 
     currentPreviewUrl, 
     isScanning,
+    fileInputKey,
     setCurrentImage, 
     clearCurrentImage,
-    setIsScanning
+    setIsScanning,
   } = useRecognitionStore();
 
   const [isDragging, setIsDragging] = useState(false);
@@ -125,9 +126,7 @@ export default function UploadZone() {
       URL.revokeObjectURL(currentPreviewUrl);
     }
     clearCurrentImage();
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
+    setIsScanning(false);
   };
 
   const handleAnalyze = async () => {
@@ -237,6 +236,7 @@ export default function UploadZone() {
       </div>
 
       <input
+        key={fileInputKey}
         type="file"
         ref={fileInputRef}
         onChange={handleFileSelect}

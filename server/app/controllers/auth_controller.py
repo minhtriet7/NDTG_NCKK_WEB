@@ -5,6 +5,10 @@ from app.services.email_service import EmailService
 
 class AuthController:
     @staticmethod
+    async def verify_email(token: str):
+        return await AuthService.verify_email_token(token)
+
+    @staticmethod
     async def forgot_password(email: str):
         return await AuthService.request_password_reset(email)
 

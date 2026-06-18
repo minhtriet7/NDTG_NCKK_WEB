@@ -40,8 +40,11 @@ def normalize_gateway(gateway: Optional[str]) -> Optional[str]:
 
     value = str(gateway).strip().lower()
 
-    if value in {"bank_transfer", "vietqr", "qr", "bank"}:
+    if value in {"vietqr", "qr"}:
         return "sepay"
+
+    if value in {"bank_transfer", "bank"}:
+        return "bank_transfer"
 
     if value in {"sandbox", "test"}:
         return "mock"
@@ -136,7 +139,7 @@ class PaymentService:
         feature_payment_enabled = getattr(config, "feature_payment_enabled", True)
 
         sepay_enabled = getattr(config, "sepay_enabled", True)
-        vnpay_enabled = getattr(config, "vnpay_enabled", False)
+        vnpay_enabled = False # TEMP DISABLED DUE TO UNAPPROVED MERCHANT
         mock_payment_enabled = getattr(config, "mock_payment_enabled", False)
 
         enabled_gateways = []
@@ -149,6 +152,9 @@ class PaymentService:
 
         if sepay_enabled and "sepay" not in enabled_gateways:
             enabled_gateways.append("sepay")
+            
+        if sepay_enabled and "bank_transfer" not in enabled_gateways:
+            enabled_gateways.append("bank_transfer")
 
         if vnpay_enabled and "vnpay" not in enabled_gateways:
             enabled_gateways.append("vnpay")
@@ -171,6 +177,7 @@ class PaymentService:
             "payment_gateway_default": default_gateway,
             "enabled_payment_gateways": enabled_gateways,
             "sepay_enabled": "sepay" in enabled_gateways,
+            "bank_transfer_enabled": "bank_transfer" in enabled_gateways,
             "vnpay_enabled": "vnpay" in enabled_gateways,
             "mock_payment_enabled": "mock" in enabled_gateways,
         }
@@ -312,14 +319,14 @@ class PaymentService:
         return {
             **serialize_transaction(transaction),
             "is_mock": False,
-            "qr_url": qr_data.get("qr_url"),
+            "qr_url": qr_data.get("qr_url") if gateway == "sepay" else None,
             "bank_account": qr_data.get("bank_account") or getattr(settings, "BANK_ACCOUNT_NUMBER", None),
             "bank_name": qr_data.get("bank_name") or getattr(settings, "BANK_ID", None),
             "account_name": qr_data.get("account_name") or getattr(settings, "ACCOUNT_NAME", None),
             "invoice": {
                 **serialize_transaction(transaction),
-                "gateway": "sepay",
-                "qr_url": qr_data.get("qr_url"),
+                "gateway": gateway,
+                "qr_url": qr_data.get("qr_url") if gateway == "sepay" else None,
                 "bank_account": qr_data.get("bank_account") or getattr(settings, "BANK_ACCOUNT_NUMBER", None),
                 "bank_name": qr_data.get("bank_name") or getattr(settings, "BANK_ID", None),
                 "account_name": qr_data.get("account_name") or getattr(settings, "ACCOUNT_NAME", None),
@@ -392,7 +399,7 @@ class PaymentService:
         pending_transactions = await Transaction.find(
             {
                 "status": {"$in": ["pending", "failed", "cancelled"]},
-                "payment_gateway": {"$in": ["sepay"]},
+                "payment_gateway": {"$in": ["sepay", "bank_transfer"]},
             }
         ).to_list()
 

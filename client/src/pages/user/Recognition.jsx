@@ -1,11 +1,11 @@
 import React, { useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Coins, PlaySquare, Loader2 } from "lucide-react";
 
 import { useAuthStore } from "../../store/authStore";
 import { useAppStore } from "../../store/appStore";
 import { useRecognitionStore } from "../../store/recognitionStore";
-import { clearActiveRecognitionTask } from "../../services/recognitionService";
+import { clearActiveRecognitionTask, getRecognitionTaskStatus } from "../../services/recognitionService";
 
 import UploadZone from "../../components/workspace/UploadZone";
 import RecentHistorySide from "../../components/workspace/RecentHistorySide";
@@ -13,12 +13,49 @@ import RecentHistorySide from "../../components/workspace/RecentHistorySide";
 export default function Recognition() {
   const { user } = useAuthStore();
   const { lang } = useAppStore();
-  const { activeTask, getFreshActiveTask, clearActiveTask } = useRecognitionStore();
+  const { activeTask, getFreshActiveTask, clearActiveTask, resetScanSession } = useRecognitionStore();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Khi bấm "Scan Another" từ Result, route state có { resetScan: true }.
+  // Reset tại đây để đảm bảo Workspace luôn trống, kể cả khi store chưa
+  // được clear đủ trước khi navigate (belt-and-suspenders).
+  useEffect(() => {
+    if (location.state?.resetScan) {
+      resetScanSession();
+      // Xoá flag để tránh reset lại khi user refresh trang.
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, resetScanSession, navigate, location.pathname]);
 
   useEffect(() => {
-    getFreshActiveTask();
-  }, [getFreshActiveTask]);
+    // Chỉ check fresh task nếu KHÔNG đang trong flow "Scan Another"
+    if (!location.state?.resetScan) {
+      const task = getFreshActiveTask();
+      if (!task || !task.taskId) {
+        resetScanSession();
+        return;
+      }
+      
+      // Kiểm tra trạng thái thật của task từ API
+      getRecognitionTaskStatus(task.taskId)
+        .then((res) => {
+          const status = String(res?.data?.status || res?.status || "").toLowerCase();
+          const terminalStatuses = [
+            "completed", "completed_with_review", "needs_review", 
+            "failed", "timeout", "cancelled", "error", "done", "success", "canceled"
+          ];
+          
+          if (terminalStatuses.includes(status)) {
+            resetScanSession();
+          }
+          // Nếu task đang chạy thì kệ, UI sẽ hiển thị phần cảnh báo
+        })
+        .catch(() => {
+          resetScanSession();
+        });
+    }
+  }, [getFreshActiveTask, location.state, resetScanSession]);
 
   const hasEnoughTokens = Number(user?.token_balance || 0) > 0;
 
