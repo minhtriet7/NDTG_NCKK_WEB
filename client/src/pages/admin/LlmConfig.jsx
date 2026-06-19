@@ -26,14 +26,14 @@ export default function LlmConfig() {
 
   const t = {
     EN: {
-      title: "LLM Config",
-      subtitle: "Configure Agent 2 Gemini model, fallback behavior, and structured JSON response settings.",
+      title: "AG2 Gemini/LLM Config",
+      subtitle: "Configure AG2 Gemini/LLM, fallback behavior, and structured JSON response settings.",
       refresh: "Refresh",
       save: "Save Changes",
       saving: "Saving...",
       model: "Model settings",
       safety: "Fallback and format",
-      enabled: "Enable Agent 2 Gemini LLM",
+      enabled: "Enable AG2 Gemini/LLM",
       apiKey: "Google API Key",
       configured: "Configured",
       missing: "Missing",
@@ -49,14 +49,14 @@ export default function LlmConfig() {
       failedSave: "Failed to save LLM config.",
     },
     VI: {
-      title: "Cấu hình LLM",
-      subtitle: "Cấu hình Agent 2 Gemini, model dự phòng và định dạng JSON có cấu trúc.",
+      title: "Cấu hình AG2 Gemini/LLM",
+      subtitle: "Cấu hình AG2 Gemini/LLM, model dự phòng và định dạng JSON có cấu trúc.",
       refresh: "Tải lại",
       save: "Lưu thay đổi",
       saving: "Đang lưu...",
       model: "Thiết lập model",
       safety: "Dự phòng và định dạng",
-      enabled: "Bật Agent 2 Gemini LLM",
+      enabled: "Bật AG2 Gemini/LLM",
       apiKey: "Google API Key",
       configured: "Đã cấu hình",
       missing: "Thiếu",
@@ -146,7 +146,7 @@ export default function LlmConfig() {
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-5 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400 mb-2">
-            Agent 2 Gemini
+            AG2 Gemini/LLM
           </p>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
           <p className="text-sm md:text-base text-slate-500 dark:text-slate-400 mt-2 max-w-2xl">{t.subtitle}</p>

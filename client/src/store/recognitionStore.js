@@ -287,6 +287,22 @@ export const useRecognitionStore = create(
         return task;
       },
 
+      // Read-only variant for render paths. It must never update Zustand state.
+      peekFreshActiveTask: () => {
+        const task = get().activeTask;
+        const taskId = normalizeTaskId(task);
+
+        if (
+          !taskId ||
+          get().hiddenTaskIds.includes(String(taskId)) ||
+          !isFreshTask(task)
+        ) {
+          return null;
+        }
+
+        return task;
+      },
+
       setScanSession: (previewUrl, resultData, taskId = null) => {
         const backendImageUrl = getBackendImageUrl(resultData);
 

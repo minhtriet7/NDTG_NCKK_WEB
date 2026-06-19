@@ -38,9 +38,6 @@ import {
   X,
   ShieldCheck,
   Gauge,
-  Brain,
-  Gavel,
-  ScanLine,
 } from "lucide-react";
 
 const normalizeText = (value) => {
@@ -48,89 +45,9 @@ const normalizeText = (value) => {
   return String(value);
 };
 
-const normalizeMoneyText = (value) => {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-};
-
-const parseMoneyAmount = (value) => {
-  const text = String(value || "");
-  const numberText = text
-    .replace(/[^\d.,]/g, "")
-    .replace(/[.,]/g, "");
-
-  const amount = Number.parseInt(numberText, 10);
-  return Number.isFinite(amount) ? amount : null;
-};
-
-const inferMoneyCurrency = (denomination, fallbackCurrency) => {
-  const text = String(`${denomination || ""} ${fallbackCurrency || ""}`).toUpperCase();
-
-  const known = [
-    "VND", "USD", "EUR", "JPY", "CNY", "KRW",
-    "THB", "MYR", "SGD", "IDR", "PHP", "KHR",
-    "LAK", "MMK", "BND", "GBP", "AUD"
-  ];
-
-  return known.find((code) => text.includes(code)) || String(fallbackCurrency || "").toUpperCase() || "";
-};
-
-const normalizeCountryCanonical = (country) => {
-  const text = normalizeMoneyText(country);
-
-  const aliases = {
-    "viet nam": "vietnam",
-    "vietnam": "vietnam",
-    "vn": "vietnam",
-    "việt nam": "vietnam",
-    "usa": "united states",
-    "us": "united states",
-    "united states": "united states",
-    "myanmar": "myanmar",
-    "burma": "myanmar",
-  };
-
-  return aliases[text] || text;
-};
-
-const buildMoneyCanonical = ({ denomination, currency, country }) => {
-  return {
-    amount: parseMoneyAmount(denomination),
-    currency: inferMoneyCurrency(denomination, currency),
-    country: normalizeCountryCanonical(country),
-  };
-};
-
-const isSameMoneyVote = (agentCanonical, finalCanonical) => {
-  if (!agentCanonical || !finalCanonical) return false;
-
-  const sameAmount =
-    agentCanonical.amount !== null &&
-    finalCanonical.amount !== null &&
-    agentCanonical.amount === finalCanonical.amount;
-
-  const sameCurrency =
-    agentCanonical.currency &&
-    finalCanonical.currency &&
-    agentCanonical.currency === finalCanonical.currency;
-
-  const sameCountry =
-    !agentCanonical.country ||
-    !finalCanonical.country ||
-    agentCanonical.country === finalCanonical.country;
-
-  return sameAmount && sameCurrency && sameCountry;
-};
-
 const normalizeStatusLabel = (status, lang) => {
   const s = String(status || "").toLowerCase();
   if (s === "completed") return lang === "VI" ? "Hoàn thành" : "Completed";
-  if (s === "completed_partial") return lang === "VI" ? "Hoàn thành một phần" : "Partially completed";
-  if (s === "completed_with_limit") return lang === "VI" ? "Hoàn thành trong giới hạn" : "Completed with limit";
   if (s === "needs_better_image") return lang === "VI" ? "Cần ảnh rõ hơn" : "Needs clearer image";
   if (s === "needs review" || s === "needs_review") return lang === "VI" ? "Cần xem lại" : "Needs review";
   if (s === "conflict" || s === "consensus_failed") return lang === "VI" ? "Chưa đạt đồng thuận" : "Consensus conflict";
@@ -140,87 +57,6 @@ const normalizeStatusLabel = (status, lang) => {
   if (s === "no_banknote_detected") return lang === "VI" ? "Không phát hiện tiền" : "No banknote detected";
   if (s === "failed") return lang === "VI" ? "Thất bại" : "Failed";
   return status || "N/A";
-};
-
-const isNoBanknoteResult = (item) => {
-  const status = String(
-    item?.status ||
-    item?.raw_backend?.status ||
-    item?.raw_backend?.result?.status ||
-    item?.consensus?.status ||
-    ""
-  ).toLowerCase();
-
-  const detectedCount =
-    item?.detected_count ??
-    item?.raw_backend?.detected_count ??
-    item?.raw_backend?.result?.detected_count;
-
-  return (
-    status === "no_banknote_detected" ||
-    (Number(detectedCount) === 0 && status.includes("no_banknote"))
-  );
-};
-
-const isValidRecognizedMoneyResult = (item) => {
-  const status = String(
-    item?.status ||
-    item?.consensus?.status ||
-    item?.raw_backend?.status ||
-    ""
-  ).toLowerCase();
-
-  const denomination = String(item?.data?.denomination || "").trim().toLowerCase();
-  const currency = String(item?.data?.currency || "").trim().toLowerCase();
-
-  const validStatus =
-    status === "completed" ||
-    status === "completed_with_limit" ||
-    status === "completed_partial";
-
-  const invalidDenomination =
-    !denomination ||
-    denomination === "n/a" ||
-    denomination === "needs review" ||
-    denomination === "review" ||
-    denomination === "unknown" ||
-    denomination === "không xác định";
-
-  const invalidCurrency =
-    !currency ||
-    currency === "n/a" ||
-    currency === "review" ||
-    currency === "unknown" ||
-    currency === "không xác định";
-
-  return validStatus && !invalidDenomination && !invalidCurrency;
-};
-
-const isInvalidConclusionResult = (item) => {
-  if (isNoBanknoteResult(item)) return false;
-
-  const status = String(
-    item?.status ||
-    item?.consensus?.status ||
-    item?.raw_backend?.status ||
-    ""
-  ).toLowerCase();
-
-  return (
-    status.includes("agent_error") ||
-    status.includes("technical_error") ||
-    status.includes("needs review") ||
-    status.includes("needs_review") ||
-    status.includes("consensus_failed") ||
-    status.includes("failed") ||
-    !isValidRecognizedMoneyResult(item)
-  );
-};
-
-const formatScore = (value) => {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "—";
-  return n <= 1 ? n.toFixed(3) : n.toFixed(1);
 };
 
 const firstDefined = (...values) =>
@@ -265,20 +101,6 @@ const getResultNotice = (status, errorMessage, consensus, lang) => {
         (lang === "VI"
           ? "Hãy chụp rõ toàn bộ tờ tiền, đủ sáng và tránh nền quá phức tạp."
           : "Capture the full banknote clearly with good lighting and a simpler background."),
-    };
-  }
-
-  if (normalized === "completed_partial") {
-    return {
-      tone: "warning",
-      title:
-        lang === "VI"
-          ? "Đã hoàn tất với một vùng được bỏ qua"
-          : "Completed with one or more skipped regions",
-      message:
-        lang === "VI"
-          ? "Đã nhận diện được tờ tiền hợp lệ. Một số vùng nghi vấn khác đã được bỏ qua."
-          : "A valid banknote was recognized. Some other suspicious regions were skipped.",
     };
   }
 
@@ -609,33 +431,15 @@ const formatCurrency = (currency) => {
 const formatDenomination = (denom) => {
   const d = safeText(denom, "N/A").trim();
   if (d === "N/A" || d.includes("banknotes") || d.includes("tờ tiền")) return d;
-
-  const currency = inferMoneyCurrency(d);
-  const malformedVndGrouping = d.match(
-    /^\s*(\d{1,3})[.,](\d{2})\s*(VND|VNĐ|ĐỒNG)?\s*$/i,
-  );
-  const malformedCandidate = malformedVndGrouping
-    ? Number.parseInt(
-        `${malformedVndGrouping[1]}${malformedVndGrouping[2]}0`,
-        10,
-      )
-    : null;
-  const standardVndDenominations = new Set([
-    1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000,
-  ]);
-  const shouldRepairMalformedVnd =
-    malformedVndGrouping &&
-    (!currency || currency === "VND") &&
-    standardVndDenominations.has(malformedCandidate);
-  const amount = shouldRepairMalformedVnd
-    ? malformedCandidate
-    : parseMoneyAmount(d);
-
-  if (amount !== null) {
-    const formattedAmount = amount.toLocaleString("en-US");
-    return currency ? `${formattedAmount} ${currency}` : `${formattedAmount}`;
+  
+  const parts = d.split(" ");
+  if (parts.length > 0) {
+    const num = parts[0].replace(/,/g, "");
+    if (!isNaN(num) && num !== "") {
+      parts[0] = Number(num).toLocaleString("en-US");
+      return parts.join(" ");
+    }
   }
-
   return d;
 };
 
@@ -673,36 +477,21 @@ const isTechnicalError = (agentPayload) => {
   return false;
 };
 
-const normalizeAgentVote = (agentItem, finalCanonical) => {
+const normalizeAgentVote = (agentItem, finalDenom) => {
   const payload = getAgentPayload(agentItem);
   const isErr = isTechnicalError(payload);
   const denom = getAgentDenomination(payload);
-  const country = getAgentCountry(payload);
-  const currency = payload?.currency || payload?.currency_code || inferMoneyCurrency(denom);
   const rawStatus = String(payload?.status || "").toLowerCase();
   const isDisabled = rawStatus === "disabled";
   const hasResult = Boolean(denom && denom !== "N/A" && !denom.toLowerCase().includes("không"));
-  const hasEvidence = Array.isArray(payload?.evidence) && payload?.evidence.length > 0;
-
-  const agentCanonical = buildMoneyCanonical({
-    denomination: denom,
-    currency,
-    country,
-  });
-
-  const matchedFinal = isSameMoneyVote(agentCanonical, finalCanonical);
 
   let voteStatus = "Technical error / Not counted";
   if (isDisabled) {
     voteStatus = "Disabled";
   } else if (!isErr && !hasResult) {
-    if (hasEvidence) {
-      voteStatus = "Evidence only";
-    } else {
-      voteStatus = "No data";
-    }
+    voteStatus = "No data";
   } else if (!isErr) {
-    if (matchedFinal) {
+    if (denom === finalDenom && denom !== "N/A") {
       voteStatus = "Matched";
     } else {
       voteStatus = "Different";
@@ -973,15 +762,6 @@ const normalizeBackendResult = (rawResult, session) => {
         confidence: formattedConfidence,
       },
       detected_objects: formattedObjects,
-      rejected_objects:
-        rawResult.rejected_objects ||
-        rawResult.result?.rejected_objects ||
-        rawResult.raw_backend?.rejected_objects ||
-        [],
-      detected_count:
-        rawResult.detected_count ??
-        rawResult.result?.detected_count ??
-        formattedObjects.length,
       multi_object:
         rawResult.multi_object === true ||
         formattedFinal.mode === "multi_object" ||
@@ -1104,7 +884,6 @@ const normalizeBackendResult = (rawResult, session) => {
         needs_better_image_objects: final.needs_better_image_objects ?? null,
         total_objects: final.total_objects ?? detectedObjects.length,
         object_status_summary: final.object_status_summary ?? null,
-        warning: final.warning || null,
         referee_view:
           final.quan_diem_trong_tai ||
           (isActuallyMulti
@@ -1118,15 +897,6 @@ const normalizeBackendResult = (rawResult, session) => {
       },
       multi_object: isActuallyMulti,
       detected_objects: detectedObjects,
-      rejected_objects:
-        rawResult.rejected_objects ||
-        rawResult.result?.rejected_objects ||
-        rawResult.raw_backend?.rejected_objects ||
-        [],
-      detected_count:
-        rawResult.detected_count ??
-        rawResult.result?.detected_count ??
-        detectedObjects.length,
       confidence: detectedObjects.length > 1 ? null : firstConfidence,
       crop_checker: firstObject.crop_checker || rawResult.crop_checker,
       selected_box_reason:
@@ -1293,15 +1063,6 @@ const normalizeBackendResult = (rawResult, session) => {
     },
     multi_object: false,
     detected_objects: detectedObjects,
-    rejected_objects:
-      rawResult.rejected_objects ||
-      rawResult.result?.rejected_objects ||
-      rawResult.raw_backend?.rejected_objects ||
-      [],
-    detected_count:
-      rawResult.detected_count ??
-      rawResult.result?.detected_count ??
-      detectedObjects.length,
     confidence: finalConfidence,
     crop_checker:
       rawResult.crop_checker || rawResult.result?.crop_checker || null,
@@ -1439,7 +1200,6 @@ export default function Result() {
       inputOutputTokens: "Input / Output",
       lblConfidence: "Confidence",
       lblVisualSearch: "Google Lens",
-      lensEvidence: "Google Lens Evidence",
       lblCropEvidence: "Crop Evidence",
       agentVotes: "AI Agent Votes",
       vndEquivalent: "VND Equivalent",
@@ -1461,11 +1221,6 @@ export default function Result() {
       advDebug: "Advanced Debug",
       whyChosen: "Why did the system choose this result?",
       consensusTimeline: "Consensus Timeline",
-      consensusMajority: "Majority consensus",
-      consensusMajorityDetail: "Majority consensus reached at 2/3. One agent returned a different result.",
-      consensusFullDetail: "Strong consensus reached: all 3 agents matched.",
-      showMore: "Show more",
-      showFewer: "Show fewer",
     },
     VI: {
       title: "Báo Cáo Phân Tích",
@@ -1514,7 +1269,7 @@ export default function Result() {
       noAgentData: "Không có dữ liệu từ đặc vụ này.",
       showLess: "Thu gọn",
       readFull: "Xem toàn bộ lập luận",
-      tokenUsageTitle: "Mức sử dụng token",
+      tokenUsageTitle: "Lượt dùng token",
       tokenUsageDesc: "Số token thực tế đã trừ cho lần nhận diện này.",
       tokensCharged: "Token đã trừ",
       balanceBefore: "Số dư trước",
@@ -1525,7 +1280,6 @@ export default function Result() {
       inputOutputTokens: "Đầu vào / Đầu ra",
       lblConfidence: "Độ tin cậy",
       lblVisualSearch: "Google Lens",
-      lensEvidence: "Bằng chứng Google Lens",
       lblCropEvidence: "Kiểm tra vùng ảnh",
       agentVotes: "Phiếu phân tích của AI",
       vndEquivalent: "Quy đổi sang VND",
@@ -1545,13 +1299,8 @@ export default function Result() {
       lblAggregator: "Trọng tài tổng hợp",
       techError: "Lỗi kỹ thuật / Không tính",
       advDebug: "Gỡ lỗi chuyên sâu",
-      whyChosen: "Vì sao hệ thống chọn kết quả này?",
+      whyChosen: "Tại sao hệ thống chọn kết quả này?",
       consensusTimeline: "Tiến trình đồng thuận",
-      consensusMajority: "Đồng thuận đa số",
-      consensusMajorityDetail: "Đạt đồng thuận đa số 2/3. Có 1 Agent khác kết quả.",
-      consensusFullDetail: "Đồng thuận cao 3/3. Cả 3 Agent cùng kết quả.",
-      showMore: "Xem thêm",
-      showFewer: "Thu gọn",
     },
   };
 
@@ -1592,9 +1341,6 @@ export default function Result() {
     ? currentItem.detected_objects
     : [];
   const primaryObject = detectedObjects[0] || null;
-  const rejectedObjects = Array.isArray(currentItem?.rejected_objects)
-    ? currentItem.rejected_objects
-    : [];
   const fallbackAgentResults =
     currentItem?.raw_backend?.agent_results ||
     currentItem?.raw_backend?.result?.agent_results ||
@@ -1602,10 +1348,6 @@ export default function Result() {
   const singleAgentResults =
     primaryObject?.agent_results ||
     fallbackAgentResults;
-
-  const limitInfo = currentItem?.raw_backend?.final_result?.limit_info || currentItem?.limit_info;
-  const skippedCount = Number(limitInfo?.skipped_count || 0);
-  const overflowObjects = currentItem?.raw_backend?.final_result?.overflow_objects || currentItem?.overflow_objects || [];
 
   const isMulti = currentItem?.multi_object === true && detectedObjects.length > 1;
 
@@ -1644,18 +1386,6 @@ export default function Result() {
     null;
 
   const matchedAgents = Number(consensus?.matched_agents || 0);
-  const consensusSummary =
-    matchedAgents >= 3
-      ? t.consensusFullDetail
-      : matchedAgents === 2
-        ? t.consensusMajorityDetail
-        : stripMarkdownSymbols(
-            consensus?.referee_view ||
-              consensus?.quan_diem_trong_tai ||
-              (lang === "VI"
-                ? "Kết luận dựa trên các phiếu hợp lệ hiện có."
-                : "The conclusion is based on the currently valid votes."),
-          );
 
   const consensusText =
     consensus?.referee_view ||
@@ -1790,26 +1520,6 @@ export default function Result() {
     );
   }
 
-  if (isNoBanknoteResult(currentItem)) {
-    return <NoBanknoteResult item={currentItem} t={t} lang={lang} navigate={navigate} previewImage={previewImage} rejectedObjects={rejectedObjects} />;
-  }
-
-  if (isInvalidConclusionResult(currentItem)) {
-    return (
-      <InvalidConclusionResult
-        currentItem={currentItem}
-        previewImage={previewImage}
-        t={t}
-        lang={lang}
-        navigate={navigate}
-        showRawLog={showRawLog}
-        setShowRawLog={setShowRawLog}
-        handleCopyJSON={handleCopyJSON}
-        handleDownloadJSON={handleDownloadJSON}
-      />
-    );
-  }
-
   return (
     <div className="page-inner py-6">
       <div className="mx-auto max-w-7xl space-y-6 px-4 pb-12 font-sans sm:px-6">
@@ -1831,30 +1541,10 @@ export default function Result() {
           </div>
         )}
 
-        {limitInfo && skippedCount > 0 && overflowObjects.length > 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-500/10 mb-6">
-            <div className="flex gap-3">
-              <AlertCircle className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-500 mt-0.5" />
-              <div>
-                <h3 className="text-sm font-bold text-amber-800 dark:text-amber-300">
-                  {lang === "VI"
-                    ? `Đã phát hiện ${limitInfo.detected_count} tờ tiền`
-                    : `Detected ${limitInfo.detected_count} banknotes`}
-                </h3>
-                <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
-                  {lang === "VI"
-                    ? `Hệ thống chỉ xử lý ${limitInfo.processed_count} tờ có độ tin cậy cao nhất, ${skippedCount} tờ còn lại chưa được xử lý do giới hạn lượt nhận diện.`
-                    : `The system processed the ${limitInfo.processed_count} most confident ones and skipped ${skippedCount} due to the task limit.`}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <section className="overflow-hidden rounded-3xl border border-indigo-200 bg-gradient-to-br from-white via-indigo-50/70 to-cyan-50 text-slate-950 shadow-xl shadow-indigo-500/10 dark:border-slate-700 dark:from-slate-950 dark:via-indigo-950/70 dark:to-slate-900 dark:text-white dark:shadow-slate-950/30">
-          <div className="border-b border-slate-200/80 px-5 py-4 dark:border-white/10 sm:px-7">
+        <section className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950 text-white shadow-xl shadow-slate-950/10">
+          <div className="border-b border-white/10 px-5 py-4 sm:px-7">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-semibold text-slate-400">
                 <span className="inline-flex items-center gap-1.5">
                   <Hash className="h-3.5 w-3.5" />
                   <span className="font-mono">{(currentItem?.id || "").slice(-8) || "—"}</span>
@@ -1871,21 +1561,21 @@ export default function Result() {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => navigate("/feedback", { state: { scanResult: currentItem } })}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2 text-sm font-bold text-slate-700 transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400 dark:border-white/15 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10"
+                  className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3.5 py-2 text-sm font-bold text-slate-200 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-cyan-400"
                 >
                   <MessageSquare className="h-4 w-4" />
                   {t.feedback}
                 </button>
                 <button
                   onClick={() => navigate("/history")}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2 text-sm font-bold text-slate-700 transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400 dark:border-white/15 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10"
+                  className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3.5 py-2 text-sm font-bold text-slate-200 transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-cyan-400"
                 >
                   <History className="h-4 w-4" />
                   {t.viewHistory}
                 </button>
                 <button
                   onClick={() => navigate("/recognize")}
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3.5 py-2 text-sm font-black text-white transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:bg-cyan-400 dark:text-slate-950 dark:hover:bg-cyan-300"
+                  className="inline-flex items-center gap-2 rounded-lg bg-cyan-400 px-3.5 py-2 text-sm font-black text-slate-950 transition hover:bg-cyan-300 focus:outline-none focus:ring-2 focus:ring-cyan-200"
                 >
                   <RotateCcw className="h-4 w-4" />
                   {t.scanAnother}
@@ -1900,7 +1590,7 @@ export default function Result() {
                 <span className={`rounded-full border px-3 py-1 text-xs font-black ${getConsensusBadgeClass(consensus)}`}>
                   {normalizeStatusLabel(currentItem?.status, lang)}
                 </span>
-                <span className="rounded-full border border-indigo-200 bg-indigo-100/80 px-3 py-1 text-xs font-bold text-indigo-700 dark:border-indigo-400/25 dark:bg-indigo-400/10 dark:text-indigo-200">
+                <span className="rounded-full border border-indigo-400/25 bg-indigo-400/10 px-3 py-1 text-xs font-bold text-indigo-200">
                   {isMulti
                     ? lang === "VI"
                       ? `${detectedObjects.length} tờ tiền`
@@ -1908,26 +1598,20 @@ export default function Result() {
                     : `${matchedAgents}/3 ${t.agents}`}
                 </span>
               </div>
-              <p className="text-sm font-bold text-indigo-600 dark:text-cyan-300">{t.finalDecision}</p>
-              <h1 className="mt-2 break-words text-4xl font-black leading-none text-slate-950 dark:text-white sm:text-5xl">
+              <p className="text-sm font-bold text-cyan-300">{t.finalDecision}</p>
+              <h1 className="mt-2 break-words text-4xl font-black leading-none text-white sm:text-5xl">
                 {finalDenomination}
               </h1>
-              <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-600 dark:text-slate-300">
-                {consensusSummary}
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+                {stripMarkdownSymbols(consensusText)}
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:w-[520px]">
-              <HeroMetric label={t.lblDenomination} value={finalDenomination} accent />
+            <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-4 lg:grid-cols-2">
               <HeroMetric label={t.lblCountry} value={finalCountry} />
               <HeroMetric label={t.lblCurrency} value={finalCurrency} />
-              <HeroMetric label={t.lblMaterial} value={finalMaterial} />
               <HeroMetric label={t.lblConfidence} value={finalConfidence} accent />
-              <HeroMetric
-                label={t.lblConsensus}
-                value={isMulti ? getConsensusStatusLabel(consensus, lang) : `${matchedAgents}/3`}
-                accent
-              />
+              <HeroMetric label={t.lblConsensus} value={getConsensusStatusLabel(consensus, lang)} />
             </div>
           </div>
         </section>
@@ -2028,7 +1712,7 @@ export default function Result() {
               </div>
             </section>
 
-            {isValidRecognizedMoneyResult(currentItem) && !isMulti && (
+            {!isMulti && (
               <section className="overflow-hidden rounded-lg border border-emerald-200 bg-emerald-50 shadow-sm dark:border-emerald-500/25 dark:bg-emerald-500/10">
                 <div className="flex flex-col gap-5 p-5 sm:p-6">
                   <div className="flex items-start justify-between gap-4">
@@ -2068,7 +1752,7 @@ export default function Result() {
           </div>
         </div>
 
-        {isValidRecognizedMoneyResult(currentItem) && !isMulti && exchangeResults && exchangeResults.length > 0 && (
+        {!isMulti && exchangeResults && exchangeResults.length > 0 && (
           <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -2123,7 +1807,6 @@ export default function Result() {
               currentItem?.raw_backend?.final_result,
             )}
             conversionResult={currentItem?.conversion_result}
-            originalObjectData={primaryObject || currentItem}
             t={t}
             lang={lang}
             ratesData={ratesData}
@@ -2183,61 +1866,6 @@ export default function Result() {
           )}
         </section>
 
-        {overflowObjects && overflowObjects.length > 0 && (
-          <section className="overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm dark:border-amber-900/50 dark:bg-slate-900">
-            <div className="border-b border-amber-200 bg-amber-50 px-5 py-4 dark:border-amber-900/50 dark:bg-amber-500/10">
-              <h2 className="text-xl font-black text-amber-900 dark:text-amber-100 flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-amber-500" />
-                {lang === "VI" ? "Tờ tiền vượt giới hạn chưa xử lý" : "Skipped banknotes (Limit exceeded)"}
-              </h2>
-              <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
-                {lang === "VI"
-                  ? "Những vùng ảnh này nghi ngờ là tiền giấy nhưng đã bị bỏ qua để đảm bảo giới hạn token hệ thống. Bạn có thể cắt từng tờ và quét lại."
-                  : "These regions are suspected to be banknotes but were skipped to respect system token limits. You can crop them and scan again."}
-              </p>
-            </div>
-            <div className="space-y-4 p-5">
-              {overflowObjects.map((obj, index) => {
-                const checker = obj?.crop_checker || {};
-                const bbox = Array.isArray(obj?.bbox) ? obj.bbox : null;
-
-                return (
-                  <article
-                    key={`overflow-${index}`}
-                    className="rounded-xl border border-amber-100 bg-amber-50/50 p-4 dark:border-amber-900/30 dark:bg-amber-900/10"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-black text-amber-900 dark:text-amber-200">
-                        {lang === "VI" ? "Tờ tiền chưa xử lý" : "Skipped Banknote"} #{index + 1}
-                      </p>
-                      <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                        {lang === "VI" ? "Bỏ qua do giới hạn" : "Skipped by limit"}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <InfoRow
-                        label={lang === "VI" ? "Điểm giấy tờ" : "Document Score"}
-                        value={checker?.document_score ? parseFloat(checker.document_score).toFixed(2) : "N/A"}
-                      />
-                      <InfoRow
-                        label={lang === "VI" ? "Điểm tiền giấy" : "Banknote Score"}
-                        value={checker?.banknote_score ? parseFloat(checker.banknote_score).toFixed(2) : "N/A"}
-                      />
-                      {bbox && (
-                        <InfoRow
-                          label="BBox"
-                          value={`[${bbox.join(", ")}]`}
-                        />
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
         <div className="flex flex-col gap-4 border-t border-slate-200 pt-6 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-black text-slate-900 dark:text-slate-100">{t.continueTitle}</h2>
@@ -2292,17 +1920,9 @@ export default function Result() {
 
 function HeroMetric({ label, value, accent = false }) {
   return (
-    <div className={`min-w-0 rounded-2xl border p-3.5 ${
-      accent
-        ? "border-indigo-200 bg-indigo-100/70 dark:border-cyan-400/20 dark:bg-cyan-400/10"
-        : "border-slate-200 bg-white/75 dark:border-white/10 dark:bg-white/5"
-    }`}>
-      <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</p>
-      <p className={`mt-1.5 break-words text-sm font-black ${
-        accent
-          ? "text-indigo-700 dark:text-cyan-200"
-          : "text-slate-950 dark:text-white"
-      }`}>
+    <div className="min-w-0">
+      <p className="text-[11px] font-bold uppercase text-slate-500">{label}</p>
+      <p className={`mt-1 break-words text-sm font-black ${accent ? "text-cyan-300" : "text-white"}`}>
         {normalizeText(value)}
       </p>
     </div>
@@ -2413,7 +2033,6 @@ function PerObjectResult({
   cropEvidence,
   consensusTrace,
   conversionResult,
-  originalObjectData = null,
   t,
   lang,
   ratesData,
@@ -2421,15 +2040,14 @@ function PerObjectResult({
   isSingleObject
 }) {
   const [openSections, setOpenSections] = React.useState({
-    details: false,
-    crop: false,
+    details: true,
+    crop: true,
     agents: true,
-    lens: false,
+    lens: true,
     why: true,
     timeline: false
   });
   const [objectImagePreview, setObjectImagePreview] = React.useState(false);
-  const [showAllLensSources, setShowAllLensSources] = React.useState(false);
 
   const toggleSection = (key) => setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
 
@@ -2452,14 +2070,8 @@ function PerObjectResult({
     return `~ ${Math.round(amount * rate).toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} VND`;
   };
 
-  const finalCanonical = buildMoneyCanonical({
-    denomination: finalDenomination,
-    currency: currency,
-    country: country,
-  });
-
   const getVoteData = (agentItem, agentName) => {
-    const norm = normalizeAgentVote(agentItem, finalCanonical);
+    const norm = normalizeAgentVote(agentItem, finalDenomination);
     return { ...norm, name: getAgentDisplayName(agentItem?.agent || agentItem?.agent_name || agentName) };
   };
 
@@ -2626,10 +2238,10 @@ function PerObjectResult({
       </CollapsibleSection>
 
       {/* D. GOOGLE LENS EVIDENCE */}
-      <CollapsibleSection title={`D. ${t.lensEvidence || "Google Lens Evidence"}`} isOpen={openSections.lens} toggle={() => toggleSection('lens')}>
+      <CollapsibleSection title={`D. ${t.lblVisualSearch || "Google Lens Evidence"}`} isOpen={openSections.lens} toggle={() => toggleSection('lens')}>
         {lensSources && lensSources.length > 0 ? (
           <div className="space-y-3">
-            {(showAllLensSources ? lensSources : lensSources.slice(0, 5)).map((src, i) => {
+            {lensSources.slice(0, 5).map((src, i) => {
               const SourceElement = src.url ? "a" : "div";
               const sourceScore = Number(src.confidence);
               return (
@@ -2651,7 +2263,7 @@ function PerObjectResult({
                         <p className="break-all text-xs font-semibold text-indigo-600 dark:text-indigo-400">{src.domain || "—"}</p>
                         {Number.isFinite(sourceScore) && (
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-                            {lang === "VI" ? "điểm" : "score"} {sourceScore.toFixed(2)}
+                            score {sourceScore.toFixed(2)}
                           </span>
                         )}
                       </div>
@@ -2661,16 +2273,6 @@ function PerObjectResult({
                 </SourceElement>
               );
             })}
-            {lensSources.length > 5 && (
-              <button
-                type="button"
-                onClick={() => setShowAllLensSources((current) => !current)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-indigo-700 transition hover:bg-indigo-50 dark:border-slate-700 dark:bg-slate-900 dark:text-indigo-300 dark:hover:bg-slate-800"
-              >
-                {showAllLensSources ? t.showFewer : `${t.showMore} (${lensSources.length - 5})`}
-                {showAllLensSources ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-              </button>
-            )}
           </div>
         ) : (
           <div
@@ -2692,21 +2294,20 @@ function PerObjectResult({
         <div className="space-y-4 rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-cyan-50 p-5 shadow-sm dark:border-indigo-500/30 dark:from-indigo-500/10 dark:to-cyan-500/5">
           {/* Crop Evidence */}
           {(() => {
-            const objectData = originalObjectData || {};
-            const cropChecker = objectData?.crop_checker || cropEvidence || {};
-            const action = objectData?.ag0_action || cropChecker?.ag0_action || cropChecker?.action;
+            const cropChecker = originalObjectData?.crop_checker || {};
+            const action = originalObjectData?.ag0_action || cropChecker?.ag0_action || cropChecker?.action;
             if (!action) return null;
-            const bScore = formatScore(objectData?.banknote_score ?? cropChecker?.banknote_score);
-            const dScore = formatScore(objectData?.document_score ?? cropChecker?.document_score);
-            const pEvidences = objectData?.positive_evidence || cropChecker?.positive_evidence || [];
-            const boxReason = objectData?.selected_box_reason || cropChecker?.selected_box_reason;
-            const eligible = objectData?.agent_eligible ?? cropChecker?.agent_eligible;
-
+            const bScore = formatScore(originalObjectData?.banknote_score ?? cropChecker?.banknote_score);
+            const dScore = formatScore(originalObjectData?.document_score ?? cropChecker?.document_score);
+            const pEvidences = originalObjectData?.positive_evidence || cropChecker?.positive_evidence || [];
+            const boxReason = originalObjectData?.selected_box_reason || cropChecker?.selected_box_reason;
+            const eligible = originalObjectData?.agent_eligible ?? cropChecker?.agent_eligible;
+            
             return (
               <div className="rounded-xl bg-white/60 p-4 shadow-sm dark:bg-slate-900/40">
                 <h5 className="mb-3 flex items-center gap-2 font-black text-slate-900 dark:text-slate-100">
                   <ScanLine className="h-4 w-4 text-indigo-500" />
-                  {lang === "VI" ? "Kiểm tra vùng ảnh" : "Crop evidence"}
+                  {lang === "VI" ? "Kiểm tra vùng ảnh (Crop evidence)" : "Crop evidence"}
                 </h5>
                 <ul className="list-inside list-disc space-y-1.5 text-sm text-slate-700 dark:text-slate-300">
                   <li><span className="font-semibold text-slate-900 dark:text-slate-200">AG0 action:</span> {action}</li>
@@ -2728,7 +2329,7 @@ function PerObjectResult({
           <div className="rounded-xl bg-white/60 p-4 shadow-sm dark:bg-slate-900/40">
             <h5 className="mb-3 flex items-center gap-2 font-black text-slate-900 dark:text-slate-100">
               <Brain className="h-4 w-4 text-emerald-500" />
-              {lang === "VI" ? "Đồng thuận AI" : "Agent agreement"}
+              {lang === "VI" ? "Đồng thuận AI (Agent agreement)" : "Agent agreement"}
             </h5>
             <ul className="mb-3 list-inside list-disc space-y-1.5 text-sm text-slate-700 dark:text-slate-300">
               {votes.map((vote, i) => {
@@ -2738,7 +2339,7 @@ function PerObjectResult({
                  } else if (vote.isDisabled || vote.voteStatus === "No data") {
                    text += lang === "VI" ? "không có dữ liệu" : "no data";
                  } else {
-                   const matchedLabel = vote.voteStatus === "Agreed" || vote.voteStatus === "Matched" ? (lang === "VI" ? "khớp" : "matched") : (lang === "VI" ? "khác" : "differed");
+                   const matchedLabel = vote.voteStatus === "Agreed" || vote.voteStatus === "Matched" ? (lang === "VI" ? "khớp final result" : "matched final result") : (lang === "VI" ? "khác" : "differed");
                    text += `${vote.denom} (${matchedLabel})`;
                  }
                  return <li key={i}>{text}</li>;
@@ -2759,17 +2360,16 @@ function PerObjectResult({
 
           {/* Visual/Lens Evidence */}
           {(() => {
-             const objectData = originalObjectData || {};
-             const visibleText = objectData?.visible_text || objectData?.agent_results?.find(a => a.agent === 'gpt_vision')?.result?.visible_text;
-             const keyFeatures = objectData?.key_features || objectData?.agent_results?.find(a => a.agent === 'gpt_vision')?.result?.key_features;
-             const lensEvidences = objectData?.lens_evidence || objectData?.agent_results?.find(a => a.agent === 'google_lens')?.result?.evidence || [];
+             const visibleText = originalObjectData?.visible_text || originalObjectData?.agent_results?.find(a => a.agent === 'gpt_vision')?.result?.visible_text;
+             const keyFeatures = originalObjectData?.key_features || originalObjectData?.agent_results?.find(a => a.agent === 'gpt_vision')?.result?.key_features;
+             const lensEvidences = originalObjectData?.lens_evidence || originalObjectData?.agent_results?.find(a => a.agent === 'google_lens')?.result?.evidence || [];
              if (!visibleText && !keyFeatures && lensEvidences.length === 0) return null;
 
              return (
                <div className="rounded-xl bg-white/60 p-4 shadow-sm dark:bg-slate-900/40">
                  <h5 className="mb-3 flex items-center gap-2 font-black text-slate-900 dark:text-slate-100">
                    <Globe className="h-4 w-4 text-blue-500" />
-                   {lang === "VI" ? "Bằng chứng thị giác và Lens" : "Visual and Lens evidence"}
+                   {lang === "VI" ? "Bằng chứng thị giác (Visual/Lens evidence)" : "Visual/Lens evidence"}
                  </h5>
                  <ul className="list-inside list-disc space-y-1.5 text-sm text-slate-700 dark:text-slate-300">
                    {visibleText && (
@@ -2790,7 +2390,7 @@ function PerObjectResult({
           <div className="rounded-xl bg-white/60 p-4 shadow-sm dark:bg-slate-900/40">
              <h5 className="mb-3 flex items-center gap-2 font-black text-slate-900 dark:text-slate-100">
                <Gavel className="h-4 w-4 text-purple-500" />
-               {lang === "VI" ? "Kết luận trọng tài" : "Aggregator conclusion"}
+               {lang === "VI" ? "Kết luận Trọng tài (Aggregator conclusion)" : "Aggregator conclusion"}
              </h5>
              <div className="prose prose-sm max-w-none text-slate-700 dark:prose-invert dark:text-slate-300">
                 <ReactMarkdown>{refereeView || (lang === "VI" ? "Aggregator chọn kết quả cuối vì đa số tác tử đồng thuận cùng mệnh giá/quốc gia/tiền tệ." : "Aggregator selected the final result because the majority of agents agreed on the same denomination/country/currency.")}</ReactMarkdown>
@@ -2878,22 +2478,19 @@ function CollapsibleSection({ title, isOpen, toggle, children }) {
 }
 
 function AgentVoteCard({ vote, t, lang }) {
-  const [isExpanded, setIsExpanded] = React.useState(false);
   const { voteStatus, denom, country, currency, reasoning, confidence, isError, isDisabled, hasResult, name } = vote;
   const isMatched = voteStatus === "Matched";
   const isNoData = voteStatus === "No data";
-  const isEvidenceOnly = voteStatus === "Evidence only";
-
   const statusColor = isError
     ? "border-rose-200 bg-rose-50 dark:border-rose-500/20 dark:bg-rose-500/10"
-    : isDisabled || isNoData || isEvidenceOnly
+    : isDisabled || isNoData
       ? "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50"
       : isMatched
         ? "border-emerald-200 bg-emerald-50 dark:border-emerald-500/20 dark:bg-emerald-500/10"
         : "border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/10";
   const textColor = isError
     ? "text-rose-700 dark:text-rose-300"
-    : isDisabled || isNoData || isEvidenceOnly
+    : isDisabled || isNoData
       ? "text-slate-600 dark:text-slate-300"
       : isMatched
         ? "text-emerald-700 dark:text-emerald-300"
@@ -2904,14 +2501,12 @@ function AgentVoteCard({ vote, t, lang }) {
       ? lang === "VI" ? "Đã tắt" : "Disabled"
       : isNoData
         ? lang === "VI" ? "Không có dữ liệu" : "No data"
-        : isEvidenceOnly
-          ? lang === "VI" ? "Một phần" : "Partial"
-          : isMatched
-            ? t.matched || "Matched"
-            : t.different || "Different";
+        : isMatched
+          ? t.matched || "Matched"
+          : t.different || "Different";
 
   return (
-    <article className={`flex h-full min-h-[260px] flex-col rounded-2xl border p-4 shadow-sm ${statusColor}`}>
+    <article className={`flex h-full flex-col rounded-lg border p-4 ${statusColor}`}>
       <div className="mb-4 flex items-start justify-between gap-3">
         <p className="text-sm font-black text-slate-900 dark:text-slate-100">{name}</p>
         <span className={`max-w-[120px] rounded-full bg-white/65 px-2.5 py-1 text-center text-[10px] font-black uppercase leading-tight dark:bg-slate-950/30 ${textColor}`}>
@@ -2919,35 +2514,13 @@ function AgentVoteCard({ vote, t, lang }) {
         </span>
       </div>
       <div className="mb-4 space-y-1">
-        {isEvidenceOnly ? (
-          <p className={`text-sm font-semibold ${textColor}`}>
-            {lang === "VI" ? "Không đủ chắc để tính phiếu" : "Not confident enough to count"}
-          </p>
-        ) : (
-          <>
-            <p className={`text-xl font-black ${textColor}`}>{hasResult && !isError ? denom : "—"}</p>
-            {hasResult && !isError && (
-              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{country} · {currency}</p>
-            )}
-          </>
+        <p className={`text-xl font-black ${textColor}`}>{hasResult && !isError ? denom : "—"}</p>
+        {hasResult && !isError && (
+          <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{country} · {currency}</p>
         )}
       </div>
       {reasoning && reasoning !== "N/A" && (
-        <div className="mb-3">
-          <p className={`${isExpanded ? "" : "line-clamp-4"} text-xs leading-5 text-slate-600 dark:text-slate-300`}>
-            {reasoning}
-          </p>
-          {reasoning.length > 170 && (
-            <button
-              type="button"
-              onClick={() => setIsExpanded((current) => !current)}
-              className="mt-2 inline-flex items-center gap-1 text-xs font-black text-indigo-600 hover:underline dark:text-indigo-300"
-            >
-              {isExpanded ? t.showLess : t.readFull}
-              {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </button>
-          )}
-        </div>
+        <p className="line-clamp-3 text-xs leading-5 text-slate-600 dark:text-slate-300">{reasoning}</p>
       )}
       {!isError && !isDisabled && confidence !== "N/A" && (
         <p className="mt-auto border-t border-current/10 pt-3 text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">
@@ -3014,7 +2587,6 @@ function MultiObjectResults({ currentItem, t, lang }) {
               cropEvidence={normalizeCropEvidence(item)}
               consensusTrace={normalizeConsensusTrace(item, finalData)}
               conversionResult={null}
-              originalObjectData={item}
               t={t}
               lang={lang}
               ratesData={ratesData}
@@ -3203,7 +2775,7 @@ function DecisionItem({ label, value, status, t }) {
   );
 }
 
-function AgentCard({ agentKey, title, method, data, finalCanonical, t, agentType, lang }) {
+function AgentCard({ agentKey, title, method, data, finalDenomination, t, agentType }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const headerGradient = agentType === "yolo"
@@ -3218,14 +2790,9 @@ function AgentCard({ agentKey, title, method, data, finalCanonical, t, agentType
     ? <BrainCircuit className="w-5 h-5" />
     : <ScanSearch className="w-5 h-5" />;
 
-  const agentDenomination = getAgentDenomination(data);
-  const isErr = isTechnicalError(data);
-  const hasResult = Boolean(agentDenomination && agentDenomination !== "N/A" && !agentDenomination.toLowerCase().includes("không"));
-  const hasEvidence = Array.isArray(data?.evidence) && data?.evidence.length > 0;
-
-  if (!data || (!isErr && !hasResult && !hasEvidence)) {
+  if (!data) {
     return (
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors flex flex-col h-full">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
         <div className={`bg-gradient-to-br ${headerGradient} p-4 flex items-center gap-3`}>
           <span className="text-slate-400">{agentIcon}</span>
           <div>
@@ -3233,45 +2800,15 @@ function AgentCard({ agentKey, title, method, data, finalCanonical, t, agentType
             <h3 className="text-base font-bold text-white">{title}</h3>
           </div>
         </div>
-        <div className="p-6 flex-1">
+        <div className="p-6">
           <p className="text-sm text-slate-500 dark:text-slate-400">{t.noAgentData}</p>
         </div>
       </div>
     );
   }
 
-  if (!isErr && !hasResult && hasEvidence) {
-    return (
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors flex flex-col h-full">
-        <div className={`bg-gradient-to-br ${headerGradient} p-4 flex items-center gap-3`}>
-          <span className="text-slate-400">{agentIcon}</span>
-          <div>
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{agentKey}</span>
-            <h3 className="text-base font-bold text-white">{title}</h3>
-          </div>
-        </div>
-        <div className="p-6 flex-1 flex flex-col justify-center">
-          <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-            {lang === "VI" ? "CÓ BẰNG CHỨNG" : "EVIDENCE ONLY"}
-          </p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {lang === "VI" ? "Không đủ chắc để tính phiếu" : "Not confident enough to count"}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const agentCountry = getAgentCountry(data);
-  const currency = data?.currency || data?.currency_code || inferMoneyCurrency(agentDenomination);
-
-  const agentCanonical = buildMoneyCanonical({
-    denomination: agentDenomination,
-    currency: currency,
-    country: agentCountry,
-  });
-
-  const isMatched = isSameMoneyVote(agentCanonical, finalCanonical);
+  const agentDenomination = getAgentDenomination(data);
+  const isMatched = agentDenomination !== "N/A" && finalDenomination !== "N/A" && agentDenomination && finalDenomination && String(agentDenomination).toLowerCase().trim() === String(finalDenomination).toLowerCase().trim();
   const reasoningText = stripMarkdownSymbols(getAgentReasoning(data));
   const confidence = data?.confidence || data?.do_tin_cay || data?.confidence_score;
   const confNum = confidence !== undefined && confidence !== null
@@ -3344,397 +2881,6 @@ function AgentCard({ agentKey, title, method, data, finalCanonical, t, agentType
             {isExpanded ? t.showLess : t.readFull}
           </button>
         )}
-      </div>
-    </div>
-  );
-}
-const genericNoBanknoteReason = {
-  type: "no_valid_crop",
-  viMessage: "Không tìm thấy vùng nào đủ giống tiền giấy. Các vùng nghi vấn không đủ độ tin cậy nên hệ thống không gửi sang AI Agent để tránh nhận diện sai và không tốn token.",
-  enMessage: "No region was sufficiently similar to a banknote. The suspicious regions were not reliable enough, so the system did not send them to AI agents to avoid false recognition and token usage.",
-};
-
-const isDocumentLikeRejectedObject = (obj) => {
-  const checker = obj?.crop_checker || {};
-  const documentScore = Number(obj?.document_score ?? checker?.document_score);
-  if (Number.isFinite(documentScore) && documentScore >= 0.6) return true;
-
-  const negativeEvidence = (
-    obj?.negative_evidence ||
-    checker?.negative_evidence ||
-    []
-  ).join(" ");
-  const reason = String(
-    obj?.reason ||
-    obj?.decision_reason ||
-    checker?.decision_reason ||
-    checker?.reason ||
-    "",
-  ).replace(/document_score\s*=\s*[\d.]+/gi, " ");
-  const evidenceText = `${negativeEvidence} ${reason}`.toLowerCase();
-
-  return /(document[-\s]?like|document evidence|high document score|diagram|screenshot|tài liệu|sơ đồ|ảnh chụp màn hình)/i.test(evidenceText);
-};
-
-const inferNoBanknoteReason = (rejectedObjects = []) => {
-  if (!rejectedObjects || rejectedObjects.length === 0) {
-    return genericNoBanknoteReason;
-  }
-
-  if (rejectedObjects.some(isDocumentLikeRejectedObject)) {
-    return {
-      type: "document_diagram",
-      viMessage: "Ảnh có dấu hiệu giống tài liệu, sơ đồ hoặc ảnh chụp màn hình hơn là tiền giấy.",
-      enMessage: "The image contains evidence that it is more like a document, diagram, or screenshot than a banknote.",
-    };
-  }
-
-  return genericNoBanknoteReason;
-};
-
-const translateRejectEvidence = (evidence, lang) => {
-  if (typeof evidence !== 'string') return evidence;
-
-  if (lang === "VI") {
-    if (evidence.includes("very elongated crop aspect_ratio")) return "Vùng cắt quá dài/dẹt so với hình dạng tờ tiền thông thường.";
-    if (evidence.includes("large white background ratio")) return "Nền trắng chiếm phần lớn vùng ảnh.";
-    if (evidence.includes("low color richness")) return "Ảnh có rất ít màu sắc.";
-    if (evidence.includes("low mean saturation")) return "Độ bão hòa màu rất thấp, gần như ảnh trắng đen.";
-    if (evidence.includes("many long straight lines")) return "Có nhiều đường thẳng dài, giống sơ đồ/bảng/mũi tên.";
-    if (evidence.includes("heuristic source=contour")) return "Vùng này không được YOLO xác nhận là tiền; chỉ được OpenCV contour bắt được nên độ tin cậy thấp hơn.";
-    if (evidence.includes("low texture")) return "Ảnh có rất ít chi tiết / bề mặt (low texture).";
-    if (evidence.includes("low contrast")) return "Ảnh có độ tương phản thấp.";
-    if (evidence.includes("blur") || evidence.includes("blurry")) return "Ảnh bị mờ.";
-    if (evidence.includes("dark")) return "Ảnh quá tối.";
-    if (evidence.includes("coin") || evidence.includes("round")) return "Vùng ảnh có hình dạng tròn giống tiền xu.";
-    if (evidence.includes("clothes") || evidence.includes("landscape")) return "Vùng ảnh giống phong cảnh hoặc vật thể thông thường.";
-  } else {
-    if (evidence.includes("very elongated crop aspect_ratio")) return "The crop is too elongated compared with a typical banknote shape.";
-    if (evidence.includes("large white background ratio")) return "A large part of the region is white background.";
-    if (evidence.includes("low color richness")) return "The image has very low color richness.";
-    if (evidence.includes("low mean saturation")) return "The color saturation is very low, close to black-and-white.";
-    if (evidence.includes("many long straight lines")) return "There are many long straight lines, similar to a diagram/table/arrows.";
-    if (evidence.includes("heuristic source=contour")) return "This region was not confirmed by YOLO; it was only found by OpenCV contour, so it is less reliable.";
-  }
-
-  return evidence;
-};
-
-function InvalidConclusionResult({
-  currentItem,
-  previewImage,
-  t,
-  lang,
-  navigate,
-  showRawLog,
-  setShowRawLog,
-  handleCopyJSON,
-  handleDownloadJSON,
-}) {
-  const labels = lang === "VI" ? {
-    title: "Chưa thể kết luận",
-    message: "Các AI chưa trả được kết quả hợp lệ hoặc hệ thống gặp lỗi kỹ thuật. Vui lòng thử lại với ảnh rõ hơn, đủ sáng và có tiền giấy nằm trọn trong khung hình.",
-    originalImage: "Ảnh gốc",
-    errorStatus: "Trạng thái",
-    errorDetail: "Chi tiết lỗi",
-    advDebug: "Gỡ lỗi chuyên sâu",
-    jsonTitle: "Dữ liệu JSON",
-    copy: "Sao chép",
-    download: "Tải xuống",
-    backWorkspace: "Trở lại Không Gian Làm Việc",
-    scanAnother: "Quét Tờ Tiền Khác"
-  } : {
-    title: "No reliable conclusion",
-    message: "The AI agents did not return a valid result or a technical error occurred. Please try again with a clearer image showing a full banknote.",
-    originalImage: "Original image",
-    errorStatus: "Status",
-    errorDetail: "Error details",
-    advDebug: "Advanced Debug",
-    jsonTitle: "JSON Data",
-    copy: "Copy",
-    download: "Download",
-    backWorkspace: "Go back to Workspace",
-    scanAnother: "Scan Another Banknote"
-  };
-
-  const status = normalizeStatusLabel(
-    currentItem?.status || currentItem?.raw_backend?.status || currentItem?.consensus?.status,
-    lang
-  );
-
-  const errorMsg = currentItem?.error_message || currentItem?.raw_backend?.error_message || currentItem?.consensus?.referee_view || currentItem?.consensus?.quan_diem_trong_tai;
-
-  return (
-    <div className="page-inner py-6">
-      <div className="mx-auto max-w-4xl space-y-6 px-4 pb-12 font-sans sm:px-6">
-        <section className="overflow-hidden rounded-2xl border border-rose-300 bg-slate-950 text-white shadow-xl">
-          <div className="flex flex-col gap-5 px-5 py-7 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-2xl">
-              <span className="inline-flex rounded-full border border-rose-300/30 bg-rose-300/10 px-3 py-1 text-xs font-black uppercase text-rose-200">
-                {status}
-              </span>
-              <h1 className="mt-4 text-3xl font-black leading-tight sm:text-5xl text-rose-400">
-                {labels.title}
-              </h1>
-              <p className="mt-3 text-sm leading-6 text-slate-300 sm:text-base">
-                {labels.message}
-              </p>
-              {errorMsg && (
-                <div className="mt-4 p-4 rounded-lg bg-rose-950 border border-rose-800 text-rose-200 text-sm">
-                  <p className="font-bold mb-1">{labels.errorDetail}:</p>
-                  <p>{errorMsg}</p>
-                </div>
-              )}
-            </div>
-            <div className="flex flex-col gap-3 shrink-0">
-              <button
-                onClick={() => navigate("/recognize")}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 py-3 font-black text-white transition hover:bg-rose-500"
-              >
-                <RotateCcw className="h-4 w-4" />
-                {labels.scanAnother}
-              </button>
-              <button
-                onClick={() => navigate("/workspace")}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800 border border-slate-700 px-5 py-3 font-black text-white transition hover:bg-slate-700 hover:border-slate-600"
-              >
-                {labels.backWorkspace}
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <p className="mb-3 text-sm font-black text-slate-900 dark:text-white">
-            {labels.originalImage}
-          </p>
-          {previewImage ? (
-            <img
-              src={previewImage}
-              alt={labels.originalImage}
-              className="max-h-[460px] w-full rounded-lg bg-slate-100 object-contain dark:bg-slate-950"
-            />
-          ) : (
-            <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700">
-              {lang === "VI" ? "Không có ảnh" : "No image"}
-            </div>
-          )}
-        </section>
-
-        <section className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900 shadow-sm">
-          <button
-            onClick={() => setShowRawLog(!showRawLog)}
-            className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-slate-400">
-                <Zap className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="font-black text-white">{labels.advDebug}</h2>
-              </div>
-            </div>
-            {showRawLog ? <ChevronUp className="h-5 w-5 shrink-0 text-slate-400" /> : <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />}
-          </button>
-
-          {showRawLog && (
-            <div className="space-y-5 border-t border-slate-800 p-5">
-              <div>
-                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs font-black uppercase text-slate-500">{labels.jsonTitle}</p>
-                  <div className="flex gap-2">
-                    <button onClick={handleCopyJSON} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 transition hover:bg-slate-800">
-                      <Copy className="h-3.5 w-3.5" />
-                      {labels.copy}
-                    </button>
-                    <button onClick={handleDownloadJSON} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-indigo-500">
-                      <Download className="h-3.5 w-3.5" />
-                      {labels.download}
-                    </button>
-                  </div>
-                </div>
-                <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-4 text-xs text-emerald-300">
-                  {JSON.stringify(currentItem, null, 2)}
-                </pre>
-              </div>
-            </div>
-          )}
-        </section>
-      </div>
-    </div>
-  );
-}
-
-function NoBanknoteResult({
-  item,
-  rejectedObjects,
-  previewImage,
-  t,
-  lang,
-  navigate,
-}) {
-  const dynamicReason = inferNoBanknoteReason(rejectedObjects);
-  const subtitle = lang === "VI" ? dynamicReason.viMessage : dynamicReason.enMessage;
-
-  const labels =
-    lang === "VI"
-      ? {
-          title: "Không phát hiện tiền giấy hợp lệ",
-          rejectionTitle: "Vì sao hệ thống loại ảnh này?",
-          documentScore: "Điểm giống tài liệu",
-          banknoteScore: "Điểm giống tiền giấy",
-          suspiciousRegion: "Vùng nghi vấn",
-          agentEligible: "Trạng thái: Không gửi sang AI Agent",
-          rejectionReason: "Lý do quyết định",
-          negativeEvidence: "Bằng chứng loại",
-          noEvidence: "Backend không trả về chi tiết vùng bị loại.",
-          original: "Ảnh gốc",
-          defaultReason: genericNoBanknoteReason.viMessage,
-          documentReason: "Điểm giống tài liệu cao hoặc bằng chứng cho thấy vùng này giống tài liệu, sơ đồ hay ảnh chụp màn hình hơn tiền giấy. Hệ thống không gửi vùng này sang AI Agent để tránh nhận diện sai và không tốn token.",
-        }
-      : {
-          title: "No valid banknote detected",
-          rejectionTitle: "Why was this image rejected?",
-          documentScore: "Document score",
-          banknoteScore: "Banknote score",
-          suspiciousRegion: "Suspicious region",
-          agentEligible: "Status: Not sent to AI agents",
-          rejectionReason: "Decision reason",
-          negativeEvidence: "Negative evidence",
-          noEvidence: "The backend did not return rejected-region details.",
-          original: "Original image",
-          defaultReason: genericNoBanknoteReason.enMessage,
-          documentReason: "The document score is high or the evidence indicates that this region resembles a document, diagram, or screenshot more than a banknote. It was not sent to AI agents to avoid false recognition and token usage.",
-        };
-
-  return (
-    <div className="page-inner py-6">
-      <div className="mx-auto max-w-6xl space-y-6 px-4 pb-12 font-sans sm:px-6">
-        <section className="overflow-hidden rounded-2xl border border-rose-300 bg-slate-950 text-white shadow-xl">
-          <div className="flex flex-col gap-5 px-5 py-7 sm:px-8 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-3xl">
-              <span className="inline-flex rounded-full border border-rose-300/30 bg-rose-300/10 px-3 py-1 text-xs font-black uppercase text-rose-200">
-                no_banknote_detected
-              </span>
-              <h1 className="mt-4 text-3xl font-black leading-tight sm:text-5xl text-rose-400">
-                {labels.title}
-              </h1>
-              <p className="mt-3 text-sm leading-6 text-slate-300 sm:text-base">
-                {subtitle}
-              </p>
-            </div>
-            <button
-              onClick={() => navigate("/workspace")}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-800 border border-slate-700 px-5 py-3 font-black text-white transition hover:bg-slate-700 hover:border-slate-600"
-            >
-              <RotateCcw className="h-4 w-4" />
-              {t.backWorkspace || "Back"}
-            </button>
-          </div>
-        </section>
-
-        <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <p className="mb-3 text-sm font-black text-slate-900 dark:text-white">
-              {labels.original}
-            </p>
-            {previewImage ? (
-              <img
-                src={previewImage}
-                alt={labels.original}
-                className="max-h-[460px] w-full rounded-lg bg-slate-100 object-contain dark:bg-slate-950"
-              />
-            ) : (
-              <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-400 dark:border-slate-700">
-                {lang === "VI" ? "Không có ảnh" : "No image"}
-              </div>
-            )}
-          </section>
-
-          <section className="overflow-hidden rounded-xl border border-rose-200 bg-white shadow-sm dark:border-rose-500/30 dark:bg-slate-900">
-            <div className="border-b border-rose-200 bg-rose-50 px-5 py-4 dark:border-rose-500/20 dark:bg-rose-500/10">
-              <h2 className="text-xl font-black text-rose-950 dark:text-rose-100 flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-rose-500" />
-                {labels.rejectionTitle}
-              </h2>
-            </div>
-
-            <div className="space-y-4 p-5">
-              {rejectedObjects && rejectedObjects.length > 0 ? (
-                rejectedObjects.map((obj, index) => {
-                  const checker = obj?.crop_checker || {};
-                  const negativeEvidence = obj?.negative_evidence || checker?.negative_evidence || [];
-                  const bbox = Array.isArray(obj?.bbox) ? obj.bbox : null;
-                  const rejectionExplanation = isDocumentLikeRejectedObject(obj)
-                    ? labels.documentReason
-                    : labels.defaultReason;
-
-                  return (
-                    <article
-                      key={index}
-                      className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-black text-slate-900 dark:text-white">
-                          {labels.suspiciousRegion} #{index + 1}
-                        </p>
-                        <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-black text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
-                          {labels.agentEligible}
-                        </span>
-                      </div>
-
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <InfoRow
-                          label={labels.documentScore}
-                          value={formatScore(obj?.document_score ?? checker?.document_score)}
-                        />
-                        <InfoRow
-                          label={labels.banknoteScore}
-                          value={formatScore(obj?.banknote_score ?? checker?.banknote_score)}
-                        />
-                        {bbox && (
-                          <InfoRow
-                            label="BBox"
-                            value={`[${bbox.join(", ")}]`}
-                          />
-                        )}
-                      </div>
-
-                      <div className="mt-4">
-                        <p className="text-xs font-black uppercase text-slate-400">
-                          {labels.rejectionReason}
-                        </p>
-                        <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-200">
-                          {rejectionExplanation}
-                        </p>
-                      </div>
-
-                      {negativeEvidence.length > 0 && (
-                        <div className="mt-4">
-                          <p className="text-xs font-black uppercase text-slate-400">
-                            {labels.negativeEvidence}
-                          </p>
-                          <ul className="mt-2 space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
-                            {negativeEvidence.map((evidence, evidenceIndex) => (
-                              <li key={evidenceIndex} className="flex gap-2">
-                                <span className="text-rose-500 font-bold">•</span>
-                                <span>{translateRejectEvidence(evidence, lang)}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </article>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {labels.noEvidence}
-                </p>
-              )}
-            </div>
-          </section>
-        </div>
       </div>
     </div>
   );

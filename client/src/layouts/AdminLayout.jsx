@@ -23,16 +23,9 @@ export default function AdminLayout() {
   const lang = useAppStore((state) => state.lang || "EN");
   const theme = useAppStore((state) => state.theme || "light");
   const resolvedTheme = useAppStore((state) => state.resolvedTheme);
-  const initTheme = useAppStore((state) => state.initTheme);
   const setLang = useAppStore((state) => state.setLang);
   const toggleTheme = useAppStore((state) => state.toggleTheme);
   const isDark = (resolvedTheme || theme) === "dark";
-
-  useEffect(() => {
-    if (typeof initTheme === "function") {
-      initTheme();
-    }
-  }, [initTheme]);
 
   useEffect(() => {
     if (i18n && typeof i18n.changeLanguage === "function") {
@@ -94,9 +87,9 @@ export default function AdminLayout() {
       items: [
         { name: lang === "VI" ? "Quản lý Agents" : "Agents Manager", icon: Cpu, path: "/admin/agents" },
         { name: lang === "VI" ? "Cấu hình Agents" : "Agents Config", icon: Settings, path: "/admin/agents/config" },
-        { name: lang === "VI" ? "Mô hình AI" : "AI Model", icon: Box, path: "/admin/agents/ai-model" },
-        { name: lang === "VI" ? "Cấu hình LLM" : "LLM Config", icon: BotMessageSquare, path: "/admin/agents/llm" },
-        { name: lang === "VI" ? "Google Lens" : "Google Lens", icon: SearchCheck, path: "/admin/agents/google-lens" },
+        { name: "AG1 OpenAI/GPT Vision", icon: Box, path: "/admin/agents/ai-model" },
+        { name: "AG2 Gemini/LLM", icon: BotMessageSquare, path: "/admin/agents/llm" },
+        { name: "AG3 Google Lens/Visual Search", icon: SearchCheck, path: "/admin/agents/google-lens" },
         { name: lang === "VI" ? "Tổng hợp" : "Aggregator", icon: GitMerge, path: "/admin/agents/aggregator" },
       ]
     },
@@ -119,8 +112,8 @@ export default function AdminLayout() {
         }
       }
     }
-    return "Admin Panel";
-  }, [location.pathname, navGroups]);
+    return lang === "VI" ? "Trang quản trị" : "Admin Panel";
+  }, [lang, location.pathname, navGroups]);
 
   return (
     <div className={`flex h-screen overflow-hidden font-sans transition-colors duration-300 ${isDark ? "bg-slate-950 text-slate-200" : "bg-slate-50 text-slate-900"}`}>
@@ -134,24 +127,23 @@ export default function AdminLayout() {
         />
       )}
 
-      {/* SIDEBAR (Gradient Dark Styling) */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-[280px] flex-shrink-0 flex flex-col transition-transform duration-300 lg:static lg:translate-x-0 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"} bg-gradient-to-b from-slate-950 to-slate-900 border-r border-slate-800 text-slate-300`}>
-        <div className="h-[72px] flex items-center justify-between px-6 border-b border-slate-800/60 shrink-0">
+      <aside className={`fixed inset-y-0 left-0 z-50 w-[280px] flex-shrink-0 flex flex-col border-r transition-all duration-300 lg:static lg:translate-x-0 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"} ${isDark ? "bg-gradient-to-b from-slate-950 to-slate-900 border-slate-800 text-slate-300" : "bg-white border-slate-200 text-slate-700"}`}>
+        <div className={`h-[72px] flex items-center justify-between px-6 border-b shrink-0 ${isDark ? "border-slate-800/60" : "border-slate-200"}`}>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-teal-500 flex items-center justify-center text-slate-950">
               <Shield size={18} className="fill-current" />
             </div>
-            <span className="font-black text-xl tracking-tight text-white">
+            <span className="font-black text-xl tracking-tight text-slate-900 dark:text-white">
               Banknote<span className="text-teal-400">Admin</span>
             </span>
           </div>
-          <button className="lg:hidden p-2 text-slate-400 hover:text-white" onClick={() => setIsSidebarOpen(false)}>
+          <button className="lg:hidden p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white" onClick={() => setIsSidebarOpen(false)}>
             <X size={20} />
           </button>
         </div>
         
-        <div className="px-6 py-5 border-b border-slate-800/60 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center overflow-hidden">
+        <div className={`px-6 py-5 border-b flex items-center gap-3 ${isDark ? "border-slate-800/60" : "border-slate-200"}`}>
+          <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden">
             {user?.avatar_url ? (
                <img src={user.avatar_url} alt="Admin" className="w-full h-full object-cover" />
             ) : (
@@ -159,12 +151,12 @@ export default function AdminLayout() {
             )}
           </div>
           <div className="overflow-hidden">
-            <p className="text-sm font-bold text-white truncate">{user?.full_name || user?.name || "Admin User"}</p>
+            <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{user?.full_name || user?.name || (lang === "VI" ? "Quản trị viên" : "Admin User")}</p>
             <p className="text-xs text-teal-400 font-mono truncate">{user?.email || "admin@system.local"}</p>
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-700 hover:scrollbar-thumb-slate-600">
+        <nav className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-300 dark:scrollbar-thumb-slate-700">
           {navGroups.map((group, idx) => (
             <div key={idx}>
               <h3 className="px-3 mb-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
@@ -181,7 +173,7 @@ export default function AdminLayout() {
                       className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all relative ${
                         isActive 
                           ? "bg-gradient-to-r from-teal-500/20 to-cyan-500/5 text-teal-400" 
-                          : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-200"
                       }`}
                     >
                       {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-teal-500 rounded-r-full shadow-[0_0_10px_rgba(20,184,166,0.5)]" />}
@@ -205,7 +197,7 @@ export default function AdminLayout() {
               <Menu size={20} />
             </button>
             <div className="flex items-center gap-2 text-sm font-bold text-slate-500 dark:text-slate-400">
-              <span className="hidden sm:inline">Admin Panel</span>
+              <span className="hidden sm:inline">{lang === "VI" ? "Trang quản trị" : "Admin Panel"}</span>
               <ChevronRight size={14} className="hidden sm:block" />
               <span className={`text-teal-600 dark:text-teal-400`}>{currentPage}</span>
             </div>
@@ -221,18 +213,18 @@ export default function AdminLayout() {
             <button 
               onClick={toggleLanguage} 
               className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition font-bold text-sm ${isDark ? "border-slate-700 bg-slate-800 text-slate-300 hover:text-white" : "border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900"}`} 
-              title="Toggle Language"
+              title={lang === "VI" ? "Đổi ngôn ngữ" : "Change language"}
             >
               <Globe size={16} /> {lang}
             </button>
 
-            <button onClick={toggleTheme} className={`p-2 rounded-lg border transition ${isDark ? "border-slate-700 bg-slate-800 text-amber-400 hover:text-amber-300" : "border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900"}`} title="Toggle Theme">
+            <button onClick={toggleTheme} className={`p-2 rounded-lg border transition ${isDark ? "border-slate-700 bg-slate-800 text-amber-400 hover:text-amber-300" : "border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900"}`} title={lang === "VI" ? "Đổi giao diện" : "Change theme"}>
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             
             <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block"></div>
 
-            <button onClick={handleLogout} className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition ml-1" title="Logout">
+            <button onClick={handleLogout} className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition ml-1" title={lang === "VI" ? "Đăng xuất" : "Logout"}>
               <LogOut size={18} />
             </button>
           </div>

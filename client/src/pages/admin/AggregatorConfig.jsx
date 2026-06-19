@@ -47,9 +47,9 @@ export default function AggregatorConfig() {
       enabled: "Enable Aggregator",
       strategy: "Voting Strategy",
       ratio: "Minimum Consensus Ratio (0-1)",
-      mlWeight: "ML/DL Weight",
-      llmWeight: "LLM/API Weight",
-      lensWeight: "Visual Search Weight",
+      mlWeight: "AG1 OpenAI/GPT Vision Weight",
+      llmWeight: "AG2 Gemini/LLM Weight",
+      lensWeight: "AG3 Google Lens/Visual Search Weight",
       countryMatch: "Require country match",
       currencyMatch: "Require currency match",
       partial: "Allow partial consensus",
@@ -60,6 +60,7 @@ export default function AggregatorConfig() {
       success: "Aggregator configuration updated successfully.",
       loadFailed: "Failed to load aggregator config.",
       saveFailed: "Update failed.",
+      votingHint: "Keep the minimum consensus ratio near 0.66 to accept two of three agents. Use weighted voting only when an agent should have greater influence.",
     },
     VI: {
       title: "Cấu hình Tổng hợp (Aggregator)",
@@ -67,9 +68,9 @@ export default function AggregatorConfig() {
       enabled: "Bật Aggregator",
       strategy: "Chiến lược biểu quyết",
       ratio: "Tỷ lệ đồng thuận tối thiểu (0-1)",
-      mlWeight: "Trọng số ML/DL",
-      llmWeight: "Trọng số LLM/API",
-      lensWeight: "Trọng số Visual Search",
+      mlWeight: "Trọng số AG1 OpenAI/GPT Vision",
+      llmWeight: "Trọng số AG2 Gemini/LLM",
+      lensWeight: "Trọng số AG3 Google Lens/Visual Search",
       countryMatch: "Bắt buộc khớp quốc gia",
       currencyMatch: "Bắt buộc khớp mã tiền",
       partial: "Cho phép đồng thuận một phần",
@@ -80,6 +81,7 @@ export default function AggregatorConfig() {
       success: "Cập nhật cấu hình thành công.",
       loadFailed: "Không thể tải cấu hình Aggregator.",
       saveFailed: "Cập nhật thất bại.",
+      votingHint: "Nên giữ tỷ lệ đồng thuận tối thiểu khoảng 0,66 để chấp nhận hai trên ba agents. Chỉ dùng biểu quyết có trọng số khi cần ưu tiên một agent.",
     },
   }[lang || "EN"];
 
@@ -241,7 +243,7 @@ export default function AggregatorConfig() {
           <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 flex gap-3 text-sm text-amber-700 dark:text-amber-300">
             <AlertCircle size={18} className="shrink-0 mt-0.5" />
             <p>
-              Majority vote nên giữ min_consensus_ratio khoảng 0.66 để chấp nhận 2/3 agents. Weighted vote dùng khi muốn ưu tiên Agent 1 hoặc Agent 2.
+              {t.votingHint}
             </p>
           </div>
 

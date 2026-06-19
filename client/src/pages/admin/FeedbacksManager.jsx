@@ -31,7 +31,7 @@ function normalizeFeedback(item = {}) {
     priority: String(item.priority || 'medium').toLowerCase(),
     subject: item.subject || 'User feedback',
     message: item.message || item.content || '',
-    user_email: item.user_email || user.email || item.email || item.user_id || 'N/A',
+    user_email: item.user_email || user.email || item.email || item.user_id || '',
     rating: item.rating,
     related_scan_id: item.related_scan_id || item.related_result_id || item.result_id,
     admin_reply: item.admin_reply || item.reply || '',
@@ -71,7 +71,10 @@ export default function FeedbacksManager() {
       thTime: "Time", thUser: "User", thType: "Type & Subject", thPriority: "Priority", thStatus: "Status", thAction: "Actions",
       noDataTitle: "No feedback found", noDataDesc: "User reports submitted from the Feedback page will appear here.",
       btnReply: "Reply", btnDelete: "Delete", btnSave: "Save", btnCancel: "Cancel",
-      statTotal: "Total Feedback", statNew: "New", statReviewing: "Reviewing", statResolved: "Resolved", statHigh: "High Priority"
+      statTotal: "Total Feedback", statNew: "New", statReviewing: "Reviewing", statResolved: "Resolved", statHigh: "High Priority",
+      noDataYet: "No data yet", loadFailed: "Failed to load feedback.", details: "Ticket Details",
+      subject: "Subject", clientEmail: "Client Email", rating: "Rating", relatedScan: "Related Scan ID",
+      adminReply: "Admin Reply", low: "Low", medium: "Medium", high: "High", closed: "Closed"
     },
     VI: {
       title: "Quản lý Phản hồi", subtitle: "Xem xét báo cáo, lỗi nhận diện, câu hỏi thanh toán và góp ý từ người dùng.",
@@ -79,7 +82,10 @@ export default function FeedbacksManager() {
       thTime: "Thời gian", thUser: "Người dùng", thType: "Phân loại & Tiêu đề", thPriority: "Ưu tiên", thStatus: "Trạng thái", thAction: "Thao tác",
       noDataTitle: "Chưa có phản hồi", noDataDesc: "Các báo cáo từ trang Phản hồi của người dùng sẽ hiển thị tại đây.",
       btnReply: "Trả lời", btnDelete: "Xóa", btnSave: "Lưu", btnCancel: "Hủy",
-      statTotal: "Tổng phản hồi", statNew: "Mới", statReviewing: "Đang xem xét", statResolved: "Đã xử lý", statHigh: "Ưu tiên Cao"
+      statTotal: "Tổng phản hồi", statNew: "Mới", statReviewing: "Đang xem xét", statResolved: "Đã xử lý", statHigh: "Ưu tiên Cao",
+      noDataYet: "Chưa có dữ liệu", loadFailed: "Không thể tải phản hồi.", details: "Chi tiết phản hồi",
+      subject: "Tiêu đề", clientEmail: "Email người dùng", rating: "Đánh giá", relatedScan: "Mã lượt quét liên quan",
+      adminReply: "Phản hồi của quản trị viên", low: "Thấp", medium: "Trung bình", high: "Cao", closed: "Đã đóng"
     }
   }[lang || "EN"];
 
@@ -103,7 +109,7 @@ export default function FeedbacksManager() {
         error?.response?.data?.detail ||
           error?.response?.data?.message ||
           error?.message ||
-          "Failed to load feedbacks.",
+          t.loadFailed,
       );
       setData({ items: [], total: 0 });
     } finally {
@@ -210,10 +216,10 @@ export default function FeedbacksManager() {
                : data.items.map(fb => (
                 <tr key={getId(fb)} className={`hover:bg-slate-50 dark:hover:bg-slate-800/40`}>
                   <td className="px-5 py-4 text-xs text-slate-500">{new Date(fb.created_at).toLocaleDateString()}</td>
-                  <td className="px-5 py-4"><p className={`font-semibold text-xs truncate max-w-[150px] ${isDark ? "text-slate-200" : "text-slate-800"}`}>{fb.user_email}</p></td>
+                  <td className="px-5 py-4"><p className={`font-semibold text-xs truncate max-w-[150px] ${isDark ? "text-slate-200" : "text-slate-800"}`}>{fb.user_email || t.noDataYet}</p></td>
                   <td className="px-5 py-4"><p className={`font-bold text-xs ${isDark ? "text-white" : "text-slate-900"}`}>{String(fb.type || "suggestion").toUpperCase()}</p><p className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[200px]">{fb.subject}</p></td>
-                  <td className="px-5 py-4"><select value={fb.priority} onChange={(e) => actionPriority(getId(fb), e.target.value)} className="bg-transparent text-xs font-bold uppercase outline-none cursor-pointer"><option value="low">Low</option><option value="medium">Med</option><option value="high">High</option></select></td>
-                  <td className="px-5 py-4"><select value={fb.status} onChange={(e) => actionStatus(getId(fb), e.target.value)} className="bg-transparent text-xs font-bold uppercase outline-none cursor-pointer"><option value="new">New</option><option value="reviewing">Reviewing</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></td>
+                  <td className="px-5 py-4"><select value={fb.priority} onChange={(e) => actionPriority(getId(fb), e.target.value)} className="bg-transparent text-xs font-bold uppercase outline-none cursor-pointer"><option value="low">{t.low}</option><option value="medium">{t.medium}</option><option value="high">{t.high}</option></select></td>
+                  <td className="px-5 py-4"><select value={fb.status} onChange={(e) => actionStatus(getId(fb), e.target.value)} className="bg-transparent text-xs font-bold uppercase outline-none cursor-pointer"><option value="new">{t.statNew}</option><option value="reviewing">{t.statReviewing}</option><option value="resolved">{t.statResolved}</option><option value="closed">{t.closed}</option></select></td>
                   <td className="px-5 py-4 text-right"><button onClick={() => setDetailModal({ open: true, fb })} className={`p-2 rounded-lg border transition ${isDark ? "border-slate-700 hover:bg-slate-800 hover:text-teal-400" : "border-slate-200 hover:bg-slate-50 hover:text-teal-600"}`}><Edit size={14}/></button></td>
                 </tr>
               ))}
@@ -227,21 +233,21 @@ export default function FeedbacksManager() {
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setDetailModal({ open: false, fb: null })} />
           <div className={`relative w-full max-w-lg h-full flex flex-col shadow-2xl animate-[slideInRight_0.3s_ease-out] ${isDark ? "bg-slate-950 border-l border-slate-800" : "bg-white"}`}>
             <div className={`px-6 py-5 border-b flex justify-between items-center ${isDark ? "border-slate-800" : "border-slate-200"}`}>
-              <h3 className={`font-black text-xl flex items-center gap-2 ${isDark ? "text-white" : "text-slate-900"}`}><MessageSquare className="w-5 h-5 text-teal-500"/> Ticket Details</h3>
+              <h3 className={`font-black text-xl flex items-center gap-2 ${isDark ? "text-white" : "text-slate-900"}`}><MessageSquare className="w-5 h-5 text-teal-500"/> {t.details}</h3>
               <button onClick={() => setDetailModal({ open: false, fb: null })} className={`p-2 rounded-xl transition ${isDark ? "hover:bg-slate-800" : "hover:bg-slate-100"}`}><X size={20}/></button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               <div className="flex gap-2 mb-4">{renderBadge(detailModal.fb.status)}{renderBadge(detailModal.fb.priority, "priority")}</div>
-              <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Subject</p><h2 className={`text-xl font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{detailModal.fb.subject}</h2></div>
+              <div><p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{t.subject}</p><h2 className={`text-xl font-bold ${isDark ? "text-white" : "text-slate-900"}`}>{detailModal.fb.subject || t.noDataYet}</h2></div>
               <div className={`p-4 rounded-xl text-sm leading-relaxed border ${isDark ? "bg-slate-900 border-slate-800 text-slate-300" : "bg-slate-50 border-slate-100 text-slate-700"}`}>{detailModal.fb.message}</div>
               <div className={`rounded-xl border p-4 text-xs space-y-2 ${isDark ? "border-slate-800" : "border-slate-100"}`}>
-                <div className="flex justify-between"><span className="text-slate-500">Client Email:</span><span className="font-medium">{detailModal.fb.user_email}</span></div>
-                {detailModal.fb.rating && <div className="flex justify-between"><span className="text-slate-500">Rating:</span><span className="font-medium text-amber-500 flex items-center gap-1">{detailModal.fb.rating}/5 <Star size={10} fill="currentColor"/></span></div>}
-                {detailModal.fb.related_scan_id && <div className="flex justify-between"><span className="text-slate-500">Related Scan ID:</span><span className="font-mono">{detailModal.fb.related_scan_id}</span></div>}
+                <div className="flex justify-between"><span className="text-slate-500">{t.clientEmail}:</span><span className="font-medium">{detailModal.fb.user_email || t.noDataYet}</span></div>
+                {detailModal.fb.rating && <div className="flex justify-between"><span className="text-slate-500">{t.rating}:</span><span className="font-medium text-amber-500 flex items-center gap-1">{detailModal.fb.rating}/5 <Star size={10} fill="currentColor"/></span></div>}
+                {detailModal.fb.related_scan_id && <div className="flex justify-between"><span className="text-slate-500">{t.relatedScan}:</span><span className="font-mono">{detailModal.fb.related_scan_id}</span></div>}
               </div>
               {detailModal.fb.admin_reply && (
                 <div className={`p-4 rounded-xl border ${isDark ? "bg-teal-900/10 border-teal-500/20" : "bg-teal-50 border-teal-100"}`}>
-                  <p className="text-[10px] font-bold text-teal-600 uppercase tracking-wider mb-2">Admin Reply</p>
+                  <p className="text-[10px] font-bold text-teal-600 uppercase tracking-wider mb-2">{t.adminReply}</p>
                   <p className={`text-sm ${isDark ? "text-teal-100" : "text-teal-900"}`}>{detailModal.fb.admin_reply}</p>
                 </div>
               )}

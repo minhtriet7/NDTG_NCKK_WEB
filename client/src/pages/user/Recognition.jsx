@@ -1,6 +1,6 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Coins, PlaySquare, Loader2 } from "lucide-react";
+import { CheckCircle2, Coins, PlaySquare, Loader2 } from "lucide-react";
 
 import { useAuthStore } from "../../store/authStore";
 import { useAppStore } from "../../store/appStore";
@@ -16,12 +16,14 @@ export default function Recognition() {
   const { activeTask, getFreshActiveTask, clearActiveTask, resetScanSession } = useRecognitionStore();
   const navigate = useNavigate();
   const location = useLocation();
+  const [completedTask, setCompletedTask] = useState(null);
 
   // Khi bấm "Scan Another" từ Result, route state có { resetScan: true }.
   // Reset tại đây để đảm bảo Workspace luôn trống, kể cả khi store chưa
   // được clear đủ trước khi navigate (belt-and-suspenders).
   useEffect(() => {
     if (location.state?.resetScan) {
+      setCompletedTask(null);
       resetScanSession();
       // Xoá flag để tránh reset lại khi user refresh trang.
       navigate(location.pathname, { replace: true, state: {} });
@@ -29,33 +31,98 @@ export default function Recognition() {
   }, [location.state, resetScanSession, navigate, location.pathname]);
 
   useEffect(() => {
-    // Chỉ check fresh task nếu KHÔNG đang trong flow "Scan Another"
-    if (!location.state?.resetScan) {
-      const task = getFreshActiveTask();
-      if (!task || !task.taskId) {
-        resetScanSession();
-        return;
-      }
-      
-      // Kiểm tra trạng thái thật của task từ API
-      getRecognitionTaskStatus(task.taskId)
-        .then((res) => {
-          const status = String(res?.data?.status || res?.status || "").toLowerCase();
-          const terminalStatuses = [
-            "completed", "completed_with_review", "needs_review", 
-            "failed", "timeout", "cancelled", "error", "done", "success", "canceled"
-          ];
-          
-          if (terminalStatuses.includes(status)) {
-            resetScanSession();
-          }
-          // Nếu task đang chạy thì kệ, UI sẽ hiển thị phần cảnh báo
-        })
-        .catch(() => {
-          resetScanSession();
-        });
+    if (location.state?.resetScan) return undefined;
+
+    const task = getFreshActiveTask();
+    if (!task?.taskId) {
+      return undefined;
     }
-  }, [getFreshActiveTask, location.state, resetScanSession]);
+
+    let cancelled = false;
+    let timerId = null;
+    const terminalStatuses = new Set([
+      "completed",
+      "completed_with_review",
+      "completed_partial",
+      "completed_with_limit",
+      "no_banknote_detected",
+      "needs_better_image",
+      "needs_review",
+      "agent_error",
+      "technical_error",
+      "failed",
+      "timeout",
+      "cancelled",
+      "canceled",
+      "error",
+      "done",
+      "success",
+    ]);
+
+    const normalizeTaskStatus = (value) =>
+      String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_");
+
+    const checkTask = async () => {
+      try {
+        const response = await getRecognitionTaskStatus(task.taskId);
+        if (cancelled) return;
+
+        const payload = response?.data ?? response ?? {};
+        const result =
+          payload?.result ||
+          payload?.data?.result ||
+          payload?.recognition ||
+          null;
+        const statuses = [
+          payload?.status,
+          payload?.result_status,
+          result?.status,
+          result?.final_result?.status,
+        ].map(normalizeTaskStatus);
+
+        if (statuses.some((status) => terminalStatuses.has(status))) {
+          setCompletedTask({
+            taskId: task.taskId,
+            result: result || payload,
+            previewUrl:
+              result?.input_image_url ||
+              result?.uploaded_image_url ||
+              payload?.input_image_url ||
+              payload?.uploaded_image_url ||
+              null,
+          });
+          clearActiveTask();
+          clearActiveRecognitionTask();
+          return;
+        }
+
+        timerId = window.setTimeout(checkTask, 3000);
+      } catch (error) {
+        if (cancelled) return;
+        if (error?.response?.status === 404) {
+          clearActiveTask();
+          clearActiveRecognitionTask();
+          return;
+        }
+        timerId = window.setTimeout(checkTask, 5000);
+      }
+    };
+
+    checkTask();
+
+    return () => {
+      cancelled = true;
+      if (timerId) window.clearTimeout(timerId);
+    };
+  }, [
+    activeTask?.taskId,
+    clearActiveTask,
+    getFreshActiveTask,
+    location.state?.resetScan,
+  ]);
 
   const hasEnoughTokens = Number(user?.token_balance || 0) > 0;
 
@@ -64,11 +131,17 @@ export default function Recognition() {
       title: "Banknote Recognition Workspace",
       subtitle: "Upload a Southeast Asian banknote image and compare results from multiple analysis agents.",
       tokenBal: "Token Balance",
+      completedTitle: "Analysis completed",
+      completedDesc: "The background task has finished. You can now view its result.",
+      viewResult: "View Result",
     },
     VI: {
       title: "Không gian Nhận diện Tiền",
       subtitle: "Tải ảnh tờ tiền Đông Nam Á lên để hệ thống so sánh kết quả từ nhiều tác nhân phân tích.",
       tokenBal: "Số dư Token",
+      completedTitle: "Phân tích đã hoàn tất",
+      completedDesc: "Tác vụ chạy nền đã kết thúc. Bạn có thể xem kết quả ngay.",
+      viewResult: "Xem kết quả",
     }
   }[lang || "EN"];
 
@@ -103,8 +176,39 @@ export default function Recognition() {
           </div>
         </div>
 
+        {completedTask && (
+          <div className="rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-emerald-500/30 bg-emerald-500/10">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl mt-0.5 bg-emerald-500/20">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <p className="font-bold text-emerald-700 dark:text-emerald-300">
+                  {t.completedTitle}
+                </p>
+                <p className="text-sm mt-0.5 text-secondary">{t.completedDesc}</p>
+              </div>
+            </div>
+            <button
+              onClick={() =>
+                navigate("/result", {
+                  state: {
+                    scanResult: completedTask.result,
+                    taskId: completedTask.taskId,
+                    previewUrl: completedTask.previewUrl,
+                  },
+                })
+              }
+              className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold shadow-sm hover:bg-emerald-500 transition flex items-center gap-2"
+            >
+              <PlaySquare className="w-4 h-4" />
+              {t.viewResult}
+            </button>
+          </div>
+        )}
+
         {/* Cảnh báo có Task đang chạy nền */}
-        {activeTask && (
+        {activeTask && !completedTask && (
           <div className="rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-primary/30 bg-primary/5">
             <div className="flex items-start gap-3">
               <div className="p-2 rounded-xl mt-0.5 bg-primary/20">

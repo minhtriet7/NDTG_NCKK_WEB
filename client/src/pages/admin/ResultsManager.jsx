@@ -46,13 +46,13 @@ function getId(item) {
 }
 
 function safeStr(value) {
-  return value === null || value === undefined || value === "" ? "N/A" : String(value);
+  return value === null || value === undefined || value === "" ? "" : String(value);
 }
 
 function inferCurrencyFromDenom(denom) {
   const text = String(denom || "").toUpperCase();
   const codes = ["VND", "USD", "THB", "MYR", "SGD", "IDR", "PHP", "KHR", "LAK", "MMK", "BND"];
-  return codes.find((code) => text.includes(code)) || "N/A";
+  return codes.find((code) => text.includes(code)) || "";
 }
 
 function normalizeStatus(status, finalResult = {}) {
@@ -117,14 +117,14 @@ function normalizeResult(item = {}) {
     final.denomination ||
     item.denomination ||
     item.data?.denomination ||
-    "N/A";
+    "";
 
   const country =
     final.quoc_gia ||
     final.country ||
     item.country ||
     item.data?.country ||
-    "N/A";
+    "";
 
   const currency =
     final.loai_tien ||
@@ -139,7 +139,7 @@ function normalizeResult(item = {}) {
     final.material ||
     item.material ||
     item.data?.material ||
-    "N/A";
+    "";
 
   const status = normalizeStatus(item.status, final);
 
@@ -247,6 +247,17 @@ export default function ResultsManager() {
       copied: "JSON copied.",
       reviewed: "Record marked as reviewed.",
       rerunSuccess: "Rerun requested.",
+      noDataYet: "No data yet",
+      noRunsYet: "No runs yet",
+      country: "Country",
+      currency: "Currency",
+      material: "Material",
+      detailStatus: "Status",
+      noImage: "No image",
+      matched: "matched",
+      agentDenomination: "Denomination",
+      agentCountry: "Country",
+      agentConfidence: "Confidence",
     },
     VI: {
       title: "Kết quả Nhận diện",
@@ -276,6 +287,17 @@ export default function ResultsManager() {
       copied: "Đã sao chép JSON.",
       reviewed: "Đã đánh dấu kiểm duyệt.",
       rerunSuccess: "Đã yêu cầu quét lại.",
+      noDataYet: "Chưa có dữ liệu",
+      noRunsYet: "Chưa có lượt chạy",
+      country: "Quốc gia",
+      currency: "Tiền tệ",
+      material: "Chất liệu",
+      detailStatus: "Trạng thái",
+      noImage: "Chưa có ảnh",
+      matched: "khớp",
+      agentDenomination: "Mệnh giá",
+      agentCountry: "Quốc gia",
+      agentConfidence: "Độ tin cậy",
     },
   }[lang || "EN"];
 
@@ -558,7 +580,7 @@ export default function ResultsManager() {
                     <td className={`px-6 py-4 ${textMain}`}>
                       {result.created_at
                         ? new Date(result.created_at).toLocaleString(lang === "VI" ? "vi-VN" : "en-US")
-                        : "N/A"}
+                        : t.noRunsYet}
                     </td>
 
                     <td className="px-6 py-4">
@@ -574,23 +596,23 @@ export default function ResultsManager() {
                             }}
                           />
                         ) : (
-                          <span className="text-[10px]">No Img</span>
+                          <span className="text-[10px]">{t.noImage}</span>
                         )}
                       </div>
                     </td>
 
                     <td className="px-6 py-4">
                       <p className={`font-bold ${textMain}`}>
-                        {result.denomination}
+                        {result.denomination || t.noDataYet}
                       </p>
                       <p className="text-xs text-slate-500">
-                        {result.country} · {result.currency}
+                        {result.country || t.noDataYet} · {result.currency || t.noDataYet}
                       </p>
                     </td>
 
                     <td className="px-6 py-4">
                       <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {result.matched_agents}/3 Matched
+                        {result.matched_agents}/3 {t.matched}
                       </span>
                     </td>
 
@@ -671,10 +693,10 @@ export default function ResultsManager() {
                   </p>
 
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 text-sm">
-                    <InfoItem label="Country" value={selectedScan.country} />
-                    <InfoItem label="Currency" value={selectedScan.currency} />
-                    <InfoItem label="Material" value={selectedScan.material} />
-                    <InfoItem label="Status" value={selectedScan.status} />
+                    <InfoItem label={t.country} value={selectedScan.country} fallback={t.noDataYet} />
+                    <InfoItem label={t.currency} value={selectedScan.currency} fallback={t.noDataYet} />
+                    <InfoItem label={t.material} value={selectedScan.material} fallback={t.noDataYet} />
+                    <InfoItem label={t.detailStatus} value={selectedScan.status} fallback={t.noDataYet} />
                   </div>
 
                   {selectedScan.error_message && (
@@ -698,26 +720,38 @@ export default function ResultsManager() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <AgentCard
                     isDark={isDark}
-                    title="ChatGPT Vision"
+                    title="AG1 OpenAI/GPT Vision"
                     icon={<Cpu size={16} />}
                     data={selectedAgents.ml_dl}
                     finalDenom={selectedScan.denomination}
+                    noDataText={t.noDataYet}
+                    denominationLabel={t.agentDenomination}
+                    countryLabel={t.agentCountry}
+                    confidenceLabel={t.agentConfidence}
                   />
 
                   <AgentCard
                     isDark={isDark}
-                    title="LLM"
+                    title="AG2 Gemini/LLM"
                     icon={<BotMessageSquare size={16} />}
                     data={selectedAgents.llm_api}
                     finalDenom={selectedScan.denomination}
+                    noDataText={t.noDataYet}
+                    denominationLabel={t.agentDenomination}
+                    countryLabel={t.agentCountry}
+                    confidenceLabel={t.agentConfidence}
                   />
 
                   <AgentCard
                     isDark={isDark}
-                    title="Visual Search"
+                    title="AG3 Google Lens/Visual Search"
                     icon={<SearchCheck size={16} />}
                     data={selectedAgents.visual_search}
                     finalDenom={selectedScan.denomination}
+                    noDataText={t.noDataYet}
+                    denominationLabel={t.agentDenomination}
+                    countryLabel={t.agentCountry}
+                    confidenceLabel={t.agentConfidence}
                   />
                 </div>
               </div>
@@ -801,16 +835,26 @@ function KpiCard({ label, value, className, textMain }) {
   );
 }
 
-function InfoItem({ label, value }) {
+function InfoItem({ label, value, fallback }) {
   return (
     <div>
       <p className="text-slate-400 text-xs">{label}</p>
-      <p className="font-semibold capitalize">{safeStr(value)}</p>
+      <p className="font-semibold capitalize">{safeStr(value) || fallback}</p>
     </div>
   );
 }
 
-function AgentCard({ title, icon, data, finalDenom, isDark }) {
+function AgentCard({
+  title,
+  icon,
+  data,
+  finalDenom,
+  isDark,
+  noDataText,
+  denominationLabel,
+  countryLabel,
+  confidenceLabel,
+}) {
   if (!data) {
     return (
       <div
@@ -822,7 +866,7 @@ function AgentCard({ title, icon, data, finalDenom, isDark }) {
       >
         {icon}
         <p className="text-sm font-bold mt-2">{title}</p>
-        <p className="text-xs mt-1">No data</p>
+        <p className="text-xs mt-1">{noDataText}</p>
       </div>
     );
   }
@@ -830,7 +874,7 @@ function AgentCard({ title, icon, data, finalDenom, isDark }) {
   const denom = getAgentDenom(data);
   const country = getAgentCountry(data);
   const confidence = getAgentConfidence(data);
-  const isMatch = denom === finalDenom && finalDenom !== "N/A";
+  const isMatch = Boolean(denom && finalDenom && denom === finalDenom);
 
   return (
     <div
@@ -858,7 +902,7 @@ function AgentCard({ title, icon, data, finalDenom, isDark }) {
 
       <div className="space-y-2 mt-auto">
         <div className="flex justify-between gap-3">
-          <span className="text-xs text-slate-400">Denom:</span>
+          <span className="text-xs text-slate-400">{denominationLabel}:</span>
           <span
             className={`text-sm font-bold text-right ${
               isMatch
@@ -870,24 +914,24 @@ function AgentCard({ title, icon, data, finalDenom, isDark }) {
                   : "text-amber-600"
             }`}
           >
-            {denom}
+            {denom || noDataText}
           </span>
         </div>
 
         <div className="flex justify-between gap-3">
-          <span className="text-xs text-slate-400">Country:</span>
+          <span className="text-xs text-slate-400">{countryLabel}:</span>
           <span
             className={`text-sm font-semibold text-right ${
               isDark ? "text-slate-300" : "text-slate-700"
             }`}
           >
-            {country}
+            {country || noDataText}
           </span>
         </div>
 
         {confidence !== undefined && confidence !== null && confidence !== "" && (
           <div className="flex justify-between gap-3">
-            <span className="text-xs text-slate-400">Confidence:</span>
+            <span className="text-xs text-slate-400">{confidenceLabel}:</span>
             <span
               className={`text-sm font-semibold text-right ${
                 isDark ? "text-slate-300" : "text-slate-700"

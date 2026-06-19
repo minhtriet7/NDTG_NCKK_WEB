@@ -4,6 +4,12 @@ from app.models.user_model import User
 from app.services.recognition_service import RecognitionService, serialize_result
 
 
+def _serialize_record_or_payload(value):
+    if isinstance(value, dict):
+        return dict(value)
+    return serialize_result(value)
+
+
 def _derive_currency(denomination: str) -> str:
     if not denomination or denomination in {"Needs review", "N/A"}:
         return "N/A"
@@ -150,8 +156,16 @@ class RecognitionController:
 
         image_bytes = await file.read()
         record = await RecognitionService.process_banknote(user, image_bytes)
-        payload = serialize_result(record)
-        payload["message"] = "Banknote recognized successfully. 1 Token deducted."
+        payload = _serialize_record_or_payload(record)
+        if payload.get("status") == "no_banknote_detected":
+            payload["message"] = (
+                "Không phát hiện tiền giấy. AI Agent không chạy và token không bị trừ."
+            )
+        else:
+            charged = int(payload.get("system_tokens_charged") or 0)
+            payload["message"] = (
+                f"Banknote recognized successfully. {charged} Token deducted."
+            )
         return payload
 
     @staticmethod

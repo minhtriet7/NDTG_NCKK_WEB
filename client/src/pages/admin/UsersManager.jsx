@@ -22,13 +22,30 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 
+function getAvatarUrl(user = {}) {
+  return (
+    user.avatar_url ||
+    user.avatar ||
+    user.image_url ||
+    user.photo_url ||
+    user.profile_image ||
+    user.picture ||
+    user.photoURL ||
+    user.profile?.avatar_url ||
+    user.profile?.avatar ||
+    user.profile?.image_url ||
+    user.profile?.photo_url ||
+    ""
+  );
+}
+
 function normalizeUser(user = {}) {
   return {
     id: user.id || user._id,
     _id: user._id,
-    full_name: user.full_name || user.name || user.username || user.email?.split("@")[0] || "N/A",
+    full_name: user.full_name || user.name || user.username || user.email?.split("@")[0] || "",
     email: user.email || "",
-    avatar_url: user.avatar_url || user.picture || user.avatar || "",
+    avatar_url: getAvatarUrl(user),
     role: user.role || (user.is_admin ? "admin" : "user"),
     is_active: user.is_active !== false && user.status !== "blocked" && user.status !== "banned",
     token_balance: user.token_balance ?? user.tokens ?? user.balance ?? 0,
@@ -36,6 +53,30 @@ function normalizeUser(user = {}) {
     created_at: user.created_at || user.joined_at || user.createdAt,
     raw: user,
   };
+}
+
+function UserAvatar({ user }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const avatarUrl = user?.avatar_url;
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [avatarUrl]);
+
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800">
+      {avatarUrl && !imageFailed ? (
+        <img
+          src={avatarUrl}
+          alt={getUserName(user)}
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <Users size={16} className="text-slate-400" aria-hidden="true" />
+      )}
+    </div>
+  );
 }
 
 function normalizeUsersResponse(data) {
@@ -52,19 +93,19 @@ function getUserId(user) {
   return user?.id || user?._id;
 }
 
-function getUserName(user) {
-  return user?.full_name || user?.name || user?.username || "N/A";
+function getUserName(user, fallback = "") {
+  return user?.full_name || user?.name || user?.username || fallback;
 }
 
-function formatDate(value, lang) {
-  if (!value) return "N/A";
+function formatDate(value, lang, fallback = "") {
+  if (!value) return fallback;
   try {
     return new Intl.DateTimeFormat(lang === "VI" ? "vi-VN" : "en-US", {
       dateStyle: "medium",
       timeStyle: "short"
     }).format(new Date(value));
   } catch {
-    return "N/A";
+    return fallback;
   }
 }
 
@@ -123,6 +164,8 @@ export default function UsersManager() {
       lblAccountRef: "Account Reference",
       roleUser: "Standard User",
       roleAdmin: "Administrator",
+      loading: "Loading...",
+      noDataYet: "No data yet",
     },
     VI: {
       title: "Quản lý Người dùng",
@@ -162,6 +205,8 @@ export default function UsersManager() {
       lblAccountRef: "Tham chiếu Tài khoản",
       roleUser: "Người dùng Tiêu chuẩn",
       roleAdmin: "Quản trị viên",
+      loading: "Đang tải...",
+      noDataYet: "Chưa có dữ liệu",
     },
   }[lang || "EN"];
 
@@ -279,8 +324,8 @@ export default function UsersManager() {
           </div>
           <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className={`h-10 px-3 rounded-lg border text-sm font-medium outline-none ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200"}`}>
             <option value="all">{t.filterRole}: {t.filterAll}</option>
-            <option value="admin">Admin</option>
-            <option value="user">User</option>
+            <option value="admin">{t.roleAdmin}</option>
+            <option value="user">{t.roleUser}</option>
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={`h-10 px-3 rounded-lg border text-sm font-medium outline-none ${isDark ? "bg-slate-950 border-slate-800 text-white" : "bg-slate-50 border-slate-200"}`}>
             <option value="all">{t.filterStatus}: {t.filterAll}</option>
@@ -308,7 +353,7 @@ export default function UsersManager() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
               {isLoading ? (
-                <tr><td colSpan="6" className="text-center py-8 text-slate-400 text-sm">Loading...</td></tr>
+                <tr><td colSpan="6" className="text-center py-8 text-slate-400 text-sm">{t.loading}</td></tr>
               ) : filteredUsers.length === 0 ? (
                 <tr><td colSpan="6" className="text-center py-8 text-slate-400 text-sm">{t.noData}</td></tr>
               ) : (
@@ -316,12 +361,10 @@ export default function UsersManager() {
                   <tr key={getUserId(user)} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shrink-0`}>
-                          {user.avatar_url ? <img src={user.avatar_url} alt="" className="w-full h-full object-cover" onError={(e) => { e.target.onerror = null; e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2'/><circle cx='12' cy='7' r='4'/></svg>"; }} /> : <Users size={16} className="text-slate-400" />}
-                        </div>
+                        <UserAvatar user={user} />
                         <div>
-                          <p className={`text-sm font-bold ${isDark ? "text-slate-200" : "text-slate-900"}`}>{getUserName(user)}</p>
-                          <p className="text-[11px] font-mono text-slate-500 mt-0.5">{user.email || "N/A"}</p>
+                          <p className={`text-sm font-bold ${isDark ? "text-slate-200" : "text-slate-900"}`}>{getUserName(user, t.noDataYet)}</p>
+                          <p className="text-[11px] font-mono text-slate-500 mt-0.5">{user.email || t.noDataYet}</p>
                         </div>
                       </div>
                     </td>
@@ -332,7 +375,7 @@ export default function UsersManager() {
                     </td>
                     <td className="px-5 py-3">
                       {user.role === "admin" ? (
-                        <span className="text-xs font-bold text-slate-900 dark:text-white">Admin</span>
+                        <span className="text-xs font-bold text-slate-900 dark:text-white">{t.roleAdmin}</span>
                       ) : (
                         <span className="text-xs font-medium text-slate-500">User</span>
                       )}
@@ -349,7 +392,7 @@ export default function UsersManager() {
                       )}
                     </td>
                     <td className="px-5 py-3 text-xs font-mono text-slate-500">
-                      {formatDate(user.created_at, lang)}
+                      {formatDate(user.created_at, lang, t.noDataYet)}
                     </td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-2">

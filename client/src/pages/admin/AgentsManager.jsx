@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../store/appStore";
 import { getAgentsOverview } from "../../services/adminService";
 import {
@@ -9,6 +8,7 @@ import {
   CheckCircle2,
   Settings,
   Cpu,
+  X,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -41,18 +41,58 @@ function normalizeList(data) {
           : [];
 
   return list.map((agent) => {
-    const rawKey = String(agent?.key || agent?.agent_key || agent?.agent || agent?.name || "").toLowerCase();
+    const rawKey = String(
+      agent?.key ||
+        agent?.agent_key ||
+        agent?.agent ||
+        agent?.id ||
+        agent?.name ||
+        ""
+    ).toLowerCase();
     const routeKey = Object.keys(AGENT_ROUTE_MAP).find((key) => rawKey.includes(key));
+    const status = agent?.status || agent?.health_status || agent?.state || "unknown";
+    const normalizedStatus = String(status).toLowerCase();
+    const enabled =
+      typeof agent?.enabled === "boolean"
+        ? agent.enabled
+        : typeof agent?.is_enabled === "boolean"
+          ? agent.is_enabled
+          : ["enabled", "online", "healthy", "active", "ok", "configured"].includes(
+              normalizedStatus
+            );
+    const isAggregator = rawKey.includes("aggregator");
+    const displayName = isAggregator
+      ? "Aggregator"
+      : rawKey.includes("agent_1")
+        ? "AG1 OpenAI/GPT Vision"
+        : rawKey.includes("agent_2")
+          ? "AG2 Gemini/LLM"
+          : rawKey.includes("agent_3") || rawKey.includes("lens")
+            ? "AG3 Google Lens/Visual Search"
+            : agent?.name || agent?.agent_name || agent?.title || agent?.key || "Agent";
+    const provider = rawKey.includes("agent_1")
+      ? agent?.provider || "OpenAI"
+      : rawKey.includes("agent_2")
+        ? agent?.provider || "Gemini"
+        : rawKey.includes("agent_3") || rawKey.includes("lens")
+          ? agent?.provider || "SerpApi / Google Lens"
+          : isAggregator
+            ? agent?.provider || "Internal"
+            : agent?.provider || agent?.model_provider || agent?.type || "Internal";
+
     return {
       ...agent,
-      key: agent?.key || agent?.agent_key || agent?.agent || rawKey || "agent",
-      name: agent?.name || agent?.agent_name || agent?.title || agent?.key || "Agent",
-      role: agent?.role || agent?.description || agent?.purpose || "N/A",
-      status: agent?.status || agent?.health_status || agent?.state || "unknown",
+      key: agent?.key || agent?.agent_key || agent?.agent || agent?.id || rawKey || "agent",
+      name: displayName,
+      role: agent?.role || (isAggregator ? "Aggregator" : "Recognition Agent"),
+      provider,
+      enabled,
+      status,
+      health: agent?.health || agent?.runtime_health || agent?.health_status || null,
       last_run_at: agent?.last_run_at || agent?.updated_at || agent?.last_checked_at,
       latency_ms: agent?.latency_ms ?? agent?.avg_latency_ms ?? agent?.response_time_ms ?? null,
       success_rate: agent?.success_rate ?? agent?.success_ratio ?? agent?.successRate ?? null,
-      route: agent?.route || (routeKey ? AGENT_ROUTE_MAP[routeKey] : "/admin/agents/config"),
+      route: routeKey ? AGENT_ROUTE_MAP[routeKey] : agent?.route || "/admin/agents/config",
     };
   });
 }
@@ -62,21 +102,21 @@ function normalizeSummary(data) {
   return root.summary || root.kpis || root.overview || null;
 }
 
-function formatSuccessRate(value) {
-  if (value === null || value === undefined || value === "") return "N/A";
+function formatSuccessRate(value, fallback) {
+  if (value === null || value === undefined || value === "") return fallback;
   const num = Number(value);
-  if (!Number.isFinite(num)) return "N/A";
+  if (!Number.isFinite(num)) return fallback;
   return num <= 1 ? `${Math.round(num * 100)}%` : `${Math.round(num)}%`;
 }
 
 export default function AgentsManager() {
-  const navigate = useNavigate();
   const { lang, theme } = useAppStore();
   const isDark = theme === "dark";
 
   const [agents, setAgents] = useState([]);
   const [summary, setSummary] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedAgent, setSelectedAgent] = useState(null);
 
   const t = {
     EN: {
@@ -102,6 +142,14 @@ export default function AgentsManager() {
       noAgentsDesc: "Agent health data will appear after the backend reports pipeline status.",
       loading: "Loading agents...",
       failed: "Failed to load agents.",
+      noLastRun: "No runs yet",
+      noRuntimeData: "No data available",
+      provider: "Provider",
+      enabled: "Enabled",
+      disabled: "Disabled",
+      runtimeData: "Runtime data",
+      advancedUnavailable: "Advanced configuration is not available.",
+      close: "Close",
     },
     VI: {
       title: "Quản lý Agents",
@@ -126,14 +174,24 @@ export default function AgentsManager() {
       noAgentsDesc: "Dữ liệu sức khỏe Agent sẽ hiển thị khi backend trả trạng thái pipeline.",
       loading: "Đang tải Agents...",
       failed: "Không thể tải Agents.",
+      noLastRun: "Chưa có lượt chạy",
+      noRuntimeData: "Chưa có dữ liệu",
+      provider: "Nhà cung cấp",
+      enabled: "Đã bật",
+      disabled: "Đã tắt",
+      runtimeData: "Dữ liệu runtime",
+      advancedUnavailable: "Cấu hình nâng cao chưa khả dụng.",
+      close: "Đóng",
     },
   }[lang || "EN"];
 
   const fallbackAgents = [
     {
       key: "agent_1_ml_dl",
-      name: "Agent 1 ChatGPT Vision",
-      role: "ChatGPT GPT-4o Vision Classifier",
+      name: "AG1 OpenAI/GPT Vision",
+      role: "Recognition Agent",
+      provider: "OpenAI",
+      enabled: null,
       status: "unknown",
       last_run_at: null,
       latency_ms: null,
@@ -142,8 +200,10 @@ export default function AgentsManager() {
     },
     {
       key: "agent_2_llm",
-      name: "Agent 2 Gemini LLM",
-      role: "Gemini image reasoning",
+      name: "AG2 Gemini/LLM",
+      role: "Recognition Agent",
+      provider: "Gemini",
+      enabled: null,
       status: "unknown",
       last_run_at: null,
       latency_ms: null,
@@ -152,8 +212,10 @@ export default function AgentsManager() {
     },
     {
       key: "agent_3_lens",
-      name: "Agent 3 Visual Search",
-      role: "ImgBB + SerpApi Google Lens",
+      name: "AG3 Google Lens/Visual Search",
+      role: "Recognition Agent",
+      provider: "SerpApi / Google Lens",
+      enabled: null,
       status: "unknown",
       last_run_at: null,
       latency_ms: null,
@@ -163,7 +225,9 @@ export default function AgentsManager() {
     {
       key: "aggregator",
       name: "Aggregator",
-      role: "Rule-based majority vote",
+      role: "Aggregator",
+      provider: "Internal",
+      enabled: null,
       status: "unknown",
       last_run_at: null,
       latency_ms: null,
@@ -195,11 +259,17 @@ export default function AgentsManager() {
 
   const kpis = useMemo(() => {
     const total = agents.length;
-    const online = agents.filter((a) =>
-      ["online", "healthy", "active", "ok"].includes(String(a.status || "").toLowerCase())
-    ).length;
+    const online = agents.filter((a) => {
+      const status = String(a.status || "").toLowerCase();
+      return (
+        a.enabled === true ||
+        ["online", "healthy", "active", "ok", "enabled", "configured"].includes(status)
+      );
+    }).length;
     const warnings = agents.filter((a) =>
-      ["warning", "degraded", "missing_key", "quota_error"].includes(String(a.status || "").toLowerCase())
+      ["warning", "degraded", "missing_key", "missing_config", "quota_error"].includes(
+        String(a.health || a.status || "").toLowerCase()
+      )
     ).length;
 
     const latencyValues = agents
@@ -213,28 +283,28 @@ export default function AgentsManager() {
 
     return {
       total: summary?.total_agents ?? total,
-      online: summary?.online_agents ?? online,
+      online: summary?.online_agents ?? summary?.active_agents ?? online,
       warnings: summary?.warnings ?? warnings,
       avgLatency: summary?.avg_latency_ms ?? avgLatency,
     };
   }, [agents, summary]);
 
   const formatDate = (value) => {
-    if (!value) return "N/A";
+    if (!value) return t.noLastRun;
     try {
       return new Intl.DateTimeFormat(lang === "VI" ? "vi-VN" : "en-US", {
         dateStyle: "medium",
         timeStyle: "short",
       }).format(new Date(value));
     } catch {
-      return "N/A";
+      return t.noLastRun;
     }
   };
 
   const getStatusBadge = (status) => {
     const s = String(status || "unknown").toLowerCase();
 
-    if (["online", "healthy", "active", "ok"].includes(s)) {
+    if (["online", "healthy", "active", "ok", "enabled", "configured"].includes(s)) {
       return "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
     }
 
@@ -283,7 +353,7 @@ export default function AgentsManager() {
           { label: t.totalAgents, value: kpis.total, icon: Cpu, tone: "text-slate-900 dark:text-white" },
           { label: t.onlineAgents, value: kpis.online, icon: CheckCircle2, tone: "text-teal-600 dark:text-teal-400" },
           { label: t.warnings, value: kpis.warnings, icon: AlertTriangle, tone: kpis.warnings > 0 ? "text-amber-500" : "text-emerald-500" },
-          { label: t.avgLatency, value: kpis.avgLatency ? `${kpis.avgLatency}ms` : "N/A", icon: Activity, tone: "text-blue-600 dark:text-blue-400" },
+          { label: t.avgLatency, value: kpis.avgLatency ? `${kpis.avgLatency}ms` : t.noRuntimeData, icon: Activity, tone: "text-blue-600 dark:text-blue-400" },
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -349,7 +419,7 @@ export default function AgentsManager() {
                       </div>
                     </td>
                     <td className="px-6 py-5 text-slate-600 dark:text-slate-300">
-                      {agent.role || agent.description || "N/A"}
+                      {agent.role}
                     </td>
                     <td className="px-6 py-5">
                       <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${getStatusBadge(agent.status)}`}>
@@ -360,16 +430,14 @@ export default function AgentsManager() {
                       {formatDate(agent.last_run_at || agent.updated_at)}
                     </td>
                     <td className="px-6 py-5 font-mono text-slate-600 dark:text-slate-300">
-                      {agent.latency_ms ? `${agent.latency_ms}ms` : "N/A"}
+                      {agent.latency_ms ? `${agent.latency_ms}ms` : t.noRuntimeData}
                     </td>
                     <td className="px-6 py-5 font-mono text-teal-600 dark:text-teal-400 font-black">
-                      {agent.success_rate !== null && agent.success_rate !== undefined
-                        ? formatSuccessRate(agent.success_rate)
-                        : "N/A"}
+                      {formatSuccessRate(agent.success_rate, t.noRuntimeData)}
                     </td>
                     <td className="px-6 py-5 text-right">
                       <button
-                        onClick={() => navigate(agent.route || "/admin/agents/config")}
+                        onClick={() => setSelectedAgent(agent)}
                         className="inline-flex items-center gap-2 h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-teal-500 hover:text-teal-600 dark:hover:text-teal-400 font-bold text-xs transition-colors"
                       >
                         <Settings size={14} />
@@ -383,6 +451,98 @@ export default function AgentsManager() {
           </table>
         </div>
       </div>
+
+      {selectedAgent && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="agent-config-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSelectedAgent(null);
+          }}
+        >
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-5 dark:border-slate-700">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-teal-600 dark:text-teal-400">
+                  {t.configure}
+                </p>
+                <h2
+                  id="agent-config-title"
+                  className="mt-1 text-xl font-black text-slate-900 dark:text-white"
+                >
+                  {selectedAgent.name}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedAgent(null)}
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                aria-label={t.close}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {[
+                  [t.agent, selectedAgent.name],
+                  [t.role, selectedAgent.role],
+                  [t.provider, selectedAgent.provider],
+                  [
+                    t.status,
+                    selectedAgent.enabled === true
+                      ? t.enabled
+                      : selectedAgent.enabled === false
+                        ? t.disabled
+                        : selectedAgent.status,
+                  ],
+                  [t.lastRun, formatDate(selectedAgent.last_run_at)],
+                  [
+                    t.latency,
+                    selectedAgent.latency_ms
+                      ? `${selectedAgent.latency_ms}ms`
+                      : t.noRuntimeData,
+                  ],
+                  [
+                    t.successRate,
+                    formatSuccessRate(selectedAgent.success_rate, t.noRuntimeData),
+                  ],
+                  [t.runtimeData, selectedAgent.health || t.noRuntimeData],
+                ].map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/70"
+                  >
+                    <dt className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                      {label}
+                    </dt>
+                    <dd className="mt-1 break-words text-sm font-bold text-slate-900 dark:text-white">
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800 dark:border-amber-800/60 dark:bg-amber-900/20 dark:text-amber-300">
+                {t.advancedUnavailable}
+              </div>
+            </div>
+
+            <div className="flex justify-end border-t border-slate-200 p-5 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setSelectedAgent(null)}
+                className="h-10 rounded-xl bg-slate-900 px-5 text-sm font-bold text-white hover:bg-slate-700 dark:bg-teal-500 dark:text-slate-950 dark:hover:bg-teal-400"
+              >
+                {t.close}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

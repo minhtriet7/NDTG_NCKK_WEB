@@ -1004,7 +1004,6 @@ export default function Profile() {
 
       if (hasStoredPreferences) {
         setLang?.(normalizedPreferences.language);
-        setTheme?.(normalizedPreferences.theme);
       }
     } else {
       const fallbackPreferences = normalizePreferenceForm(profilePreferencePayload, {
@@ -1886,30 +1885,30 @@ function TokenBalanceCard({
 
   return (
     <SectionCard title={copy.tokenBalance} icon={Coins}>
-      <div className="rounded-lg border border-slate-200 bg-slate-950 p-5 text-white shadow-sm dark:border-slate-700">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-white">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               {copy.balance}
             </p>
             <div className="mt-3 flex items-end gap-2">
               <span className="text-4xl font-bold tracking-tight">
                 {formatNumber(profile?.token_balance, lang)}
               </span>
-              <span className="pb-1 text-sm font-semibold text-slate-300">
+              <span className="pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
                 tokens
               </span>
             </div>
           </div>
-          <div className="rounded-md bg-white/10 p-2 text-emerald-200">
+          <div className="rounded-md bg-emerald-100 p-2 text-emerald-700 dark:bg-white/10 dark:text-emerald-200">
             <Wallet className="h-5 w-5" />
           </div>
         </div>
 
-        <p className="mt-5 text-sm font-semibold text-slate-200">
+        <p className="mt-5 text-sm font-semibold text-slate-700 dark:text-slate-200">
           {copy.costPerScan}: {scanCost} {scanCost === 1 ? "token" : "tokens"} / scan
         </p>
-        <p className="mt-1 text-xs leading-5 text-slate-400">
+        <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
           {profileConfig?.billing_note || copy.defaultCostHint}
         </p>
       </div>

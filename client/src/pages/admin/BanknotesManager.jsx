@@ -144,6 +144,7 @@ export default function BanknotesManager() {
       updated: "Banknote updated.",
       deleted: "Deleted successfully.",
       deleteConfirm: "Delete this banknote?",
+      noDataYet: "No data yet",
     },
     VI: {
       title: "Kho Dữ liệu Tiền Giấy",
@@ -177,6 +178,7 @@ export default function BanknotesManager() {
       updated: "Đã cập nhật tiền giấy.",
       deleted: "Đã xóa thành công.",
       deleteConfirm: "Xóa tiền giấy này?",
+      noDataYet: "Chưa có dữ liệu",
     },
   }[lang || "EN"];
 
@@ -466,11 +468,11 @@ export default function BanknotesManager() {
                     </td>
 
                     <td className={`px-6 py-4 font-medium ${textMain}`}>
-                      {note.country || "N/A"}
+                      {note.country || t.noDataYet}
                     </td>
 
                     <td className="px-6 py-4 text-slate-500">
-                      {note.material || "N/A"}
+                      {note.material || t.noDataYet}
                     </td>
 
                     <td className="px-6 py-4">

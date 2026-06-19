@@ -24,8 +24,8 @@ export default function AiModelConfig() {
 
   const t = {
     EN: {
-      title: "AI Model Config",
-      subtitle: "Configure Agent 1 ML/DL model paths, image sizes, and detection thresholds.",
+      title: "AG1 OpenAI/GPT Vision Config",
+      subtitle: "Configure AG1 OpenAI/GPT Vision support model paths, image sizes, and detection thresholds.",
       refresh: "Refresh",
       save: "Save Changes",
       saving: "Saving...",
@@ -38,14 +38,15 @@ export default function AiModelConfig() {
       yoloSize: "YOLO image size",
       resSize: "Classifier image size",
       device: "Device",
-      enabled: "Enable Agent 1 ML/DL",
+      enabled: "Enable AG1 OpenAI/GPT Vision",
+      invalidConfidence: "YOLO confidence must be between 0 and 1.",
       saved: "AI model configuration saved.",
       failedLoad: "Failed to load AI model config.",
       failedSave: "Failed to save AI model config.",
     },
     VI: {
-      title: "Cấu hình AI Model",
-      subtitle: "Cấu hình đường dẫn model Agent 1 ML/DL, kích thước ảnh và ngưỡng nhận diện.",
+      title: "Cấu hình AG1 OpenAI/GPT Vision",
+      subtitle: "Cấu hình model hỗ trợ AG1 OpenAI/GPT Vision, kích thước ảnh và ngưỡng nhận diện.",
       refresh: "Tải lại",
       save: "Lưu thay đổi",
       saving: "Đang lưu...",
@@ -58,7 +59,8 @@ export default function AiModelConfig() {
       yoloSize: "Kích thước ảnh YOLO",
       resSize: "Kích thước ảnh classifier",
       device: "Thiết bị chạy",
-      enabled: "Bật Agent 1 ML/DL",
+      enabled: "Bật AG1 OpenAI/GPT Vision",
+      invalidConfidence: "Độ tin cậy YOLO phải nằm trong khoảng từ 0 đến 1.",
       saved: "Đã lưu cấu hình AI model.",
       failedLoad: "Không thể tải cấu hình AI model.",
       failedSave: "Không thể lưu cấu hình AI model.",
@@ -94,7 +96,7 @@ export default function AiModelConfig() {
     e.preventDefault();
 
     if (Number(form.yolo_conf_threshold) < 0 || Number(form.yolo_conf_threshold) > 1) {
-      toast.error("YOLO confidence must be between 0 and 1.");
+      toast.error(t.invalidConfidence);
       return;
     }
 
@@ -144,7 +146,7 @@ export default function AiModelConfig() {
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-5 border-b border-slate-200 dark:border-slate-800 pb-5">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400 mb-2">
-            Agent 1 ML/DL
+            AG1 OpenAI/GPT Vision
           </p>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {t.title}

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import ThemeLangToggle from '../components/common/ThemeLangToggle';
@@ -9,10 +9,8 @@ export default function AuthLayout() {
   const isLogin = location.pathname.includes("login");
   const isAdminLogin = location.pathname.includes("admin-login");
   
-  const { theme, initTheme, lang } = useAppStore();
-  const isDark = theme === 'dark';
-
-  useEffect(() => { initTheme(); }, [initTheme]);
+  const { theme, resolvedTheme } = useAppStore();
+  const isDark = (resolvedTheme || theme) === 'dark';
 
   // Background Images
   const loginBg = "https://res.cloudinary.com/dg0qiq4zd/image/upload/v1779085695/13_26_26_18_thg_5_2026_ic0ar6.png"; 

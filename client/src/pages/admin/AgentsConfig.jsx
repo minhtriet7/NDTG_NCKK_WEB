@@ -32,9 +32,9 @@ export default function AgentsConfig() {
       saving: "Saving...",
       pipeline: "Pipeline switches",
       runtime: "Runtime behavior",
-      agent1: "Enable Agent 1 ML/DL",
-      agent2: "Enable Agent 2 LLM",
-      agent3: "Enable Agent 3 Visual Search",
+      agent1: "Enable AG1 OpenAI/GPT Vision",
+      agent2: "Enable AG2 Gemini/LLM",
+      agent3: "Enable AG3 Google Lens/Visual Search",
       aggregator: "Enable Aggregator",
       parallel: "Run agents in parallel",
       retry: "Retry failed agents",
@@ -44,6 +44,7 @@ export default function AgentsConfig() {
       saved: "Agent configuration saved.",
       failedLoad: "Failed to load agent configuration.",
       failedSave: "Failed to save agent configuration.",
+      runtimeHint: "Use a balanced timeout and retry count so quota-limited Gemini or Lens requests do not hold scans for too long.",
     },
     VI: {
       title: "Cấu hình Agents",
@@ -53,9 +54,9 @@ export default function AgentsConfig() {
       saving: "Đang lưu...",
       pipeline: "Công tắc pipeline",
       runtime: "Cách chạy hệ thống",
-      agent1: "Bật Agent 1 ML/DL",
-      agent2: "Bật Agent 2 LLM",
-      agent3: "Bật Agent 3 Visual Search",
+      agent1: "Bật AG1 OpenAI/GPT Vision",
+      agent2: "Bật AG2 Gemini/LLM",
+      agent3: "Bật AG3 Google Lens/Visual Search",
       aggregator: "Bật Aggregator",
       parallel: "Chạy agents song song",
       retry: "Thử lại agent bị lỗi",
@@ -65,6 +66,7 @@ export default function AgentsConfig() {
       saved: "Đã lưu cấu hình agents.",
       failedLoad: "Không thể tải cấu hình agents.",
       failedSave: "Không thể lưu cấu hình agents.",
+      runtimeHint: "Nên đặt timeout và số lần thử lại vừa phải để tránh giữ yêu cầu quét quá lâu khi Gemini hoặc Lens bị giới hạn quota.",
     },
   }[lang || "EN"];
 
@@ -251,7 +253,7 @@ export default function AgentsConfig() {
           <div className="rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-4 flex gap-3 text-sm text-slate-500 dark:text-slate-400">
             <RotateCcw size={16} className="mt-0.5 shrink-0" />
             <p>
-              Timeout và retry nên đặt vừa phải để tránh giữ request scan quá lâu khi API Gemini hoặc Lens bị quota.
+              {t.runtimeHint}
             </p>
           </div>
         </div>

@@ -57,7 +57,7 @@ export default function SystemLogs() {
       search: "Search message, ID...", lvl: "Level", mod: "Module", reset: "Reset",
       autoRef: "Auto Refresh", clear: "Clear Logs", export: "Export CSV",
       thTime: "Time", thLvl: "Level", thMod: "Module", thMsg: "Message", thAct: "Action",
-      noData: "No logs found", noDataSub: "Try changing filters or refreshing.",
+      noData: "No logs found", noDataSub: "Try changing filters or refreshing.", noDataYet: "No data yet",
       modTit: "Log Details", copy: "Copy JSON"
     },
     VI: { 
@@ -66,7 +66,7 @@ export default function SystemLogs() {
       search: "Tìm message, ID...", lvl: "Cấp độ", mod: "Phân hệ", reset: "Xóa Lọc",
       autoRef: "Tự động tải", clear: "Xóa Logs", export: "Xuất CSV",
       thTime: "Thời gian", thLvl: "Cấp độ", thMod: "Phân hệ", thMsg: "Nội dung", thAct: "Thao tác",
-      noData: "Chưa có nhật ký phù hợp", noDataSub: "Hãy thử đổi bộ lọc hoặc làm mới trang.",
+      noData: "Chưa có nhật ký phù hợp", noDataSub: "Hãy thử đổi bộ lọc hoặc làm mới trang.", noDataYet: "Chưa có dữ liệu",
       modTit: "Chi tiết Log", copy: "Copy JSON"
     }
   }[lang || "EN"];
@@ -197,7 +197,7 @@ export default function SystemLogs() {
         </div>
         <div className={`p-5 rounded-xl border shadow-sm ${isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200"}`}>
           <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t.statLast}</span><Terminal className="text-slate-500" size={18}/></div>
-          <span className={`text-lg font-bold ${isDark?"text-slate-300":"text-slate-700"} truncate block`}>{kpis.lastErr ? new Date(kpis.lastErr).toLocaleTimeString() : "N/A"}</span>
+          <span className={`text-lg font-bold ${isDark?"text-slate-300":"text-slate-700"} truncate block`}>{kpis.lastErr ? new Date(kpis.lastErr).toLocaleTimeString() : t.noDataYet}</span>
         </div>
       </div>
 
@@ -305,8 +305,8 @@ export default function SystemLogs() {
 
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div><p className="text-[10px] font-bold text-slate-400 uppercase">Timestamp</p><p className={`font-mono mt-1 ${isDark?"text-white":"text-slate-900"}`}>{new Date(detailModal.log.timestamp).toLocaleString()}</p></div>
-                <div><p className="text-[10px] font-bold text-slate-400 uppercase">Log ID</p><p className={`font-mono mt-1 ${isDark?"text-white":"text-slate-900"}`}>{detailModal.log.id || "N/A"}</p></div>
-                <div><p className="text-[10px] font-bold text-slate-400 uppercase">Request ID</p><p className={`font-mono mt-1 ${isDark?"text-white":"text-slate-900"}`}>{detailModal.log.request_id || "N/A"}</p></div>
+                <div><p className="text-[10px] font-bold text-slate-400 uppercase">Log ID</p><p className={`font-mono mt-1 ${isDark?"text-white":"text-slate-900"}`}>{detailModal.log.id || t.noDataYet}</p></div>
+                <div><p className="text-[10px] font-bold text-slate-400 uppercase">Request ID</p><p className={`font-mono mt-1 ${isDark?"text-white":"text-slate-900"}`}>{detailModal.log.request_id || t.noDataYet}</p></div>
                 <div><p className="text-[10px] font-bold text-slate-400 uppercase">User ID</p><p className={`font-mono mt-1 ${isDark?"text-white":"text-slate-900"}`}>{detailModal.log.user_id || "System"}</p></div>
               </div>
 

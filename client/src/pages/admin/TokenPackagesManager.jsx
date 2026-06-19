@@ -275,7 +275,7 @@ export default function TokenPackagesManager() {
       total: packages.length,
       active: packages.filter((pkg) => pkg.is_active).length,
       tokens: packages.reduce((sum, pkg) => sum + Number(pkg.tokens || 0), 0),
-      best: packages.find((pkg) => String(pkg.badge || "").trim())?.name || "N/A",
+      best: packages.find((pkg) => String(pkg.badge || "").trim())?.name || "",
     };
   }, [packages]);
 
@@ -462,7 +462,7 @@ export default function TokenPackagesManager() {
         <StatCard
           isDark={isDark}
           label={t.bestValue}
-          value={stats.best}
+          value={stats.best || t.noData}
           icon={<BadgePercent size={18} />}
         />
       </div>
@@ -562,7 +562,7 @@ export default function TokenPackagesManager() {
                             )}
                           </div>
                           <p className="text-xs text-slate-500 max-w-[320px] truncate">
-                            {pkg.description || pkg.package_key || "N/A"}
+                            {pkg.description || pkg.package_key || t.noData}
                           </p>
                         </div>
                       </div>

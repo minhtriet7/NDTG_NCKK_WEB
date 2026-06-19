@@ -45,7 +45,8 @@ export default function UploadZone() {
       chargedAfterSuccess: "Tokens are charged only after analysis is completed successfully.",
       fileSelected: "Selected file",
       clear: "Clear",
-      replace: "Replace image"
+      replace: "Replace image",
+      limitNote: "Each recognition task supports 1 image and processes up to 3 banknotes in that image."
     },
     VI: {
       uploadTitle: "Tải Ảnh Tờ Tiền",
@@ -63,7 +64,8 @@ export default function UploadZone() {
       chargedAfterSuccess: "Token chỉ bị trừ sau khi phân tích hoàn tất thành công.",
       fileSelected: "Tệp đã chọn",
       clear: "Xóa",
-      replace: "Đổi ảnh"
+      replace: "Đổi ảnh",
+      limitNote: "Mỗi lượt nhận diện hỗ trợ 1 ảnh và xử lý tối đa 3 tờ tiền giấy trong ảnh."
     }
   }[lang || "EN"];
 
@@ -189,6 +191,9 @@ export default function UploadZone() {
             </div>
             <p className="text-lg font-bold mb-2 text-slate-800 dark:text-slate-200">{t.uploadDesc}</p>
             <p className="text-sm text-slate-500 font-mono">{t.uploadHint}</p>
+            <p className="text-xs text-amber-600 dark:text-amber-500 mt-4 font-medium px-4 py-1.5 rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-900/50">
+              {t.limitNote}
+            </p>
           </div>
         ) : (
           <div className="space-y-4">

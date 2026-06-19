@@ -79,6 +79,111 @@ def _to_gray(img: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
 
+def _clip01(value: Any) -> float:
+    return max(0.0, min(1.0, _safe_float(value, 0.0)))
+
+
+def _normalized_color_entropy(crop_img: np.ndarray) -> float:
+    """Entropy của histogram màu BGR lượng tử hóa 4x4x4, chuẩn hóa về 0..1."""
+    try:
+        reduced = cv2.resize(
+            crop_img,
+            (min(256, crop_img.shape[1]), min(256, crop_img.shape[0])),
+            interpolation=cv2.INTER_AREA,
+        )
+        bins = (reduced.astype(np.uint16) // 64).reshape(-1, 3)
+        indexes = (bins[:, 0] * 16 + bins[:, 1] * 4 + bins[:, 2]).astype(np.int64)
+        counts = np.bincount(indexes, minlength=64).astype(np.float64)
+        probabilities = counts[counts > 0] / max(1.0, counts.sum())
+        entropy = -float(np.sum(probabilities * np.log2(probabilities)))
+        return _clip01(entropy / 6.0)
+    except Exception:
+        return 0.0
+
+
+def _compute_structural_metrics(gray: np.ndarray, edges: np.ndarray) -> Dict[str, float]:
+    """
+    Metric shadow để phân biệt texture tự nhiên với tài liệu/sơ đồ:
+    đường thẳng dài, khung chữ nhật và edge thiên mạnh theo một hướng.
+    """
+    h, w = gray.shape[:2]
+    total_pixels = max(1, h * w)
+    diagonal = max(1.0, float(np.hypot(w, h)))
+
+    long_line_density = 0.0
+    try:
+        min_line_length = max(20, int(min(h, w) * 0.22))
+        lines = cv2.HoughLinesP(
+            edges,
+            1,
+            np.pi / 180,
+            threshold=max(18, int(min(h, w) * 0.08)),
+            minLineLength=min_line_length,
+            maxLineGap=max(4, int(min(h, w) * 0.025)),
+        )
+        if lines is not None:
+            total_line_length = 0.0
+            axis_aligned_line_length = 0.0
+            for x1, y1, x2, y2 in lines[:, 0]:
+                line_length = float(np.hypot(x2 - x1, y2 - y1))
+                total_line_length += line_length
+                angle = abs(float(np.degrees(np.arctan2(y2 - y1, x2 - x1)))) % 180.0
+                axis_distance = min(angle, abs(90.0 - angle), abs(180.0 - angle))
+                if axis_distance <= 10.0:
+                    axis_aligned_line_length += line_length
+
+            # Sơ đồ/tài liệu thường có nhiều đường dài nằm ngang/dọc đồng thời.
+            # Nhân tỷ lệ hướng trục với mức phủ đường thẳng để tránh ảnh tiền có
+            # texture dày làm metric bão hòa chỉ vì Hough tìm được nhiều line.
+            if total_line_length > 0:
+                axis_aligned_ratio = axis_aligned_line_length / total_line_length
+                line_coverage = _clip01(total_line_length / (diagonal * 8.0))
+                long_line_density = _clip01(axis_aligned_ratio * line_coverage)
+    except Exception:
+        long_line_density = 0.0
+
+    rectangle_like_density = 0.0
+    try:
+        contours, _ = cv2.findContours(
+            edges,
+            cv2.RETR_LIST,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )
+        rectangle_area = 0.0
+        for contour in contours:
+            perimeter = cv2.arcLength(contour, True)
+            if perimeter <= 0:
+                continue
+            polygon = cv2.approxPolyDP(contour, 0.025 * perimeter, True)
+            if len(polygon) != 4 or not cv2.isContourConvex(polygon):
+                continue
+            area = float(abs(cv2.contourArea(polygon)))
+            area_ratio = area / float(total_pixels)
+            if 0.003 <= area_ratio <= 0.80:
+                rectangle_area += area
+        rectangle_like_density = _clip01(rectangle_area / float(total_pixels))
+    except Exception:
+        rectangle_like_density = 0.0
+
+    directional_edge_ratio = 0.0
+    try:
+        grad_x = np.abs(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3))
+        grad_y = np.abs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3))
+        x_energy = float(np.sum(grad_x))
+        y_energy = float(np.sum(grad_y))
+        total_energy = x_energy + y_energy
+        if total_energy > 0:
+            directional_edge_ratio = max(x_energy, y_energy) / total_energy
+    except Exception:
+        directional_edge_ratio = 0.0
+
+    return {
+        "long_line_density": round(long_line_density, 5),
+        "rectangle_like_density": round(rectangle_like_density, 5),
+        "directional_edge_ratio": round(directional_edge_ratio, 5),
+    }
+
+
 def _compute_background_score(
     crop_img: np.ndarray,
     original_img: np.ndarray,
@@ -179,6 +284,13 @@ def compute_crop_metrics(
             "brightness": 0.0,
             "contrast": 0.0,
             "background_score": None,
+            "white_ratio": 0.0,
+            "color_entropy": 0.0,
+            "color_richness": 0.0,
+            "saturation_mean": 0.0,
+            "long_line_density": 0.0,
+            "rectangle_like_density": 0.0,
+            "directional_edge_ratio": 0.0,
         }
 
     h, w = crop_img.shape[:2]
@@ -219,6 +331,7 @@ def compute_crop_metrics(
         total_pixels = max(1, gray.shape[0] * gray.shape[1])
         edge_density = float(np.count_nonzero(edges)) / total_pixels
     except Exception:
+        edges = np.zeros_like(gray)
         edge_density = 0.0
 
     # --- brightness (mean gray) ---
@@ -236,6 +349,22 @@ def compute_crop_metrics(
     # --- background_score ---
     background_score = _compute_background_score(crop_img, original_img)
 
+    # --- Shadow-only document/banknote explainability metrics ---
+    try:
+        hsv = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
+        saturation = hsv[:, :, 1]
+        value = hsv[:, :, 2]
+        white_ratio = float(
+            np.mean((value >= 235) & (saturation <= 35))
+        )
+        saturation_mean = float(np.mean(saturation))
+    except Exception:
+        white_ratio = 0.0
+        saturation_mean = 0.0
+
+    color_entropy = _normalized_color_entropy(crop_img)
+    structural_metrics = _compute_structural_metrics(gray, edges)
+
     return {
         "area_ratio": round(area_ratio, 5),
         "aspect_ratio": round(aspect_ratio, 3),
@@ -244,6 +373,11 @@ def compute_crop_metrics(
         "brightness": round(brightness, 2),
         "contrast": round(contrast, 2),
         "background_score": round(background_score, 4) if background_score is not None else None,
+        "white_ratio": round(white_ratio, 5),
+        "color_entropy": round(color_entropy, 5),
+        "color_richness": round(color_entropy, 5),
+        "saturation_mean": round(saturation_mean, 2),
+        **structural_metrics,
     }
 
 
@@ -401,6 +535,222 @@ def classify_crop(
     }
 
 
+def build_shadow_explainability(
+    metrics: Dict[str, Any],
+    action: str,
+    confidence: float,
+    source: str = "unknown",
+    yolo_conf: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Tính explainability/policy shadow. Hàm này KHÔNG thay đổi action thật và
+    KHÔNG được dùng để chặn Agent trong Phase 2B-1.
+    """
+    area_ratio = _safe_float(metrics.get("area_ratio"), 0.0)
+    aspect_ratio = _safe_float(metrics.get("aspect_ratio"), 1.0)
+    texture = _safe_float(metrics.get("texture_variance"), 0.0)
+    edge_density = _safe_float(metrics.get("edge_density"), 0.0)
+    contrast = _safe_float(metrics.get("contrast"), 0.0)
+    white_ratio = _safe_float(metrics.get("white_ratio"), 0.0)
+    color_richness = _safe_float(
+        metrics.get("color_richness", metrics.get("color_entropy")),
+        0.0,
+    )
+    saturation_mean = _safe_float(metrics.get("saturation_mean"), 0.0)
+    long_line_density = _safe_float(metrics.get("long_line_density"), 0.0)
+    rectangle_density = _safe_float(metrics.get("rectangle_like_density"), 0.0)
+    directional_ratio = _safe_float(metrics.get("directional_edge_ratio"), 0.0)
+    yolo_confidence = _safe_float(yolo_conf, 0.0) if yolo_conf is not None else 0.0
+
+    if AG0_KEEP_ASPECT_MIN <= aspect_ratio <= AG0_KEEP_ASPECT_MAX:
+        aspect_score = 1.0
+    elif 1.0 <= aspect_ratio <= 4.2:
+        aspect_score = 0.55
+    else:
+        aspect_score = 0.10
+
+    texture_score = _clip01(np.log1p(max(texture, 0.0)) / np.log1p(800.0))
+    if edge_density < 0.015:
+        edge_score = _clip01(edge_density / 0.015)
+    elif edge_density <= 0.24:
+        edge_score = 1.0
+    else:
+        edge_score = _clip01(1.0 - (edge_density - 0.24) / 0.30)
+    contrast_score = _clip01(contrast / 45.0)
+    saturation_score = _clip01(saturation_mean / 80.0)
+    area_score = 1.0 if 0.04 <= area_ratio <= 0.85 else 0.45
+
+    banknote_score = _clip01(
+        0.20 * aspect_score
+        + 0.12 * texture_score
+        + 0.12 * edge_score
+        + 0.10 * contrast_score
+        + 0.20 * color_richness
+        + 0.12 * saturation_score
+        + 0.06 * area_score
+        + 0.08 * yolo_confidence
+    )
+
+    white_signal = _clip01((white_ratio - 0.45) / 0.45)
+    low_color_signal = _clip01((0.45 - color_richness) / 0.35)
+    low_saturation_signal = _clip01((45.0 - saturation_mean) / 40.0)
+    long_line_signal = _clip01((long_line_density - 0.45) / 0.45)
+    rectangle_signal = _clip01((rectangle_density - 0.04) / 0.36)
+    directional_signal = _clip01((directional_ratio - 0.58) / 0.30)
+    extreme_aspect_signal = _clip01((aspect_ratio - 3.5) / 3.0)
+
+    document_score = _clip01(
+        0.25 * white_signal
+        + 0.15 * low_color_signal
+        + 0.15 * low_saturation_signal
+        + 0.20 * long_line_signal
+        + 0.12 * rectangle_signal
+        + 0.06 * directional_signal
+        + 0.07 * extreme_aspect_signal
+    )
+
+    positive_evidence = []
+    negative_evidence = []
+
+    if AG0_KEEP_ASPECT_MIN <= aspect_ratio <= AG0_KEEP_ASPECT_MAX:
+        positive_evidence.append(f"banknote-like aspect_ratio={aspect_ratio:.2f}")
+    elif aspect_ratio > 4.2:
+        negative_evidence.append(f"very elongated crop aspect_ratio={aspect_ratio:.2f}")
+    if 0.04 <= area_ratio <= 0.85:
+        positive_evidence.append(f"reasonable crop area_ratio={area_ratio:.3f}")
+    if texture >= AG0_KEEP_TEXTURE_MIN:
+        positive_evidence.append(f"rich local texture={texture:.1f}")
+    if 0.025 <= edge_density <= 0.24:
+        positive_evidence.append(f"usable edge density={edge_density:.4f}")
+    if contrast >= AG0_KEEP_CONTRAST_MIN:
+        positive_evidence.append(f"adequate contrast={contrast:.1f}")
+    if color_richness >= 0.45:
+        positive_evidence.append(f"color richness={color_richness:.3f}")
+    if saturation_mean >= 45:
+        positive_evidence.append(f"meaningful saturation={saturation_mean:.1f}")
+    if yolo_confidence >= AG0_YOLO_HIGH_CONF:
+        positive_evidence.append(f"YOLO banknote confidence={yolo_confidence:.2f}")
+
+    if white_ratio >= 0.65:
+        negative_evidence.append(f"large white background ratio={white_ratio:.3f}")
+    if color_richness <= 0.35:
+        negative_evidence.append(f"low color richness={color_richness:.3f}")
+    if saturation_mean <= 35:
+        negative_evidence.append(f"low mean saturation={saturation_mean:.1f}")
+    if long_line_density >= 0.72:
+        negative_evidence.append(f"many long straight lines={long_line_density:.3f}")
+    if rectangle_density >= 0.10:
+        negative_evidence.append(f"rectangle-like layout={rectangle_density:.3f}")
+    if directional_ratio >= 0.72:
+        negative_evidence.append(f"directional edge dominance={directional_ratio:.3f}")
+    if source != "yolo_crop" and aspect_ratio > AG0_KEEP_ASPECT_MAX:
+        negative_evidence.append(f"heuristic source={source} with non-banknote aspect")
+
+    strong_banknote_evidence = (
+        banknote_score >= 0.86
+        or (
+            AG0_KEEP_ASPECT_MIN <= aspect_ratio <= AG0_KEEP_ASPECT_MAX
+            and texture >= AG0_KEEP_TEXTURE_MIN
+            and 0.025 <= edge_density <= 0.24
+            and contrast >= AG0_KEEP_CONTRAST_MIN
+            and (color_richness >= 0.45 or saturation_mean >= 45)
+        )
+    )
+    strong_document_structure = (
+        long_line_density >= 0.72
+        or rectangle_density >= 0.10
+    )
+    document_dominates = document_score > banknote_score * 0.75
+    too_many_negative_signals = len(negative_evidence) > 1
+
+    if action == "KEEP":
+        # KEEP remains permissive for real notes on white/low-color backgrounds.
+        # Only withhold a nominal KEEP when several strong document signals
+        # agree and banknote evidence is not independently strong.
+        agent_eligible = not (
+            document_score >= 0.65
+            and document_dominates
+            and strong_document_structure
+            and too_many_negative_signals
+            and not strong_banknote_evidence
+        )
+    elif action == "DROP":
+        agent_eligible = False
+    else:
+        if source == "yolo_crop":
+            # YOLO confidence is supporting evidence, never the sole reason
+            # for an uncertain crop to consume Agent calls.
+            agent_eligible = (
+                banknote_score >= 0.78
+                and document_score <= 0.35
+                and not too_many_negative_signals
+                and not document_dominates
+                and not (
+                    strong_document_structure
+                    and not strong_banknote_evidence
+                )
+            )
+        else:
+            # Heuristic-only crops have no YOLO confirmation, so require
+            # stronger banknote evidence and a low document score.
+            agent_eligible = (
+                banknote_score >= 0.80
+                and document_score <= 0.30
+                and aspect_ratio >= 1.80
+            )
+
+    agent_eligible_shadow = agent_eligible
+
+    if not agent_eligible:
+        if action == "KEEP":
+            shadow_reason = (
+                "AG0 gate downgrades this nominal KEEP because strong document-like "
+                "structure dominates the available banknote evidence."
+            )
+        elif action == "REVIEW":
+            shadow_reason = (
+                "AG0 gate withholds this crop from agents because it is a WEAK REVIEW: "
+                f"banknote_score={banknote_score:.3f}, document_score={document_score:.3f}, "
+                f"negative_evidence_count={len(negative_evidence)}, "
+                f"yolo_conf={yolo_confidence:.3f}, source={source}. "
+                "YOLO confidence alone is not enough to send it to AI Agents."
+            )
+        else:
+            shadow_reason = (
+                "AG0 gate withholds this crop from agents because it was marked DROP."
+            )
+    else:
+        if action == "KEEP":
+            shadow_reason = "AG0 gate allows this crop because it was marked KEEP."
+        else:
+            shadow_reason = (
+                "AG0 gate keeps this uncertain crop agent-eligible for review because it is a STRONG REVIEW "
+                "(high banknote_score, low document_score, and strong confidence)."
+            )
+
+    decision_reason = (
+        f"Current AG0 action={action} confidence={confidence:.3f}. "
+        f"banknote_score={banknote_score:.3f}, document_score={document_score:.3f}. "
+        f"{shadow_reason}"
+    )
+
+    return {
+        "ag0_action": action,
+        "ag0_confidence": round(confidence, 3),
+        "banknote_score": round(banknote_score, 4),
+        "document_score": round(document_score, 4),
+        "document_like_score": round(document_score, 4),
+        "banknote_like_score": round(banknote_score, 4),
+        "agent_eligible_shadow": bool(agent_eligible_shadow),
+        "agent_eligible": bool(agent_eligible),
+        "positive_evidence": positive_evidence,
+        "negative_evidence": negative_evidence,
+        "strong_banknote_evidence": bool(strong_banknote_evidence),
+        "strong_document_structure": bool(strong_document_structure),
+        "decision_reason": decision_reason,
+    }
+
+
 def check_crop(
     crop_img: np.ndarray,
     original_img: Optional[np.ndarray] = None,
@@ -432,6 +782,17 @@ def check_crop(
             "reason": "AG0 Checker is disabled (ENABLE_AG0_CHECKER=false). Bypassing.",
             "method": "disabled",
             "metrics": {},
+            "ag0_action": "KEEP",
+            "ag0_confidence": 1.0,
+            "banknote_score": 0.0,
+            "document_score": 0.0,
+            "document_like_score": 0.0,
+            "banknote_like_score": 0.0,
+            "agent_eligible_shadow": True,
+            "agent_eligible": True,
+            "positive_evidence": ["AG0 checker disabled; current behavior bypasses validation."],
+            "negative_evidence": [],
+            "decision_reason": "Current AG0 behavior is bypassed; shadow policy is not evaluated.",
         }
 
     try:
@@ -446,6 +807,13 @@ def check_crop(
             "brightness": 128.0,
             "contrast": 0.0,
             "background_score": None,
+            "white_ratio": 0.0,
+            "color_entropy": 0.0,
+            "color_richness": 0.0,
+            "saturation_mean": 0.0,
+            "long_line_density": 0.0,
+            "rectangle_like_density": 0.0,
+            "directional_edge_ratio": 0.0,
         }
 
     try:
@@ -464,6 +832,31 @@ def check_crop(
 
     is_banknote = action in ("KEEP",)
     is_partial = action == "REVIEW"
+    shadow = build_shadow_explainability(
+        metrics=metrics,
+        action=action,
+        confidence=confidence,
+        source=source,
+        yolo_conf=yolo_conf,
+    )
+
+    # A nominal KEEP with overwhelming document evidence is exposed as REVIEW
+    # so logs/API do not claim that a rejected document-like crop was kept.
+    if action == "KEEP" and not shadow.get("agent_eligible", True):
+        action = "REVIEW"
+        is_banknote = False
+        is_partial = True
+        reason = (
+            f"{reason} | Downgraded from KEEP: strong document-like evidence "
+            "outweighs banknote evidence."
+        )
+        shadow["ag0_action"] = "REVIEW"
+        shadow["decision_reason"] = (
+            f"Current AG0 action=REVIEW (downgraded from KEEP) confidence={confidence:.3f}. "
+            f"banknote_score={shadow.get('banknote_score', 0.0):.3f}, "
+            f"document_score={shadow.get('document_score', 0.0):.3f}. "
+            "Agent gate rejected the crop because document-like structure is dominant."
+        )
 
     result = {
         "action": action,
@@ -473,6 +866,7 @@ def check_crop(
         "reason": reason,
         "method": "opencv_rule",
         "metrics": metrics,
+        **shadow,
     }
 
     return result

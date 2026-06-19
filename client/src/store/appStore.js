@@ -23,10 +23,14 @@ function resolveTheme(theme) {
 }
 
 function applyTheme(theme) {
-  const resolvedTheme = resolveTheme(theme);
+  const normalizedTheme = normalizeTheme(theme);
+  const resolvedTheme = resolveTheme(normalizedTheme);
 
   if (typeof document !== "undefined") {
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
+  }
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem("theme", normalizedTheme);
   }
 
   return resolvedTheme;
@@ -103,7 +107,11 @@ export const useAppStore = create(
         })),
 
       initTheme: () => {
-        const theme = normalizeTheme(get().theme);
+        const storedTheme =
+          typeof localStorage !== "undefined"
+            ? localStorage.getItem("theme")
+            : null;
+        const theme = normalizeTheme(storedTheme || get().theme);
         const resolvedTheme = applyTheme(theme);
         const current = get();
 

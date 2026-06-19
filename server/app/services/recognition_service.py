@@ -22,24 +22,9 @@ try:
     from app.utils.image_processing import detect_banknote_objects
 except ModuleNotFoundError:
     from app.utils.image_checker import detect_and_crop_banknotes
-    import os
 
     def detect_banknote_objects(image_bytes: bytes, max_objects: int = 5):
         crops = detect_and_crop_banknotes(image_bytes)
-        
-        ENABLE_AG0_CHECKER = os.getenv("ENABLE_AG0_CHECKER", "true").lower() == "true"
-        ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK = os.getenv(
-            "ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK",
-            "false"
-        ).lower() == "true"
-
-        if crops:
-            final_crops = crops
-        elif ENABLE_AG0_CHECKER and not ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK:
-            final_crops = []
-        else:
-            final_crops = [image_bytes]
-            
         return [
             {
                 "object_index": index + 1,
@@ -51,7 +36,7 @@ except ModuleNotFoundError:
                 "height": None,
                 "source": "legacy_cropper",
             }
-            for index, crop in enumerate(final_crops[:max_objects])
+            for index, crop in enumerate(crops[:max_objects])
         ]
 
 from app.utils.cloudinary_handler import upload_image_to_cloudinary
@@ -199,6 +184,15 @@ def build_public_detected_object(object_result: Dict[str, Any]) -> Dict[str, Any
             "summary": object_result.get("summary") or {},
             # AG0 Crop Checker — optional metadata field, không phá schema cũ
             "crop_checker": object_result.get("crop_checker"),
+            "ag0_action": object_result.get("ag0_action"),
+            "ag0_confidence": object_result.get("ag0_confidence"),
+            "banknote_score": object_result.get("banknote_score"),
+            "document_score": object_result.get("document_score"),
+            "agent_eligible_shadow": object_result.get("agent_eligible_shadow"),
+            "agent_eligible": object_result.get("agent_eligible"),
+            "positive_evidence": object_result.get("positive_evidence") or [],
+            "negative_evidence": object_result.get("negative_evidence") or [],
+            "decision_reason": object_result.get("decision_reason"),
             "selected_box_reason": object_result.get("selected_box_reason"),
             "box_selection_trace": object_result.get("box_selection_trace"),
             "rejected_boxes": object_result.get("rejected_boxes") or [],
@@ -307,6 +301,7 @@ def _has_crop_quality_evidence(object_result: dict) -> bool:
 def serialize_result(record: RecognitionRequest) -> Dict[str, Any]:
     final_result = getattr(record, "final_result", None) or {}
     detected_objects = final_result.get("detected_objects") or []
+    rejected_objects = final_result.get("rejected_objects") or []
     first_object = detected_objects[0] if detected_objects else {}
     uploaded_image_url = getattr(record, "uploaded_image_url", None)
     final_confidence = final_result.get("confidence")
@@ -322,7 +317,12 @@ def serialize_result(record: RecognitionRequest) -> Dict[str, Any]:
         "status": getattr(record, "status", None),
         "final_result": final_result,
         "agent_results": getattr(record, "agent_results", []) or [],
+        "detected_count": final_result.get(
+            "detected_count",
+            len(detected_objects),
+        ),
         "detected_objects": detected_objects,
+        "rejected_objects": rejected_objects,
         "confidence": final_confidence,
         "crop_checker": first_object.get("crop_checker"),
         "selected_box_reason": first_object.get("selected_box_reason"),
@@ -615,31 +615,109 @@ class RecognitionService:
         if task:
             await RecognitionService.update_task(task, "cropping", 30)
 
+        rejected_objects: List[Dict[str, Any]] = []
+        crop_failure_reason: Optional[str] = None
         try:
-            detected_objects = detect_banknote_objects(
+            detection_output = detect_banknote_objects(
                 image_bytes,
                 max_objects=MAX_BANKNOTES_PER_IMAGE,
             )
-        except Exception:
-            detected_objects = [
-                {
-                    "object_index": 1,
-                    "bbox": None,
-                    "crop_bytes": image_bytes,
-                    "crop_base64": None,
-                    "confidence": 0.2,
-                    "width": None,
-                    "height": None,
-                    "source": "fallback_exception",
-                    "fallback": True,
-                }
-            ]
+            if isinstance(detection_output, dict):
+                detected_objects = list(
+                    detection_output.get("detected_objects") or []
+                )
+                rejected_objects = list(
+                    detection_output.get("rejected_objects") or []
+                )
+                crop_failure_reason = detection_output.get("failure_reason")
+            else:
+                detected_objects = list(detection_output or [])
+                rejected_objects = list(
+                    getattr(detection_output, "rejected_objects", []) or []
+                )
+                crop_failure_reason = getattr(
+                    detection_output,
+                    "failure_reason",
+                    None,
+                )
+        except Exception as exc:
+            logger.exception(
+                "[AG0/Gate] Crop detection failed; raw image will not be sent to agents."
+            )
+            detected_objects = []
+            crop_failure_reason = "crop_detection_exception"
+            rejected_objects = [{
+                "bbox": None,
+                "source": "crop_detection_exception",
+                "reason": f"Crop detection failed: {str(exc)[:200]}",
+                "ag0_action": "DROP",
+                "agent_eligible": False,
+                "banknote_score": 0.0,
+                "document_score": 0.0,
+                "positive_evidence": [],
+                "negative_evidence": [
+                    "Crop pipeline raised an exception; original image fallback is disabled."
+                ],
+            }]
+
+        # Defense in depth: only explicit agent_eligible=True objects may reach
+        # Agent1/2/3. Any legacy or malformed crop without the field is rejected.
+        eligible_detected_objects: List[Dict[str, Any]] = []
+        for candidate in detected_objects:
+            crop_checker = candidate.get("crop_checker") or {}
+            agent_eligible_value = crop_checker.get("agent_eligible")
+            if agent_eligible_value is None:
+                agent_eligible_value = candidate.get("agent_eligible")
+            agent_eligible = agent_eligible_value is True
+            if agent_eligible:
+                eligible_detected_objects.append(candidate)
+                continue
+
+            rejected_objects.append({
+                "object_index": candidate.get("object_index"),
+                "bbox": candidate.get("bbox"),
+                "source": candidate.get("source"),
+                "reason": (
+                    crop_checker.get("decision_reason")
+                    or crop_checker.get("reason")
+                    or candidate.get("decision_reason")
+                    or "AG0 did not explicitly mark this crop as agent eligible."
+                ),
+                "ag0_action": (
+                    crop_checker.get("ag0_action")
+                    or crop_checker.get("action")
+                    or candidate.get("ag0_action")
+                    or "REVIEW"
+                ),
+                "agent_eligible": False,
+                "banknote_score": crop_checker.get(
+                    "banknote_score",
+                    candidate.get("banknote_score", 0.0),
+                ),
+                "document_score": crop_checker.get(
+                    "document_score",
+                    candidate.get("document_score", 0.0),
+                ),
+                "positive_evidence": crop_checker.get(
+                    "positive_evidence",
+                    candidate.get("positive_evidence", []),
+                ),
+                "negative_evidence": crop_checker.get(
+                    "negative_evidence",
+                    candidate.get("negative_evidence", []),
+                ),
+                "crop_checker": crop_checker,
+            })
+
+        detected_objects = eligible_detected_objects
 
         # --- [3.7 + 3.8 C] Log & Trích xuất Metadata Crop ---
         if task:
             await RecognitionService.update_task(task, "validating_crop_ag0", 40)
 
-        _all_fallback = all(bool(o.get("fallback")) for o in detected_objects)
+        _all_fallback = bool(detected_objects) and all(
+            bool(o.get("fallback")) for o in detected_objects
+        )
         _raw_candidate_count = max(
             (int(o.get("raw_candidate_count") or 0) for o in detected_objects), default=0
         )
@@ -667,45 +745,94 @@ class RecognitionService:
         # -----------------------------------------------------
 
         # --- AG0 Crop Checker: kiểm tra xem có crop hợp lệ không ---
-        # Nếu detect_banknote_objects trả [] (AG0 đã drop hết), dừng ngay,
-        # không gọi Agent 1/2/3, không dùng original_fallback.
+        # Nếu detector không trả crop eligible, lưu kết quả terminal ngay.
+        # Nhánh này nằm trước Agent/Aggregator và trước token billing.
         if not detected_objects:
             logger.info(
-                "[AG0] no_banknote_detected: AG0 đã drop toàn bộ crop. "
-                "Không chạy Agent 1/2/3. task_id=%s",
+                "[AG0_GATE] eligible_count=0 -> no_banknote_detected, skip all agents. rejected=%s failure_reason=%s task_id=%s",
+                len(rejected_objects),
+                crop_failure_reason,
                 _task_id_log,
             )
+            logger.info("[AG0_GATE] skip original-image fallback")
+            logger.info("[AG0_GATE] no AI billing")
+            final_result = {
+                "status": "no_banknote_detected",
+                "detected_count": 0,
+                "detected_objects": [],
+                "rejected_objects": sanitize_for_storage(
+                    rejected_objects,
+                    keep_crop_base64=False,
+                ),
+                "message": (
+                    "Không phát hiện vùng tiền giấy hợp lệ sau bước AG0. "
+                    "Không chạy các AI Agent và không trừ token AI."
+                ),
+                "require_rerun": False,
+                "final_denomination": None,
+                "agent_calls_skipped": True,
+                "aggregator_skipped": True,
+                "billing_skipped": True,
+                "crop_failure_reason": crop_failure_reason,
+            }
+            record = RecognitionRequest(
+                user_id=str(user.id),
+                uploaded_image_url=image_url or "https://via.placeholder.com/400",
+                status="no_banknote_detected",
+                final_result=final_result,
+                agent_results=[],
+                task_id=str(task.id) if task else None,
+                processing_time_ms=int(
+                    (now_utc() - started_at).total_seconds() * 1000
+                ),
+                token_usage={
+                    "system_tokens_charged": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_ai_tokens": 0,
+                    "billable_ai_tokens": 0,
+                    "billing_skipped": True,
+                    "reason": "No agent-eligible crop after AG0 gate.",
+                },
+                system_tokens_charged=0,
+                input_tokens=0,
+                output_tokens=0,
+                total_ai_tokens=0,
+                billable_ai_tokens=0,
+                billing_mode="not_billable_no_agent",
+                balance_before=int(getattr(user, "token_balance", 0) or 0),
+                balance_after=int(getattr(user, "token_balance", 0) or 0),
+                created_at=now_utc(),
+                updated_at=now_utc(),
+            )
+            await record.insert()
+            result_data = serialize_result(record)
+
             if task:
-                task.status = "failed"
-                task.stage = "failed"
+                task.status = "completed"
+                task.stage = "completed"
                 task.progress = 100
-                task.result = {
-                    "status": "no_banknote_detected",
-                    "detected_count": 0,
-                    "detected_objects": [],
-                    "message": "No valid banknote region detected by crop validation.",
-                    "task_id": str(task.id),
-                    "uploaded_image_url": image_url or None,
-                }
-                task.error_message = "No valid banknote region detected by crop validation."
+                task.result_id = str(record.id)
+                task.result = result_data
+                task.error_message = None
                 task.finished_at = now_utc()
                 task.updated_at = now_utc()
                 await task.save()
 
-            return {
-                "status": "no_banknote_detected",
-                "detected_count": 0,
-                "detected_objects": [],
-                "message": (
-                    "Không phát hiện vùng tiền giấy hợp lệ sau khi kiểm tra YOLO/OpenCV "
-                    "bằng AG0 Checker. Vui lòng chụp lại ảnh rõ hơn."
-                ),
-                "task_id": str(task.id) if task else None,
-                "uploaded_image_url": image_url or None,
-                "debug": {
-                    "ag0_result": "all_candidates_dropped",
-                } if debug_mode else None,
-            }
+            if debug_mode:
+                return {
+                    "input_info": {
+                        "file_size_bytes": len(image_bytes),
+                        "started_at": started_at.isoformat(),
+                        "processing_time_ms": int(
+                            (now_utc() - started_at).total_seconds() * 1000
+                        ),
+                    },
+                    "objects": [],
+                    "pipeline_final_status": "no_banknote_detected",
+                    "final_db_record": result_data,
+                }
+            return result_data
 
         all_agent_results: List[Dict[str, Any]] = []
         detected_results: List[Dict[str, Any]] = []
@@ -729,27 +856,86 @@ class RecognitionService:
         MAX_ZERO_EVIDENCE_ATTEMPTS = int(os.getenv("MAX_ZERO_EVIDENCE_ATTEMPTS", "1"))
         agent_timeout_seconds = int(getattr(system_config, "agent_timeout_seconds", 60) or 60)
 
+        total_detected_objects_count = len(detected_objects)
+        MAX_PROCESSED_BANKNOTE_OBJECTS = 3
+
+        def _bbox_area(bbox):
+            if not bbox or len(bbox) != 4:
+                return 0
+            x1, y1, x2, y2 = bbox
+            return max(0, x2 - x1) * max(0, y2 - y1)
+
+        eligible_objects = list(detected_objects)
+        processed_objects = list(eligible_objects)
+
+        overflow_objects = []
+        if len(eligible_objects) > MAX_PROCESSED_BANKNOTE_OBJECTS:
+            eligible_sorted = sorted(
+                eligible_objects,
+                key=lambda o: (
+                    float((o.get("crop_checker") or {}).get("banknote_score", 0)),
+                    float((o.get("crop_checker") or {}).get("confidence", 0) or o.get("confidence", 0)),
+                    _bbox_area(o.get("bbox")),
+                    -int(o.get("object_index") or 0),
+                ),
+                reverse=True,
+            )
+            processed_objects = eligible_sorted[:MAX_PROCESSED_BANKNOTE_OBJECTS]
+            overflow_objects = eligible_sorted[MAX_PROCESSED_BANKNOTE_OBJECTS:]
+            logger.info(
+                "[LIMIT] detected eligible objects=%s, processed=%s, skipped=%s",
+                len(eligible_objects),
+                len(processed_objects),
+                len(overflow_objects)
+            )
+            logger.info("[LIMIT] overflow objects are not sent to agents")
+            logger.info("[LIMIT] billing only applies to processed objects")
+
+            detected_objects = processed_objects
+
         for position, object_item in enumerate(detected_objects, start=1):
             object_index = int(object_item.get("object_index") or position)
-            crop_bytes = object_item.get("crop_bytes") or image_bytes
+            crop_bytes = object_item.get("crop_bytes")
+            if not crop_bytes:
+                logger.warning(
+                    "[AG0/Gate] skipped object_index=%s because crop bytes are missing; "
+                    "original image fallback is disabled.",
+                    object_index,
+                )
+                continue
 
             # Phân biệt crop thật / fallback ảnh gốc để gắn metadata per object
             _crop_is_fallback = bool(object_item.get("fallback", False))
 
-            # AG0 guard: bỏ qua object bị DROP mà vẫn lọt vào danh sách (phòng thủ)
-            _ag0_action = (object_item.get("crop_checker") or {}).get("action")
-            if _ag0_action == "DROP":
+            # Defensive AG0 gate in case an ineligible object slips through.
+            crop_checker = object_item.get("crop_checker") or {}
+            _ag0_action = crop_checker.get("action")
+            _agent_eligible_value = crop_checker.get("agent_eligible")
+            if _agent_eligible_value is None:
+                _agent_eligible_value = object_item.get("agent_eligible")
+            _agent_eligible = _agent_eligible_value is True
+            if not _agent_eligible:
                 logger.warning(
-                    "[AG0] skipped dropped object object_index=%s (DROP action slipped through). "
+                    "[AG0/Gate] skipped ineligible object object_index=%s action=%s. "
                     "reason=%s",
                     object_index,
-                    (object_item.get("crop_checker") or {}).get("reason", ""),
+                    _ag0_action,
+                    crop_checker.get("decision_reason")
+                    or crop_checker.get("reason", ""),
                 )
                 continue
             if _ag0_action:
                 logger.info(
                     "[AG0] processing object_index=%s ag0_action=%s",
                     object_index, _ag0_action,
+                )
+                logger.info(
+                    "[AG0/Gate] object_index=%s banknote_score=%s "
+                    "document_score=%s agent_eligible=%s",
+                    object_index,
+                    crop_checker.get("banknote_score"),
+                    crop_checker.get("document_score"),
+                    _agent_eligible,
                 )
 
             progress_base = 50 + int((position - 1) / max(total_objects, 1) * 25)
@@ -1072,6 +1258,15 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
                 },
                 # AG0 Crop Checker — optional metadata (không phá schema cũ)
                 "crop_checker": object_item.get("crop_checker"),
+                "ag0_action": object_item.get("ag0_action"),
+                "ag0_confidence": object_item.get("ag0_confidence"),
+                "banknote_score": object_item.get("banknote_score"),
+                "document_score": object_item.get("document_score"),
+                "agent_eligible_shadow": object_item.get("agent_eligible_shadow"),
+                "agent_eligible": object_item.get("agent_eligible"),
+                "positive_evidence": object_item.get("positive_evidence") or [],
+                "negative_evidence": object_item.get("negative_evidence") or [],
+                "decision_reason": object_item.get("decision_reason"),
                 "selected_box_reason": object_item.get("selected_box_reason"),
                 "box_selection_trace": object_item.get("box_selection_trace"),
                 "rejected_boxes": object_item.get("rejected_boxes") or [],
@@ -1183,6 +1378,11 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
             logger.info("[ObjectFilter] Skip filter (no evidence in any object or only 1 object)")
 
         logger.info("[ObjectFilter] after count = %s", len(detected_results))
+
+        filtered_out_results = [
+            item for item in dropped_objects
+            if item not in detected_results
+        ]
         
         if debug_mode:
             final_consensus["debug_filter"] = {
@@ -1233,6 +1433,14 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
             1 for item in detected_results
             if str((item.get("final_result") or {}).get("status") or "").lower() == "completed"
         )
+        completed_results = [
+            item for item in detected_results
+            if str((item.get("final_result") or {}).get("status") or "").lower() == "completed"
+        ]
+        unresolved_results = [
+            item for item in detected_results
+            if str((item.get("final_result") or {}).get("status") or "").lower() != "completed"
+        ]
         needs_image_count = sum(
             1 for item in detected_results
             if str((item.get("final_result") or {}).get("status") or "").lower() == "needs_better_image"
@@ -1258,7 +1466,7 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
             final_consensus["crop_is_fallback"] = _all_crops_were_fallback
             final_consensus["too_many_banknotes_detected"] = _too_many
             final_consensus["raw_candidate_count"] = _raw_candidate_count
-            final_consensus["max_processed_banknotes"] = MAX_BANKNOTES_PER_IMAGE
+            final_consensus["max_processed_banknotes"] = MAX_PROCESSED_BANKNOTE_OBJECTS
             final_consensus["box_selection_trace"] = box_selection_trace
             final_consensus["rejected_boxes"] = rejected_boxes
 
@@ -1319,7 +1527,7 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
                 "crop_is_fallback": _all_crops_were_fallback,
                 "too_many_banknotes_detected": _too_many,
                 "raw_candidate_count": _raw_candidate_count,
-                "max_processed_banknotes": MAX_BANKNOTES_PER_IMAGE,
+                "max_processed_banknotes": MAX_PROCESSED_BANKNOTE_OBJECTS,
                 "box_selection_trace": box_selection_trace,
                 "rejected_boxes": rejected_boxes,
             }
@@ -1346,11 +1554,92 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
             final_consensus["message"] = "Không phát hiện tiền giấy trong ảnh. Vui lòng chụp rõ toàn bộ tờ tiền giấy."
             final_consensus["final_denomination"] = None
 
-        final_consensus = sanitize_for_storage(final_consensus, keep_crop_base64=True)
+        unresolved_rejections = []
+        for item in unresolved_results + filtered_out_results:
+            item_final = item.get("final_result") or {}
+            unresolved_rejections.append({
+                "object_index": item.get("original_object_index", item.get("object_index")),
+                "bbox": item.get("bbox"),
+                "source": item.get("crop_source"),
+                "status": item_final.get("status") or "agent_error",
+                "reason": (
+                    item_final.get("error_message")
+                    or item_final.get("quan_diem_trong_tai")
+                    or item_final.get("referee_view")
+                    or "Agent analysis did not produce a completed banknote result."
+                ),
+                "ag0_action": item.get("ag0_action"),
+                "agent_eligible": item.get("agent_eligible"),
+                "banknote_score": item.get("banknote_score"),
+                "document_score": item.get("document_score"),
+                "positive_evidence": item.get("positive_evidence") or [],
+                "negative_evidence": item.get("negative_evidence") or [],
+                "crop_checker": item.get("crop_checker"),
+            })
+
+        combined_rejected_objects = rejected_objects + unresolved_rejections
+        final_consensus["unresolved_objects"] = [
+            build_public_detected_object(item)
+            for item in unresolved_results + filtered_out_results
+        ]
+        final_consensus["rejected_objects"] = sanitize_for_storage(
+            combined_rejected_objects,
+            keep_crop_base64=False,
+        )
 
         # Ưu tiên: no_banknote_detected > logic tách single/multi
+        total_unresolved = (
+            len(rejected_objects)
+            + len(unresolved_results)
+            + len(filtered_out_results)
+        )
+
         if _no_banknote_detected:
             status_value = "no_banknote_detected"
+        elif completed_count >= 1 and total_unresolved > 0:
+            status_value = "completed_partial"
+            final_consensus["status"] = "completed_partial"
+            final_consensus["partial"] = True
+            final_consensus["warning"] = (
+                "Đã nhận diện được tờ tiền hợp lệ. "
+                "Một số vùng nghi vấn khác đã được bỏ qua."
+            )
+            final_consensus["detected_objects"] = [
+                build_public_detected_object(item) for item in completed_results
+            ]
+            final_consensus["detected_count"] = completed_count
+            final_consensus["summary"] = [
+                item.get("summary") for item in completed_results
+            ]
+
+            # Nếu chỉ có duy nhất 1 tờ thành công, lấy kết quả nested của object
+            # đó làm kết quả chính thay vì nhãn tổng quát "N banknotes detected".
+            if completed_count == 1:
+                completed_obj = completed_results[0]
+                completed_final = completed_obj.get("final_result") or {}
+                final_consensus["mode"] = "single_object"
+                for key in (
+                    "final_denomination",
+                    "menh_gia",
+                    "denomination",
+                    "currency",
+                    "currency_code",
+                    "quoc_gia",
+                    "country",
+                    "final_country",
+                    "chat_lieu",
+                    "material",
+                    "confidence",
+                    "do_tin_cay",
+                    "matched_agents",
+                    "valid_votes",
+                    "consensus_pattern",
+                    "method",
+                    "quan_diem_trong_tai",
+                ):
+                    if completed_final.get(key) is not None:
+                        final_consensus[key] = completed_final.get(key)
+                final_consensus["require_rerun"] = False
         elif len(detected_results) == 1:
             # Single-object: giữ behavior cũ chính xác
             if any_needs_image:
@@ -1364,17 +1653,30 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
             else:
                 status_value = "Completed"
         else:
-            # Multi-object: dùng counter thay vì any()
+            # Multi-object toàn bộ
             if completed_count == len(detected_results):
                 status_value = "Completed"
             elif completed_count == 0 and needs_image_count == len(detected_results):
                 # Tất cả đều cần ảnh tốt hơn
                 status_value = "needs_better_image"
-            elif completed_count > 0:
-                # Partial: có ít nhất 1 completed → Needs Review, không sập toàn bộ
-                status_value = "Needs Review"
             else:
                 status_value = "Needs Review"
+
+        if overflow_objects:
+            final_consensus["overflow_objects"] = sanitize_for_storage(overflow_objects, keep_crop_base64=False)
+            final_consensus["limit_info"] = {
+                "max_processed_objects": MAX_PROCESSED_BANKNOTE_OBJECTS,
+                "detected_count": len(eligible_objects),
+                "processed_count": len(processed_objects),
+                "skipped_count": len(overflow_objects),
+                "message_vi": f"Đã phát hiện {len(eligible_objects)} tờ tiền. Hệ thống chỉ xử lý {len(processed_objects)} tờ có độ tin cậy cao nhất, {len(overflow_objects)} tờ còn lại chưa được xử lý.",
+                "message_en": f"Detected {len(eligible_objects)} banknotes. The system processed the {len(processed_objects)} most confident ones and skipped {len(overflow_objects)} due to the task limit."
+            }
+            if status_value == "Completed":
+                status_value = "completed_with_limit"
+                final_consensus["status"] = status_value
+
+        final_consensus = sanitize_for_storage(final_consensus, keep_crop_base64=True)
 
         logger.info(
             "[Recognition] final status=%s require_rerun=%s detected_count=%s",

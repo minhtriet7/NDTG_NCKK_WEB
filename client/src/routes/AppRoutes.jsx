@@ -123,6 +123,7 @@ export default function AppRoutes() {
             <Route path="/workspace" element={<Recognition />} />
 
             <Route path="/processing" element={<Processing />} />
+            <Route path="/processing/:taskId" element={<Processing />} />
             <Route path="/result" element={<Result />} />
 
             {/* Alias agent detail */}

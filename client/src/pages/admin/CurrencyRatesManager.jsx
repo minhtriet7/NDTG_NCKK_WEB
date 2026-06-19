@@ -191,7 +191,7 @@ const loadData = async () => {
       ...rate,
       id: rate.id || rate._id,
       target_currency: String(rate.target_currency || rate.currency || "").toUpperCase(),
-      currency_name: rate.currency_name || rate.name || rate.target_currency || "N/A",
+      currency_name: rate.currency_name || rate.name || rate.target_currency || "",
       rate_to_vnd: Number(rate.rate_to_vnd || 0),
       market_rate_to_vnd:
         rate.market_rate_to_vnd !== null && rate.market_rate_to_vnd !== undefined
@@ -281,7 +281,7 @@ const loadData = async () => {
   const formatVND = (value) => {
     const num = Number(value);
 
-    if (!Number.isFinite(num)) return "N/A";
+    if (!Number.isFinite(num)) return t.noData;
 
     if (num === 0) return "0 đ";
 
@@ -293,7 +293,7 @@ const loadData = async () => {
   };
 
   const formatDate = (value) => {
-    if (!value) return "N/A";
+    if (!value) return lang === "VI" ? "Chưa có lượt cập nhật" : "No updates yet";
 
     try {
       return new Intl.DateTimeFormat(lang === "VI" ? "vi-VN" : "en-US", {
@@ -301,7 +301,7 @@ const loadData = async () => {
         timeStyle: "short",
       }).format(new Date(value));
     } catch {
-      return "N/A";
+      return lang === "VI" ? "Chưa có lượt cập nhật" : "No updates yet";
     }
   };
 
@@ -668,7 +668,7 @@ const loadData = async () => {
                               {rate.target_currency}
                             </div>
                             <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                              {rate.currency_name || "N/A"}
+                              {rate.currency_name || t.noData}
                             </div>
                           </div>
                         </div>
@@ -980,7 +980,7 @@ const loadData = async () => {
                     </p>
 
                     <p className="text-xs text-slate-500 font-mono">
-                      {t.provider}: {log.provider || "N/A"}
+                      {t.provider}: {log.provider || t.noData}
                     </p>
 
                     <p className="text-xs text-blue-500 font-mono mt-1">

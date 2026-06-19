@@ -16,44 +16,52 @@ from app.agents.base_agent import BaseAgent
 from google.genai import types # 🌟 THÊM IMPORT NÀY ĐỂ ÉP KIỂU JSON
 
 
-DENOMINATION_VALUES = [
-    500000,
-    100000,
-    50000,
-    20000,
-    10000,
-    5000,
-    2000,
-    1000,
-    500,
+CURRENCY_ALIASES = {
+    "VND": ["vnd", "dong", "đồng", "vietnamese dong", "viet nam dong"],
+    "USD": ["usd", "us dollar", "u.s. dollar", "dollar", "$"],
+    "EUR": ["eur", "euro", "€"],
+    "JPY": ["jpy", "yen", "¥"],
+    "CNY": ["cny", "yuan", "renminbi", "rmb"],
+    "KRW": ["krw", "won"],
+    "THB": ["thb", "baht"],
+    "MYR": ["myr", "ringgit"],
+    "SGD": ["sgd", "singapore dollar"],
+    "IDR": ["idr", "rupiah"],
+    "PHP": ["php", "peso", "philippine peso"],
+    "KHR": ["khr", "riel"],
+    "LAK": ["lak", "kip"],
+    "MMK": ["mmk", "kyat"],
+    "GBP": ["gbp", "pound", "pound sterling", "£"],
+    "AUD": ["aud", "australian dollar"]
+}
+
+COUNTRY_ALIASES = {
+    "Vietnam": ["vietnam", "viet nam", "việt nam"],
+    "United States": ["united states", "united states of america", "usa", "u.s.", "us", "hoa kỳ", "mỹ", "benjamin franklin"],
+    "Japan": ["japan", "nhật bản", "yen"],
+    "China": ["china", "trung quốc", "yuan", "renminbi"],
+    "South Korea": ["korea", "south korea", "hàn quốc", "won"],
+    "Thailand": ["thailand", "thái lan", "baht"],
+    "Myanmar": ["myanmar", "burma", "kyat"],
+    "Cambodia": ["cambodia", "campuchia", "riel"],
+    "Laos": ["laos", "lào", "kip"],
+    "Malaysia": ["malaysia", "ringgit"],
+    "Singapore": ["singapore", "singapore dollar"],
+    "Indonesia": ["indonesia", "rupiah"],
+    "Philippines": ["philippines", "philippine peso"],
+}
+
+POSITIVE_BANKNOTE_KEYWORDS = [
+    "banknote", "note", "bill", "dollar bill", "dollar note", "currency note", "paper money",
+    "polymer note", "one hundred dollars", "tờ tiền", "tiền giấy", "mệnh giá", "đồng", 
+    "tiền polymer", "tiền cotton", "tiền lưu niệm", "yen banknote", "euro banknote", 
+    "baht note", "riel note", "kip note", "kyat note", "peso note", "rupiah note", 
+    "ringgit note", "won note", "yuan note"
 ]
 
-COUNTRY_RULES = [
-    {
-        "country": "Myanmar",
-        "currency": "MMK",
-        "keywords": ["myanmar", "burma", "kyat", "kyats", "mmk"],
-    },
-    {
-        "country": "Cambodia",
-        "currency": "KHR",
-        "keywords": ["cambodia", "khmer", "riel", "riels", "khr"],
-    },
-    {
-        "country": "Laos",
-        "currency": "LAK",
-        "keywords": ["laos", "lao", "kip", "lak"],
-    },
-    {
-        "country": "Thailand",
-        "currency": "THB",
-        "keywords": ["thailand", "thai", "baht", "thb"],
-    },
-    {
-        "country": "Vietnam",
-        "currency": "VND",
-        "keywords": ["vietnam", "viet nam", "vnd", "dong", "đồng"],
-    },
+NEGATIVE_EXCHANGE_KEYWORDS = [
+    "exchange rate", "currency converter", "tỷ giá", "quy đổi", "hôm nay", "giá bán", "mua bán",
+    "price", "auction", "shop", "ebay", "collector price"
 ]
 
 
@@ -64,34 +72,155 @@ def _evidence_text(item: Dict[str, Any]) -> str:
     )
 
 
-def _detect_country_currency(text: str) -> tuple[Optional[str], Optional[str], List[str]]:
-    lowered = text.lower()
-    best_match = None
-    best_score = 0
-    matched_keywords: List[str] = []
-
-    for rule in COUNTRY_RULES:
-        keywords = [kw for kw in rule["keywords"] if kw in lowered]
-        if len(keywords) > best_score:
-            best_match = rule
-            best_score = len(keywords)
-            matched_keywords = keywords
-
-    if not best_match:
-        return None, None, []
-
-    return best_match["country"], best_match["currency"], matched_keywords
+def _is_unknown_identity(value: Any) -> bool:
+    return str(value or "").strip().lower() in {
+        "",
+        "unknown",
+        "không xác định",
+        "khong xac dinh",
+        "none",
+        "null",
+        "n/a",
+        "na",
+        "lỗi",
+        "loi",
+        "error",
+    }
 
 
-def _detect_amount(text: str) -> Optional[int]:
-    normalized = text.lower().replace(",", "").replace(".", "")
+def _currency_from_denomination(value: Any) -> Optional[str]:
+    match = re.search(
+        r"\b(VND|USD|EUR|JPY|CNY|KRW|THB|MYR|SGD|IDR|PHP|KHR|LAK|MMK|GBP|AUD)\b",
+        str(value or "").upper(),
+    )
+    return match.group(1) if match else None
 
-    for amount in DENOMINATION_VALUES:
-        pattern = rf"(?<!\d){amount}(?!\d)"
-        if re.search(pattern, normalized):
-            return amount
 
-    return None
+def validate_agent3_identity(
+    item: Dict[str, Any],
+    evidence: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Prevent weak/unknown Lens output from becoming an Aggregator vote."""
+    normalized = dict(item or {})
+    status = str(normalized.get("status") or "").strip().lower()
+
+    if status in {"failed", "error", "disabled"}:
+        return normalized
+
+    country = normalized.get("quoc_gia") or normalized.get("country")
+    denomination = normalized.get("menh_gia") or normalized.get("denomination")
+    currency = (
+        normalized.get("ma_tien_te")
+        or normalized.get("currency")
+        or normalized.get("currency_code")
+        or _currency_from_denomination(denomination)
+    )
+    confidence_raw = normalized.get("do_tin_cay", normalized.get("confidence"))
+    try:
+        confidence = float(confidence_raw)
+        confidence_valid = 0.0 <= confidence <= 1.0
+    except (TypeError, ValueError):
+        confidence = 0.0
+        confidence_valid = False
+
+    identity_complete = (
+        not _is_unknown_identity(country)
+        and not _is_unknown_identity(denomination)
+        and not _is_unknown_identity(currency)
+        and confidence_valid
+        and confidence >= 0.55
+    )
+
+    normalized["ma_tien_te"] = currency or "Không xác định"
+    normalized["do_tin_cay"] = confidence
+    if evidence is not None:
+        normalized["evidence"] = evidence
+
+    if identity_complete:
+        normalized["status"] = "Completed"
+        return normalized
+
+    normalized["status"] = "Partial"
+    normalized["quoc_gia"] = "Không xác định"
+    normalized["menh_gia"] = "Không xác định"
+    normalized["ma_tien_te"] = "Không xác định"
+    normalized["mo_ta"] = (
+        "Có bằng chứng nhưng không đủ chắc để tính phiếu."
+    )
+    normalized["quan_diem"] = (
+        "Google Lens có dữ liệu tham khảo, nhưng thiếu quốc gia, mệnh giá, "
+        "tiền tệ hoặc độ tin cậy hợp lệ nên kết quả không được tính là phiếu hoàn tất."
+    )
+    normalized["not_counted_in_consensus"] = True
+    return normalized
+
+
+def _extract_amount_currency(text: str) -> tuple[Optional[int], Optional[str]]:
+    text_lower = text.lower()
+    text_lower = text_lower.replace("one hundred", "100")
+    
+    amount = None
+    currency = None
+    
+    for code, aliases in CURRENCY_ALIASES.items():
+        if any(alias in text_lower for alias in aliases):
+            if code == "USD" and "dollar" in text_lower and "$" not in text_lower:
+                if not any(k in text_lower for k in ["united states", "usa", "u.s.", "benjamin franklin", "us dollar"]):
+                    if any(k in text_lower for k in ["singapore", "australian", "cad", "hkd"]):
+                        continue
+            currency = code
+            break
+
+    dollar_match = re.search(r'\$(\d+(?:[.,]\d+)*)', text_lower)
+    if dollar_match:
+        context = text_lower[
+            max(0, dollar_match.start() - 48):dollar_match.end() + 48
+        ]
+        if (
+            any(keyword in context for keyword in NEGATIVE_EXCHANGE_KEYWORDS)
+            and not any(keyword in context for keyword in POSITIVE_BANKNOTE_KEYWORDS)
+        ):
+            dollar_match = None
+
+    if dollar_match:
+        amount_str = dollar_match.group(1).replace(',', '').replace('.', '')
+        if amount_str.isdigit():
+            amount = int(amount_str)
+            currency = "USD"
+            return amount, currency
+        
+    amount_matches = list(re.finditer(r'(?<!\d)(\d+(?:[.,]\d+)*)(?!\d)', text_lower))
+    if amount_matches:
+        for amount_match in amount_matches:
+            a_str = amount_match.group(1)
+            clean_a = a_str.replace(',', '').replace('.', '')
+            if clean_a.isdigit():
+                val = int(clean_a)
+                context = text_lower[
+                    max(0, amount_match.start() - 48):amount_match.end() + 48
+                ]
+                looks_like_year = (
+                    1900 <= val <= 2099
+                    and any(
+                        marker in context
+                        for marker in ("year", "issued", "issue date", "năm", "phát hành")
+                    )
+                )
+                looks_like_price = (
+                    any(keyword in context for keyword in NEGATIVE_EXCHANGE_KEYWORDS)
+                    and not any(keyword in context for keyword in POSITIVE_BANKNOTE_KEYWORDS)
+                )
+                has_money_context = (
+                    currency is not None
+                    or any(keyword in context for keyword in POSITIVE_BANKNOTE_KEYWORDS)
+                )
+                if looks_like_year or looks_like_price or not has_money_context:
+                    continue
+                if val in [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000]:
+                    amount = val
+                    break
+                    
+    return amount, currency
 
 
 def parse_lens_evidence_without_llm(
@@ -103,43 +232,97 @@ def parse_lens_evidence_without_llm(
     It avoids calling any LLM when the formatter is unavailable.
     """
     evidence_items = [item for item in evidence_items or [] if isinstance(item, dict)]
-    combined_text = " ".join(_evidence_text(item) for item in evidence_items)
-    country, currency, country_keywords = _detect_country_currency(combined_text)
-    amount = _detect_amount(combined_text)
-
+    
     visible_text = []
     for item in evidence_items[:5]:
         title = str(item.get("title") or item.get("text") or "").strip()
         if title and title not in visible_text:
             visible_text.append(title[:160])
+            
+    combined_text = " ".join(_evidence_text(item) for item in evidence_items).lower()
+    
+    has_positive = any(kw in combined_text for kw in POSITIVE_BANKNOTE_KEYWORDS)
+    has_negative = any(kw in combined_text for kw in NEGATIVE_EXCHANGE_KEYWORDS)
+    
+    strong_positive = False
+    for item in evidence_items:
+        txt = _evidence_text(item).lower()
+        if re.search(r'\b\d+\s+u\.s\.\s+dollar\s+note\b', txt) or \
+           re.search(r'\b\d+\s+vietnamese\s+dong\s+banknote\b', txt) or \
+           re.search(r'tờ tiền\s+\d+\.?\d*\s+đồng', txt):
+            strong_positive = True
+            break
+            
+    amount = None
+    currency = None
+    for item in evidence_items:
+        txt = _evidence_text(item).lower()
+        a, c = _extract_amount_currency(txt)
+        if a and not amount:
+            amount = a
+        if c and not currency:
+            currency = c
+        if amount and currency:
+            break
+            
+    if not amount or not currency:
+        a, c = _extract_amount_currency(combined_text)
+        amount = amount or a
+        currency = currency or c
 
-    features = []
-    if country_keywords:
-        features.append(f"country_keywords:{','.join(country_keywords[:4])}")
+    country = None
+    for country_name, aliases in COUNTRY_ALIASES.items():
+        if any(alias in combined_text for alias in aliases):
+            country = country_name
+            break
+            
+    score = 0.0
+    if has_positive or strong_positive:
+        score += 0.3
     if amount:
-        features.append(f"amount:{amount}")
-    if evidence_items:
-        features.append(f"evidence_count:{len(evidence_items)}")
-
-    has_clear_identity = bool(country and currency and amount)
-    has_partial_identity = bool((country or currency) and evidence_items)
-    confidence = 0.58 if has_clear_identity else 0.32 if has_partial_identity else 0.2
-    status = "Completed" if has_clear_identity else "Partial"
-
-    if has_clear_identity:
+        score += 0.2
+    if currency:
+        score += 0.1
+    if country:
+        score += 0.1
+    
+    if has_negative and not strong_positive:
+        score -= 0.4
+        
+    if not amount or not currency:
+        score -= 0.3
+        
+    confidence = max(0.0, min(1.0, score + 0.1))
+    
+    is_completed = (
+        amount
+        and currency
+        and country
+        and confidence >= 0.65
+        and (not has_negative or strong_positive)
+    )
+    status = "Completed" if is_completed else "Partial"
+    
+    features = []
+    if country: features.append(f"country:{country}")
+    if currency: features.append(f"currency:{currency}")
+    if amount: features.append(f"amount:{amount}")
+    features.append(f"evidence_count:{len(evidence_items)}")
+    
+    if is_completed:
         denomination = f"{amount} {currency}"
         description = (
-            f"Google Lens evidence mentions {country} / {currency} and amount {amount}. "
-            "Result was parsed without LLM formatter."
+            f"Google Lens evidence mentions {country or 'unknown'} / {currency} and amount {amount}. "
+            "Result was parsed deterministically."
         )
     else:
         denomination = "Không xác định"
         description = (
             "Google Lens returned raw evidence, but deterministic parser could not "
-            "identify both country/currency and denomination confidently."
+            "identify denomination confidently due to insufficient context or exchange rate noises."
         )
 
-    return {
+    result = {
         "quoc_gia": country or "Không xác định",
         "ma_tien_te": currency or "Không xác định",
         "menh_gia": denomination,
@@ -158,6 +341,7 @@ def parse_lens_evidence_without_llm(
         "evidence": evidence_items[:5],
         "formatter_fallback": True,
     }
+    return validate_agent3_identity(result, evidence=evidence_items[:5])
 
 class Agent3Lens(BaseAgent):
     def __init__(self):
@@ -297,11 +481,9 @@ class Agent3Lens(BaseAgent):
         evidence: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         if formatted_result:
-            formatted_result["status"] = formatted_result.get("status", "Completed")
-            formatted_result["raw_text"] = raw_lens_text
-            if evidence is not None:
-                formatted_result["evidence"] = evidence
-            return json.dumps([formatted_result], ensure_ascii=False)
+            validated = validate_agent3_identity(formatted_result, evidence=evidence)
+            validated["raw_text"] = raw_lens_text
+            return json.dumps([validated], ensure_ascii=False)
 
         if raw_lens_text:
             fallback_data = {
@@ -367,9 +549,7 @@ class Agent3Lens(BaseAgent):
             item.setdefault("dac_diem_chinh", [])
             item.setdefault("status", "Completed")
             item["raw_text"] = raw_lens_data
-            if evidence is not None:
-                item["evidence"] = evidence
-
+            item = validate_agent3_identity(item, evidence=evidence)
             return json.dumps([item], ensure_ascii=False)
 
         except Exception as e:

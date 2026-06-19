@@ -103,12 +103,12 @@ function getScanImage(scan) {
 
 function getScanDenomination(scan) {
   const final = scan?.final_result || scan?.result?.final_result || scan?.data || {};
-  return final.final_denomination || final.menh_gia || final.denomination || scan?.denomination || "N/A";
+  return final.final_denomination || final.menh_gia || final.denomination || scan?.denomination || "";
 }
 
 function getScanCountry(scan) {
   const final = scan?.final_result || scan?.result?.final_result || scan?.data || {};
-  return final.quoc_gia || final.country || scan?.country || "N/A";
+  return final.quoc_gia || final.country || scan?.country || "";
 }
 
 function getScanConsensus(scan) {
@@ -171,6 +171,22 @@ export default function AdminDashboard() {
       totalBanknotes: "Total Banknotes",
       supportedRegions: "Supported Regions",
       missingAssets: "Missing Assets",
+      noDataYet: "No data yet",
+      noRunsYet: "No runs yet",
+      viewAll: "View All",
+      guest: "Guest",
+      avgTime: "Avg Time",
+      apiGateway: "API Gateway",
+      primaryDatabase: "Primary Database",
+      agent1: "AG1 OpenAI/GPT Vision",
+      agent2: "AG2 Gemini/LLM",
+      agent3: "AG3 Google Lens/Visual Search",
+      aggregator: "Aggregator",
+      agent1Rate: "AG1 Accuracy Rate",
+      agent2Rate: "AG2 Processing Rate",
+      agent3Rate: "AG3 Search Hit Rate",
+      consensusRate: "System Consensus Ratio",
+      conflictRate: "Service Conflict Rate",
     },
     VI: {
       title: "Tổng quan",
@@ -214,6 +230,22 @@ export default function AdminDashboard() {
       totalBanknotes: "Tổng số Tiền giấy",
       supportedRegions: "Khu vực được hỗ trợ",
       missingAssets: "Hình ảnh bị thiếu",
+      noDataYet: "Chưa có dữ liệu",
+      noRunsYet: "Chưa có lượt chạy",
+      viewAll: "Xem tất cả",
+      guest: "Khách",
+      avgTime: "Thời gian TB",
+      apiGateway: "Cổng API",
+      primaryDatabase: "Cơ sở dữ liệu chính",
+      agent1: "AG1 OpenAI/GPT Vision",
+      agent2: "AG2 Gemini/LLM",
+      agent3: "AG3 Google Lens/Visual Search",
+      aggregator: "Bộ tổng hợp",
+      agent1Rate: "Tỷ lệ chính xác AG1",
+      agent2Rate: "Tỷ lệ xử lý AG2",
+      agent3Rate: "Tỷ lệ tìm kiếm AG3",
+      consensusRate: "Tỷ lệ đồng thuận hệ thống",
+      conflictRate: "Tỷ lệ xung đột dịch vụ",
     },
   }[lang || "EN"];
 
@@ -324,12 +356,12 @@ export default function AdminDashboard() {
             </h3>
           </div>
           <div className="space-y-4 flex-1">
-            <HealthRow label="API Gateway" status={health?.api_server} render={renderHealthBadge} />
-            <HealthRow label="Primary Database" status={health?.database} render={renderHealthBadge} />
-            <HealthRow label="Vision Model Service" status={health?.ml_dl_agent} render={renderHealthBadge} />
-            <HealthRow label="Language Model Service" status={health?.llm_agent} render={renderHealthBadge} />
-            <HealthRow label="External Search API" status={health?.google_lens_agent} render={renderHealthBadge} />
-            <HealthRow label="Data Aggregator" status={health?.aggregator} render={renderHealthBadge} />
+            <HealthRow label={t.apiGateway} status={health?.api_server} render={renderHealthBadge} />
+            <HealthRow label={t.primaryDatabase} status={health?.database} render={renderHealthBadge} />
+            <HealthRow label={t.agent1} status={health?.ml_dl_agent} render={renderHealthBadge} />
+            <HealthRow label={t.agent2} status={health?.llm_agent} render={renderHealthBadge} />
+            <HealthRow label={t.agent3} status={health?.google_lens_agent} render={renderHealthBadge} />
+            <HealthRow label={t.aggregator} status={health?.aggregator} render={renderHealthBadge} />
           </div>
         </div>
 
@@ -339,18 +371,18 @@ export default function AdminDashboard() {
               <Activity size={16} className="text-slate-400" /> {t.secPerf}
             </h3>
             <div className="text-xs font-medium text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
-              Avg Time: <span className="font-bold text-slate-700 dark:text-slate-300">{performance?.average_scan_time_sec || "0.0"}s</span>
+              {t.avgTime}: <span className="font-bold text-slate-700 dark:text-slate-300">{performance?.average_scan_time_sec || "0.0"}s</span>
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 flex-1">
             <div className="space-y-6">
-              <ProgressRow label="Vision Accuracy Rate" value={performance?.ml_dl_success_rate} />
-              <ProgressRow label="Language Processing Rate" value={performance?.llm_success_rate} />
-              <ProgressRow label="External Search Hit Rate" value={performance?.lens_success_rate} />
+              <ProgressRow label={t.agent1Rate} value={performance?.ml_dl_success_rate} />
+              <ProgressRow label={t.agent2Rate} value={performance?.llm_success_rate} />
+              <ProgressRow label={t.agent3Rate} value={performance?.lens_success_rate} />
             </div>
             <div className="space-y-6">
-              <ProgressRow label="System Consensus Ratio" value={performance?.consensus_rate} color="bg-emerald-500" />
-              <ProgressRow label="Service Conflict Rate" value={performance?.conflict_rate} color="bg-rose-500" />
+              <ProgressRow label={t.consensusRate} value={performance?.consensus_rate} color="bg-emerald-500" />
+              <ProgressRow label={t.conflictRate} value={performance?.conflict_rate} color="bg-rose-500" />
             </div>
           </div>
         </div>
@@ -364,7 +396,7 @@ export default function AdminDashboard() {
               <Terminal size={16} className="text-slate-400" /> {t.secRecent}
             </h3>
             <button onClick={() => navigate("/admin/results")} className="text-xs font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 transition">
-              View All <ChevronRight size={14} />
+              {t.viewAll} <ChevronRight size={14} />
             </button>
           </div>
           <div className="overflow-x-auto">
@@ -390,16 +422,16 @@ export default function AdminDashboard() {
                   recentScans.map((s) => (
                     <tr key={s.id || s._id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                       <td className="px-5 py-3 text-slate-500 text-xs">
-                        {s.created_at ? new Date(s.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "N/A"}
+                        {s.created_at ? new Date(s.created_at).toLocaleTimeString(lang === "VI" ? "vi-VN" : "en-US", {hour: '2-digit', minute:'2-digit'}) : t.noRunsYet}
                       </td>
                       <td className="px-5 py-3 font-medium text-slate-700 dark:text-slate-300">
-                        {s.user_id?.slice(-6) || "Guest"}
+                        {s.user_id?.slice(-6) || t.guest}
                       </td>
                       <td className="px-5 py-3 font-semibold text-slate-900 dark:text-white">
-                        {getScanDenomination(s)}
+                        {getScanDenomination(s) || t.noDataYet}
                       </td>
                       <td className="px-5 py-3 text-slate-600 dark:text-slate-400">
-                        {getScanCountry(s)}
+                        {getScanCountry(s) || t.noDataYet}
                       </td>
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-1.5">

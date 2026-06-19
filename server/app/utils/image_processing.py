@@ -8,13 +8,21 @@ import numpy as np
 from app.core.logger import get_logger
 from app.utils.crop_checker import ENABLE_AG0_CHECKER, check_crop
 
-# Khi True: detect_and_crop_banknotes vẫn fallback ảnh gốc ngay cả khi AG0 bật.
-# Mặc định False — nghĩa là AG0 quyết định, không lén bypass.
-ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK: bool = (
-    os.getenv("ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK", "false").lower() == "true"
-)
-
 logger = get_logger(__name__)
+
+
+class CropDetectionResult(list):
+    """List-compatible crop result carrying rejected AG0 metadata."""
+
+    def __init__(
+        self,
+        detected_objects=None,
+        rejected_objects=None,
+        failure_reason: Optional[str] = None,
+    ):
+        super().__init__(detected_objects or [])
+        self.rejected_objects = list(rejected_objects or [])
+        self.failure_reason = failure_reason
 
 
 # ============================================================
@@ -902,7 +910,7 @@ def _run_ag0_on_candidates(
 ) -> Dict:
     """
     Chạy AG0 check trên toàn bộ candidates.
-    Returns: {"valid": [KEEP/REVIEW items], "dropped": [metadata of DROP items]}
+    Returns: {"valid": [agent-eligible items], "dropped": [rejected metadata]}
     """
     valid: List[Dict[str, Any]] = []
     dropped: List[Dict[str, Any]] = []
@@ -926,6 +934,17 @@ def _run_ag0_on_candidates(
                     "confidence": 1.0,
                     "reason": "Empty crop after box expansion.",
                     "metrics": {},
+                    "ag0_action": "DROP",
+                    "ag0_confidence": 1.0,
+                    "banknote_score": 0.0,
+                    "document_score": 0.0,
+                    "document_like_score": 0.0,
+                    "banknote_like_score": 0.0,
+                    "agent_eligible_shadow": False,
+                    "agent_eligible": False,
+                    "positive_evidence": [],
+                    "negative_evidence": ["Empty crop after box expansion."],
+                    "decision_reason": "Current AG0 action=DROP because the expanded crop is empty.",
                 },
             })
             continue
@@ -952,19 +971,85 @@ def _run_ag0_on_candidates(
             "[AG0] source=%s bbox=[%s,%s,%s,%s] action=%s confidence=%.3f reason=%s",
             source, x1, y1, x2, y2, action, conf, str(reason)[:120],
         )
+        logger.info(
+            "[AG0/Gate] source=%s bbox=[%s,%s,%s,%s] "
+            "action=%s banknote_score=%.4f document_score=%.4f agent_eligible=%s "
+            "positive=%s negative=%s",
+            source,
+            x1,
+            y1,
+            x2,
+            y2,
+            action,
+            _safe_float(ag0_result.get("banknote_score"), 0.0),
+            _safe_float(ag0_result.get("document_score"), 0.0),
+            bool(ag0_result.get("agent_eligible", action != "DROP")),
+            ag0_result.get("positive_evidence") or [],
+            ag0_result.get("negative_evidence") or [],
+        )
 
         crop_checker_meta = {
             "action": action,
             "confidence": round(conf, 3),
             "reason": reason,
             "metrics": metrics,
+            "ag0_action": ag0_result.get("ag0_action", action),
+            "ag0_confidence": round(
+                _safe_float(ag0_result.get("ag0_confidence"), conf),
+                3,
+            ),
+            "banknote_score": round(
+                _safe_float(ag0_result.get("banknote_score"), 0.0),
+                4,
+            ),
+            "document_score": round(
+                _safe_float(ag0_result.get("document_score"), 0.0),
+                4,
+            ),
+            "document_like_score": round(
+                _safe_float(ag0_result.get("document_like_score"), 0.0),
+                4,
+            ),
+            "banknote_like_score": round(
+                _safe_float(ag0_result.get("banknote_like_score"), 0.0),
+                4,
+            ),
+            "agent_eligible_shadow": bool(
+                ag0_result.get("agent_eligible_shadow", True)
+            ),
+            "agent_eligible": bool(
+                ag0_result.get("agent_eligible", action != "DROP")
+            ),
+            "positive_evidence": list(ag0_result.get("positive_evidence") or []),
+            "negative_evidence": list(ag0_result.get("negative_evidence") or []),
+            "strong_banknote_evidence": bool(
+                ag0_result.get("strong_banknote_evidence", False)
+            ),
+            "strong_document_structure": bool(
+                ag0_result.get("strong_document_structure", False)
+            ),
+            "decision_reason": str(ag0_result.get("decision_reason") or ""),
         }
 
-        if action == "DROP":
+        agent_eligible = crop_checker_meta["agent_eligible"]
+        if not agent_eligible:
             drop_count += 1
             dropped.append({
                 "bbox": [x1, y1, x2, y2],
                 "source": source,
+                "reason": crop_checker_meta["decision_reason"] or reason,
+                "ag0_action": crop_checker_meta["ag0_action"],
+                "agent_eligible": False,
+                "banknote_score": crop_checker_meta["banknote_score"],
+                "document_score": crop_checker_meta["document_score"],
+                "positive_evidence": crop_checker_meta["positive_evidence"],
+                "negative_evidence": crop_checker_meta["negative_evidence"],
+                "strong_banknote_evidence": crop_checker_meta[
+                    "strong_banknote_evidence"
+                ],
+                "strong_document_structure": crop_checker_meta[
+                    "strong_document_structure"
+                ],
                 "crop_checker": crop_checker_meta,
             })
         else:
@@ -1018,26 +1103,27 @@ def detect_banknote_objects(
       -> nếu valid_opencv=0 -> trả list rỗng (no_banknote_detected)
       (không dùng original_fallback sau khi AG0 drop hết)
     """
-    # -- Decode ảnh — nếu lỗi thì dùng original_fallback (legacy decode exception) -
+    # Decode failure is terminal for crop validation; never send raw bytes to agents.
     try:
         img = _read_cv2_image(image_bytes)
     except Exception as exc:
-        logger.warning("Cannot decode image, using original image. Error: %s", exc)
-        return [
-            {
-                "object_index": 1,
-                "raw_candidate_count": 0,
+        reason = f"Image decode failed: {str(exc)[:200]}"
+        logger.warning("[AG0/Gate] %s. Returning no eligible crop.", reason)
+        return CropDetectionResult(
+            detected_objects=[],
+            rejected_objects=[{
                 "bbox": None,
-                "crop_bytes": image_bytes,
-                "crop_base64": base64.b64encode(image_bytes).decode("utf-8"),
-                "confidence": 0.2,
-                "width": None,
-                "height": None,
-                "source": "original_decode_failed",
-                "fallback": True,
-                "crop_checker": None,
-            }
-        ]
+                "source": "decode_failed",
+                "reason": reason,
+                "ag0_action": "DROP",
+                "agent_eligible": False,
+                "banknote_score": 0.0,
+                "document_score": 0.0,
+                "positive_evidence": [],
+                "negative_evidence": ["Input bytes could not be decoded as an image."],
+            }],
+            failure_reason="image_decode_failed",
+        )
 
     image_h, image_w = img.shape[:2]
 
@@ -1210,7 +1296,11 @@ def detect_banknote_objects(
         )
         # Trả list rỗng — recognition_service sẽ xử lý no_banknote_detected
         # KHÔNG dùng original_fallback sau khi AG0 đã xác nhận toàn bộ là rác
-        return []
+        return CropDetectionResult(
+            detected_objects=[],
+            rejected_objects=ag0_dropped_all,
+            failure_reason="all_candidates_rejected_by_ag0",
+        )
 
     # -- Phase 4: Build final crop objects từ valid_candidates --------------------
     objects: List[Dict[str, Any]] = []
@@ -1222,10 +1312,60 @@ def detect_banknote_objects(
 
         crop = img[y1:y2, x1:x2]
         if crop.size == 0:
+            ag0_dropped_all.append({
+                "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                "source": item.get("source", "unknown"),
+                "reason": "Eligible crop became empty during final extraction.",
+                "ag0_action": (item.get("_ag0_result") or {}).get(
+                    "ag0_action",
+                    "REVIEW",
+                ),
+                "agent_eligible": False,
+                "banknote_score": (item.get("_ag0_result") or {}).get(
+                    "banknote_score",
+                    0.0,
+                ),
+                "document_score": (item.get("_ag0_result") or {}).get(
+                    "document_score",
+                    0.0,
+                ),
+                "positive_evidence": (item.get("_ag0_result") or {}).get(
+                    "positive_evidence",
+                    [],
+                ),
+                "negative_evidence": [
+                    "Final crop extraction produced an empty image."
+                ],
+            })
             continue
 
         crop_bytes = _encode_crop(crop)
         if not crop_bytes:
+            ag0_dropped_all.append({
+                "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                "source": item.get("source", "unknown"),
+                "reason": "Eligible crop could not be encoded safely.",
+                "ag0_action": (item.get("_ag0_result") or {}).get(
+                    "ag0_action",
+                    "REVIEW",
+                ),
+                "agent_eligible": False,
+                "banknote_score": (item.get("_ag0_result") or {}).get(
+                    "banknote_score",
+                    0.0,
+                ),
+                "document_score": (item.get("_ag0_result") or {}).get(
+                    "document_score",
+                    0.0,
+                ),
+                "positive_evidence": (item.get("_ag0_result") or {}).get(
+                    "positive_evidence",
+                    [],
+                ),
+                "negative_evidence": [
+                    "OpenCV failed to encode the final crop."
+                ],
+            })
             continue
 
         crop_h, crop_w = crop.shape[:2]
@@ -1245,6 +1385,51 @@ def detect_banknote_objects(
             "confidence": round(_safe_float(ag0_result.get("confidence"), 0.5), 3),
             "reason": ag0_result.get("reason", ""),
             "metrics": ag0_metrics,
+            "ag0_action": ag0_result.get(
+                "ag0_action",
+                ag0_result.get("action", "REVIEW"),
+            ),
+            "ag0_confidence": round(
+                _safe_float(
+                    ag0_result.get("ag0_confidence"),
+                    ag0_result.get("confidence", 0.5),
+                ),
+                3,
+            ),
+            "banknote_score": round(
+                _safe_float(ag0_result.get("banknote_score"), 0.0),
+                4,
+            ),
+            "document_score": round(
+                _safe_float(ag0_result.get("document_score"), 0.0),
+                4,
+            ),
+            "document_like_score": round(
+                _safe_float(ag0_result.get("document_like_score"), 0.0),
+                4,
+            ),
+            "banknote_like_score": round(
+                _safe_float(ag0_result.get("banknote_like_score"), 0.0),
+                4,
+            ),
+            "agent_eligible_shadow": bool(
+                ag0_result.get("agent_eligible_shadow", True)
+            ),
+            "agent_eligible": bool(
+                ag0_result.get(
+                    "agent_eligible",
+                    ag0_result.get("action", "REVIEW") != "DROP",
+                )
+            ),
+            "positive_evidence": list(ag0_result.get("positive_evidence") or []),
+            "negative_evidence": list(ag0_result.get("negative_evidence") or []),
+            "strong_banknote_evidence": bool(
+                ag0_result.get("strong_banknote_evidence", False)
+            ),
+            "strong_document_structure": bool(
+                ag0_result.get("strong_document_structure", False)
+            ),
+            "decision_reason": str(ag0_result.get("decision_reason") or ""),
         }
         selected_box_reason = (
             f"{item.get('source', 'unknown')} candidate accepted by AG0 as "
@@ -1273,11 +1458,15 @@ def detect_banknote_objects(
 
         logger.info(
             "[CropFinal] #%s: source=%s bbox=[%s,%s,%s,%s] "
-            "area_ratio=%.3f aspect=%.2f texture_var=%.1f confidence=%.3f ag0=%s",
+            "area_ratio=%.3f aspect=%.2f texture_var=%.1f confidence=%.3f "
+            "ag0=%s banknote_score=%.4f document_score=%.4f agent_eligible=%s",
             index, item.get("source", "unknown"),
             x1, y1, x2, y2,
             area_ratio, aspect_ratio, texture_var, confidence,
             crop_checker_meta["action"],
+            crop_checker_meta["banknote_score"],
+            crop_checker_meta["document_score"],
+            crop_checker_meta["agent_eligible"],
         )
 
         objects.append(
@@ -1297,6 +1486,21 @@ def detect_banknote_objects(
                 "yolo_conf": item.get("yolo_conf"),
                 "yolo_class": item.get("yolo_class"),
                 "crop_checker": crop_checker_meta,
+                "ag0_action": crop_checker_meta["ag0_action"],
+                "ag0_confidence": crop_checker_meta["ag0_confidence"],
+                "banknote_score": crop_checker_meta["banknote_score"],
+                "document_score": crop_checker_meta["document_score"],
+                "agent_eligible_shadow": crop_checker_meta["agent_eligible_shadow"],
+                "agent_eligible": crop_checker_meta["agent_eligible"],
+                "positive_evidence": crop_checker_meta["positive_evidence"],
+                "negative_evidence": crop_checker_meta["negative_evidence"],
+                "strong_banknote_evidence": crop_checker_meta[
+                    "strong_banknote_evidence"
+                ],
+                "strong_document_structure": crop_checker_meta[
+                    "strong_document_structure"
+                ],
+                "decision_reason": crop_checker_meta["decision_reason"],
                 "selected_box_reason": selected_box_reason,
                 "box_selection_trace": box_selection_trace if index == 1 else None,
                 "rejected_boxes": rejected_boxes if index == 1 else [],
@@ -1312,7 +1516,11 @@ def detect_banknote_objects(
         len(objects), raw_candidate_count,
         opencv_fallback_used, len(ag0_dropped_all),
     )
-    return objects
+    return CropDetectionResult(
+        detected_objects=objects,
+        rejected_objects=ag0_dropped_all,
+        failure_reason=None if objects else "final_crop_extraction_failed",
+    )
 
 
 
@@ -1327,9 +1535,8 @@ def detect_and_crop_banknotes(image_bytes: bytes) -> List[bytes]:
     đều không có crop hợp lệ sau AG0 Checker. Khi đó trả [] để caller
     xử lý no_banknote_detected, không fallback ảnh gốc.
 
-    Chỉ fallback ảnh gốc khi:
-    - ENABLE_AG0_CHECKER=false (AG0 tắt), hoặc
-    - ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK=true (legacy mode bật tường minh).
+    Không fallback ảnh gốc khi crop/decode thất bại. Ảnh chưa được crop và
+    xác thực không được phép đi vào Agent.
     """
     objects = detect_banknote_objects(image_bytes=image_bytes, max_objects=5)
     crop_bytes_list = [
@@ -1341,16 +1548,8 @@ def detect_and_crop_banknotes(image_bytes: bytes) -> List[bytes]:
     if crop_bytes_list:
         return crop_bytes_list
 
-    if ENABLE_AG0_CHECKER and not ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK:
-        logger.info(
-            "[AG0] detect_and_crop_banknotes: no valid crop, return [] "
-            "instead of original_fallback (ENABLE_AG0_CHECKER=true, "
-            "ENABLE_AG0_LEGACY_ORIGINAL_FALLBACK=false)."
-        )
-        return []
-
     logger.info(
-        "[AG0] detect_and_crop_banknotes: legacy original_fallback enabled or "
-        "AG0 disabled — returning original image bytes."
+        "[AG0/Gate] detect_and_crop_banknotes: no eligible crop; "
+        "original image fallback is disabled."
     )
-    return [image_bytes]
+    return []

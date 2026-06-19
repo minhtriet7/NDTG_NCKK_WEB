@@ -3889,3 +3889,1033 @@ authlib.integrations.base_client.errors.MismatchingStateError: mismatching_state
 2026-06-18 12:08:21 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
 2026-06-18 12:08:21 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
 2026-06-18 12:08:21 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-18 12:38:47 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-18 12:40:09 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a3384b8beeba00c7d9f715c user_id=6a0a73739c3ed8edd1e82107
+2026-06-18 12:40:10 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a3384b8beeba00c7d9f715c path=uploads/recognition_tasks/6a3384b8beeba00c7d9f715c_0ed6c12b2173cb78.jpg
+2026-06-18 12:40:10 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a3384b8beeba00c7d9f715c
+2026-06-18 12:40:10 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a3384b8beeba00c7d9f715c
+2026-06-18 12:40:10 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a3384b8beeba00c7d9f715c
+2026-06-18 12:40:10 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a3384b8beeba00c7d9f715c
+2026-06-18 12:40:15 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a3384b8beeba00c7d9f715c
+2026-06-18 12:40:29 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-18 12:40:30 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[135, 22, 1177, 674] source=yolo_crop area_ratio=0.553 aspect=1.60 score=642198.6
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[78,0,1234,709] action=KEEP confidence=0.910 reason=YOLO high confidence (0.95) combined with 3/3 good metrics. Accepted as banknote.
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-18 12:40:30 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=242.9 OK
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[78,0,1234,709] area_ratio=0.667 aspect=1.63 texture_var=242.9 confidence=0.980 ag0=KEEP
+2026-06-18 12:40:30 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-18 12:40:30 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-18 12:40:30 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.98 fallback=False bbox=[78, 0, 1234, 709]
+2026-06-18 12:40:30 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-18 12:40:30 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-18 12:40:44 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=100000 VND
+2026-06-18 12:40:44 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=100000 VND
+2026-06-18 12:40:44 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=100000 VND
+2026-06-18 12:40:44 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-18 12:40:44 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-18 12:40:44 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-18 12:40:44 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-18 12:40:44 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-18 13:11:30 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a338c12beeba00c7d9f7163 user_id=6a0a73739c3ed8edd1e82107
+2026-06-18 13:11:30 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a338c12beeba00c7d9f7163 path=uploads/recognition_tasks/6a338c12beeba00c7d9f7163_75e3e8d95f716da1.jpg
+2026-06-18 13:11:30 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a338c12beeba00c7d9f7163
+2026-06-18 13:11:30 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a338c12beeba00c7d9f7163
+2026-06-18 13:11:30 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a338c12beeba00c7d9f7163
+2026-06-18 13:11:30 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a338c12beeba00c7d9f7163
+2026-06-18 13:11:32 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a338c12beeba00c7d9f7163
+2026-06-18 13:11:32 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-18 13:11:32 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-18 13:11:32 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-18 13:11:32 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[0, 1, 344, 146] source=yolo_crop area_ratio=0.993 aspect=2.37 score=40118.8
+2026-06-18 13:11:33 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-18 13:11:33 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-18 13:11:33 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-18 13:11:33 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[0,0,344,146] action=KEEP confidence=0.910 reason=YOLO high confidence (0.80) combined with 3/3 good metrics. Accepted as banknote.
+2026-06-18 13:11:33 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-18 13:11:33 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-18 13:11:33 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=14384.6 OK
+2026-06-18 13:11:33 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[0,0,344,146] area_ratio=1.000 aspect=2.36 texture_var=14384.6 confidence=0.980 ag0=KEEP
+2026-06-18 13:11:33 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-18 13:11:33 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-18 13:11:33 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.98 fallback=False bbox=[0, 0, 344, 146]
+2026-06-18 13:11:33 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-18 13:11:33 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-18 13:11:43 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=1 USD
+2026-06-18 13:11:43 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=1 USD
+2026-06-18 13:11:43 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=1 USD
+2026-06-18 13:11:43 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-18 13:11:43 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-18 13:11:43 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-18 13:11:43 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-18 13:11:43 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-18 13:31:43 | app.routers.auth_router | INFO | Redirecting login request from localhost:8000 to backshift-hula-showman.ngrok-free.dev to match GOOGLE_REDIRECT_URI: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/login
+2026-06-18 13:31:44 | app.routers.auth_router | INFO | GOOGLE OAUTH dynamic frontend_url detected: http://localhost:5173
+2026-06-18 13:31:44 | app.routers.auth_router | INFO | GOOGLE OAUTH redirect_uri USED: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/callback
+2026-06-18 13:34:10 | app.routers.auth_router | INFO | Redirecting login request from localhost:8000 to backshift-hula-showman.ngrok-free.dev to match GOOGLE_REDIRECT_URI: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/login
+2026-06-18 13:34:10 | app.routers.auth_router | INFO | GOOGLE OAUTH dynamic frontend_url detected: http://localhost:5173
+2026-06-18 13:34:10 | app.routers.auth_router | INFO | GOOGLE OAUTH redirect_uri USED: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/callback
+2026-06-18 13:35:30 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a3391b2beeba00c7d9f716d user_id=6a27dfb308bfd9dc6424feca
+2026-06-18 13:35:30 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a3391b2beeba00c7d9f716d path=uploads/recognition_tasks/6a3391b2beeba00c7d9f716d_48cc1adbf4aaf725.jpg
+2026-06-18 13:35:30 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a3391b2beeba00c7d9f716d
+2026-06-18 13:35:30 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a3391b2beeba00c7d9f716d
+2026-06-18 13:35:30 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a3391b2beeba00c7d9f716d
+2026-06-18 13:35:30 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a3391b2beeba00c7d9f716d
+2026-06-18 13:35:32 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a3391b2beeba00c7d9f716d
+2026-06-18 13:35:32 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[3, 5, 318, 154] source=yolo_crop area_ratio=0.931 aspect=2.11 score=41967.9
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[0,0,319,158] action=KEEP confidence=0.910 reason=YOLO high confidence (0.89) combined with 3/3 good metrics. Accepted as banknote.
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-18 13:35:32 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=2227.1 OK
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[0,0,319,158] area_ratio=1.000 aspect=2.02 texture_var=2227.1 confidence=0.980 ag0=KEEP
+2026-06-18 13:35:32 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-18 13:35:32 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-18 13:35:32 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.98 fallback=False bbox=[0, 0, 319, 158]
+2026-06-18 13:35:32 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-18 13:35:32 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-18 13:35:42 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=10000 VND
+2026-06-18 13:35:42 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=10000 VND
+2026-06-18 13:35:42 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=10000 VND
+2026-06-18 13:35:42 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-18 13:35:42 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-18 13:35:42 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-18 13:35:42 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-18 13:35:42 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-18 13:54:57 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-18 13:57:10 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a3396c6ba3f3315ea31d4a8 user_id=6a27dfb308bfd9dc6424feca
+2026-06-18 13:57:10 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a3396c6ba3f3315ea31d4a8 path=uploads/recognition_tasks/6a3396c6ba3f3315ea31d4a8_1e92af972014e9d4.jpg
+2026-06-18 13:57:10 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a3396c6ba3f3315ea31d4a8
+2026-06-18 13:57:10 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a3396c6ba3f3315ea31d4a8
+2026-06-18 13:57:10 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a3396c6ba3f3315ea31d4a8
+2026-06-18 13:57:10 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a3396c6ba3f3315ea31d4a8
+2026-06-18 13:57:13 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a3396c6ba3f3315ea31d4a8
+2026-06-18 13:57:28 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-18 13:57:29 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 2 box(es).
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [CropYOLO] Detected 2 YOLO candidate(s).
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[654, 153, 1157, 660] source=yolo_crop area_ratio=0.208 aspect=1.01 score=238398.2
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[66, 176, 636, 713] source=yolo_crop area_ratio=0.249 aspect=1.06 score=266352.5
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [CropMerge] checking pair 1/2 (y_ov=0.955, x_gap_ratio=0.014, union_area_ratio=0.497, union_aspect=1.95)
+2026-06-18 13:57:29 | app.utils.image_processing | DEBUG | [CropMerge] Skip pair #1+#2: skip_high_confidence_yolo_pair (yolo_conf_a=0.87 yolo_conf_b=0.93)
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[35,147,667,742] action=KEEP confidence=0.910 reason=YOLO high confidence (0.87) combined with 3/3 good metrics. Accepted as banknote.
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[627,126,1184,687] action=KEEP confidence=0.910 reason=YOLO high confidence (0.93) combined with 3/3 good metrics. Accepted as banknote.
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [AG0] provider=yolo before=2 keep=2 review=0 drop=0
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=2)
+2026-06-18 13:57:29 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=815.7 OK
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[35,147,667,742] area_ratio=0.306 aspect=1.06 texture_var=815.7 confidence=0.756 ag0=KEEP
+2026-06-18 13:57:29 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #2 (source=yolo_crop): texture_variance=136.5 OK
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | [CropFinal] #2: source=yolo_crop bbox=[627,126,1184,687] area_ratio=0.254 aspect=1.01 texture_var=136.5 confidence=0.704 ag0=KEEP
+2026-06-18 13:57:29 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-18 13:57:29 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-18 13:57:29 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.756 fallback=False bbox=[35, 147, 667, 742]
+2026-06-18 13:57:29 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=yolo_crop confidence=0.7043 fallback=False bbox=[627, 126, 1184, 687]
+2026-06-18 13:57:29 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-18 13:57:29 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-18 13:57:42 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=2 USD
+2026-06-18 13:57:42 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=2 USD
+2026-06-18 13:57:42 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=2 USD
+2026-06-18 13:57:42 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-18 13:57:42 | app.services.recognition_service | INFO | [AG0] processing object_index=2 ag0_action=KEEP
+2026-06-18 13:57:42 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=1/3
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Completed denomination=10000 VND
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Completed denomination=10000 VND
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=10000 VND
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] before count = 2
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=1 display_index=1 bbox=[35, 147, 667, 742] status=completed matched_agents=3
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=True
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=3
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_raw_agent_evidence
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=2 display_index=2 bbox=[627, 126, 1184, 687] status=completed matched_agents=3
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=True
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=3
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_raw_agent_evidence
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [ObjectFilter] after count = 2
+2026-06-18 13:57:54 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=2
+2026-06-18 17:22:11 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-18 17:27:08 | app.routers.auth_router | INFO | Redirecting login request from localhost:8000 to backshift-hula-showman.ngrok-free.dev to match GOOGLE_REDIRECT_URI: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/login
+2026-06-18 17:27:27 | app.routers.auth_router | INFO | GOOGLE OAUTH dynamic frontend_url detected: http://localhost:5173
+2026-06-18 17:27:27 | app.routers.auth_router | INFO | GOOGLE OAUTH redirect_uri USED: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/callback
+2026-06-18 17:30:50 | app.routers.auth_router | INFO | Redirecting login request from localhost:8000 to backshift-hula-showman.ngrok-free.dev to match GOOGLE_REDIRECT_URI: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/login
+2026-06-18 17:30:50 | app.routers.auth_router | INFO | GOOGLE OAUTH dynamic frontend_url detected: http://localhost:5173
+2026-06-18 17:30:50 | app.routers.auth_router | INFO | GOOGLE OAUTH redirect_uri USED: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/callback
+2026-06-18 17:31:15 | app.routers.auth_router | INFO | Redirecting login request from localhost:8000 to backshift-hula-showman.ngrok-free.dev to match GOOGLE_REDIRECT_URI: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/login
+2026-06-18 17:31:15 | app.routers.auth_router | INFO | GOOGLE OAUTH dynamic frontend_url detected: http://localhost:5173
+2026-06-18 17:31:15 | app.routers.auth_router | INFO | GOOGLE OAUTH redirect_uri USED: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/callback
+2026-06-18 17:32:20 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a33c934c9361972a5cad473 user_id=6a27dfb308bfd9dc6424feca
+2026-06-18 17:32:20 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a33c934c9361972a5cad473 path=uploads/recognition_tasks/6a33c934c9361972a5cad473_65639bb6a8b78509.jpg
+2026-06-18 17:32:20 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a33c934c9361972a5cad473
+2026-06-18 17:32:20 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a33c934c9361972a5cad473
+2026-06-18 17:32:20 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a33c934c9361972a5cad473
+2026-06-18 17:32:20 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a33c934c9361972a5cad473
+2026-06-18 17:32:23 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a33c934c9361972a5cad473
+2026-06-18 17:32:43 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-18 17:32:44 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 2 box(es).
+2026-06-18 17:32:44 | app.utils.image_processing | INFO | [CropYOLO] Detected 2 YOLO candidate(s).
+2026-06-18 17:32:44 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-18 17:32:44 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[0, 0, 398, 202] source=yolo_crop area_ratio=0.509 aspect=1.97 score=67903.3
+2026-06-18 17:32:44 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[0, 202, 399, 393] source=yolo_crop area_ratio=0.482 aspect=2.09 score=43814.4
+2026-06-18 17:32:44 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-18 17:32:44 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-18 17:32:44 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-18 17:32:44 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[0,0,400,213] action=KEEP confidence=0.910 reason=YOLO high confidence (0.84) combined with 3/3 good metrics. Accepted as banknote.
+2026-06-18 17:32:45 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[0,192,400,395] action=REVIEW confidence=0.600 reason=YOLO confidence moderate (0.57). Metrics marginal: texture=3560.1, edge=0.2786, contrast=47.2.
+2026-06-18 17:32:45 | app.utils.image_processing | INFO | [AG0] provider=yolo before=2 keep=1 review=1 drop=0
+2026-06-18 17:32:45 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=2)
+2026-06-18 17:32:45 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=2264.8 OK
+2026-06-18 17:32:45 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[0,0,400,213] area_ratio=0.539 aspect=1.88 texture_var=2264.8 confidence=0.980 ag0=KEEP
+2026-06-18 17:32:45 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #2 (source=yolo_crop): texture_variance=3560.1 OK
+2026-06-18 17:32:45 | app.utils.image_processing | INFO | [CropFinal] #2: source=yolo_crop bbox=[0,192,400,395] area_ratio=0.514 aspect=1.97 texture_var=3560.1 confidence=0.964 ag0=REVIEW
+2026-06-18 17:32:45 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-18 17:32:45 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-18 17:32:45 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.98 fallback=False bbox=[0, 0, 400, 213]
+2026-06-18 17:32:45 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=yolo_crop confidence=0.9639 fallback=False bbox=[0, 192, 400, 395]
+2026-06-18 17:32:45 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-18 17:32:45 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-18 17:33:00 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=2000 VND
+2026-06-18 17:33:00 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=2000 VND
+2026-06-18 17:33:00 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=5000 VND
+2026-06-18 17:33:00 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=2/3 matched_agents=2
+2026-06-18 17:33:00 | app.services.recognition_service | INFO | [AG0] processing object_index=2 ag0_action=REVIEW
+2026-06-18 17:33:00 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=1/3
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Completed denomination=2000 VND
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Completed denomination=2000 VND
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=2000 VND
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] before count = 2
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=1 display_index=1 bbox=[0, 0, 400, 213] status=completed matched_agents=2
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=True
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=3
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_raw_agent_evidence
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=2 display_index=2 bbox=[0, 192, 400, 395] status=completed matched_agents=3
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=True
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=3
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_raw_agent_evidence
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [ObjectFilter] after count = 2
+2026-06-18 17:33:19 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=2
+2026-06-18 17:35:55 | app.routers.auth_router | INFO | Redirecting login request from localhost:8000 to backshift-hula-showman.ngrok-free.dev to match GOOGLE_REDIRECT_URI: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/login
+2026-06-18 17:35:55 | app.routers.auth_router | INFO | GOOGLE OAUTH dynamic frontend_url detected: http://localhost:5173
+2026-06-18 17:35:55 | app.routers.auth_router | INFO | GOOGLE OAUTH redirect_uri USED: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/callback
+2026-06-19 10:01:49 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:03:03 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34b1673a20cedcb4d2ba29 user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 10:03:03 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34b1673a20cedcb4d2ba29 path=uploads/recognition_tasks/6a34b1673a20cedcb4d2ba29_07a1737c5a4b655c.jpg
+2026-06-19 10:03:03 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34b1673a20cedcb4d2ba29
+2026-06-19 10:03:03 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34b1673a20cedcb4d2ba29
+2026-06-19 10:03:03 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34b1673a20cedcb4d2ba29
+2026-06-19 10:03:03 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34b1673a20cedcb4d2ba29
+2026-06-19 10:03:06 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34b1673a20cedcb4d2ba29
+2026-06-19 10:03:20 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [CropYOLO] No detections from YOLO model.
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=True
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=2 h_split=0 color=0 total=2
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[33, 213, 579, 329] source=contour area_ratio=0.251 aspect=4.71 score=22439.7
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[33, 107, 579, 209] source=contour area_ratio=0.221 aspect=5.35 score=18358.0
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [AG0] source=contour bbox=[3,102,608,214] action=REVIEW confidence=0.600 reason=Unusual aspect ratio (5.40), possibly folded or partial banknote.
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [AG0] source=contour bbox=[3,207,608,335] action=REVIEW confidence=0.600 reason=Unusual aspect ratio (4.73), possibly folded or partial banknote.
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [AG0] provider=opencv before=2 keep=0 review=2 drop=0
+2026-06-19 10:03:21 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=contour): texture_variance=12389.2 OK
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [CropFinal] #1: source=contour bbox=[3,102,608,214] area_ratio=0.269 aspect=5.40 texture_var=12389.2 confidence=0.719 ag0=REVIEW
+2026-06-19 10:03:21 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #2 (source=contour): texture_variance=13513.5 OK
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | [CropFinal] #2: source=contour bbox=[3,207,608,335] area_ratio=0.307 aspect=4.73 texture_var=13513.5 confidence=0.757 ag0=REVIEW
+2026-06-19 10:03:21 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s). opencv_fallback=True dropped_total=0
+2026-06-19 10:03:21 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-19 10:03:21 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=contour confidence=0.7185 fallback=False bbox=[3, 102, 608, 214]
+2026-06-19 10:03:21 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=contour confidence=0.7569 fallback=False bbox=[3, 207, 608, 335]
+2026-06-19 10:03:21 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=REVIEW
+2026-06-19 10:03:21 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 10:03:48 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-19 10:03:48 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 10:03:48 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=Không xác định
+2026-06-19 10:03:48 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/2 pattern=transient_error matched_agents=0
+2026-06-19 10:03:49 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=2/3
+2026-06-19 10:04:06 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-19 10:04:06 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 10:04:06 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=Không xác định
+2026-06-19 10:04:06 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=2/2 pattern=transient_error matched_agents=0
+2026-06-19 10:04:06 | app.services.recognition_service | INFO | [AG0] processing object_index=2 ag0_action=REVIEW
+2026-06-19 10:04:06 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=1/3
+2026-06-19 10:04:26 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-19 10:04:26 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-19 10:04:26 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=Không xác định
+2026-06-19 10:04:26 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=1/2 pattern=transient_error matched_agents=0
+2026-06-19 10:04:27 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=2/3
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=Không xác định
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=2/2 pattern=transient_error matched_agents=0
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] before count = 2
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=1 display_index=1 bbox=[3, 102, 608, 214] status=agent_error matched_agents=0
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=False
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=0
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_crop_quality_evidence
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=2 display_index=2 bbox=[3, 207, 608, 335] status=agent_error matched_agents=0
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=False
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=0
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_crop_quality_evidence
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [ObjectFilter] after count = 2
+2026-06-19 10:04:47 | app.services.recognition_service | INFO | [Recognition] final status=Needs Review require_rerun=False detected_count=2
+2026-06-19 10:34:40 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:35:30 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:36:03 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:36:08 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:36:17 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:42:56 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:49:11 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:49:17 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:50:07 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:50:13 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:50:47 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:50:53 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:51:46 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:52:15 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=None
+2026-06-19 10:52:15 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=0 all_fallback=False raw_candidate_count=0
+2026-06-19 10:52:15 | app.services.recognition_service | INFO | [AG0/Gate] no_banknote_detected: eligible=0 rejected=1 failure_reason=all_candidates_rejected_by_ag0. Skipping Agent1/2/3, Aggregator and billing. task_id=None
+2026-06-19 10:52:41 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:52:47 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:53:50 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:53:55 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:58:22 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:59:00 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 10:59:01 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34be8587ca1a5303ee8c65 user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 10:59:01 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34be8587ca1a5303ee8c65 path=uploads/recognition_tasks/6a34be8587ca1a5303ee8c65_07a1737c5a4b655c.jpg
+2026-06-19 10:59:01 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34be8587ca1a5303ee8c65
+2026-06-19 10:59:01 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34be8587ca1a5303ee8c65
+2026-06-19 10:59:01 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34be8587ca1a5303ee8c65
+2026-06-19 10:59:01 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34be8587ca1a5303ee8c65
+2026-06-19 10:59:03 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34be8587ca1a5303ee8c65
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [CropYOLO] No detections from YOLO model.
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=True
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=2 h_split=0 color=0 total=2
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[33, 213, 579, 329] source=contour area_ratio=0.251 aspect=4.71 score=22439.7
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[33, 107, 579, 209] source=contour area_ratio=0.221 aspect=5.35 score=18358.0
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [AG0] source=contour bbox=[3,102,608,214] action=REVIEW confidence=0.600 reason=Unusual aspect ratio (5.40), possibly folded or partial banknote.
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [AG0/Gate] source=contour bbox=[3,102,608,214] action=REVIEW banknote_score=0.4353 document_score=0.8100 agent_eligible=False positive=['reasonable crop area_ratio=0.221', 'rich local texture=12389.1', 'usable edge density=0.0803', 'adequate contrast=46.5'] negative=['very elongated crop aspect_ratio=5.40', 'large white background ratio=0.939', 'low color richness=0.077', 'low mean saturation=0.0', 'many long straight lines=1.000', 'heuristic source=contour with non-banknote aspect']
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [AG0] source=contour bbox=[3,207,608,335] action=REVIEW confidence=0.600 reason=Unusual aspect ratio (4.73), possibly folded or partial banknote.
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [AG0/Gate] source=contour bbox=[3,207,608,335] action=REVIEW banknote_score=0.4369 document_score=0.7897 agent_eligible=False positive=['reasonable crop area_ratio=0.251', 'rich local texture=13513.5', 'usable edge density=0.0860', 'adequate contrast=48.8'] negative=['very elongated crop aspect_ratio=4.73', 'large white background ratio=0.929', 'low color richness=0.085', 'low mean saturation=0.0', 'many long straight lines=1.000', 'heuristic source=contour with non-banknote aspect']
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [AG0] provider=opencv before=2 keep=0 review=0 drop=2
+2026-06-19 10:59:14 | app.utils.image_processing | INFO | [AG0] All candidates dropped by AG0 Checker. Returning empty list (no_banknote_detected). opencv_fallback_used=True dropped_total=2
+2026-06-19 10:59:14 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=0 all_fallback=False raw_candidate_count=0
+2026-06-19 10:59:14 | app.services.recognition_service | INFO | [AG0/Gate] no_banknote_detected: eligible=0 rejected=2 failure_reason=all_candidates_rejected_by_ag0. Skipping Agent1/2/3, Aggregator and billing. task_id=6a34be8587ca1a5303ee8c65
+2026-06-19 11:00:01 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 11:00:02 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34bec287ca1a5303ee8c67 user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 11:00:02 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34bec287ca1a5303ee8c67 path=uploads/recognition_tasks/6a34bec287ca1a5303ee8c67_c38e127ccb115401.jpg
+2026-06-19 11:00:02 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34bec287ca1a5303ee8c67
+2026-06-19 11:00:02 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34bec287ca1a5303ee8c67
+2026-06-19 11:00:02 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34bec287ca1a5303ee8c67
+2026-06-19 11:00:02 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34bec287ca1a5303ee8c67
+2026-06-19 11:00:03 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34bec287ca1a5303ee8c67
+2026-06-19 11:00:04 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[127, 424, 876, 792] source=yolo_crop area_ratio=0.224 aspect=2.04 score=251974.9
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[86,404,917,812] action=KEEP confidence=0.970 reason=Good texture (1465.7), edge density (0.1071), contrast (47.9), aspect ratio (2.04). Crop is likely a banknote.
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [AG0/Gate] source=yolo_crop bbox=[86,404,917,812] action=KEEP banknote_score=0.8481 document_score=0.0000 agent_eligible=True positive=['banknote-like aspect_ratio=2.04', 'reasonable crop area_ratio=0.224', 'rich local texture=1465.7', 'usable edge density=0.1071', 'adequate contrast=47.9', 'color richness=0.472', 'meaningful saturation=53.7', 'YOLO banknote confidence=0.91'] negative=[]
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-19 11:00:04 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=1465.7 OK
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[86,404,917,812] area_ratio=0.276 aspect=2.04 texture_var=1465.7 confidence=0.726 ag0=KEEP banknote_score=0.8481 document_score=0.0000 agent_eligible=True
+2026-06-19 11:00:04 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-19 11:00:04 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-19 11:00:04 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.7259 fallback=False bbox=[86, 404, 917, 812]
+2026-06-19 11:00:04 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-19 11:00:04 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.8481 document_score=0.0 agent_eligible=True
+2026-06-19 11:00:04 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 11:00:22 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=500000 VND
+2026-06-19 11:00:22 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=500000 VND
+2026-06-19 11:00:22 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=500000 VND
+2026-06-19 11:00:22 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-19 11:00:22 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-19 11:00:22 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-19 11:00:22 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 11:00:22 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-19 11:54:13 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34cb7587ca1a5303ee8c6e user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 11:54:13 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34cb7587ca1a5303ee8c6e path=uploads/recognition_tasks/6a34cb7587ca1a5303ee8c6e_07a1737c5a4b655c.jpg
+2026-06-19 11:54:13 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34cb7587ca1a5303ee8c6e
+2026-06-19 11:54:13 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34cb7587ca1a5303ee8c6e
+2026-06-19 11:54:13 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34cb7587ca1a5303ee8c6e
+2026-06-19 11:54:13 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34cb7587ca1a5303ee8c6e
+2026-06-19 11:54:14 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34cb7587ca1a5303ee8c6e
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [CropYOLO] No detections from YOLO model.
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=True
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=2 h_split=0 color=0 total=2
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[33, 213, 579, 329] source=contour area_ratio=0.251 aspect=4.71 score=22439.7
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[33, 107, 579, 209] source=contour area_ratio=0.221 aspect=5.35 score=18358.0
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [AG0] source=contour bbox=[3,102,608,214] action=REVIEW confidence=0.600 reason=Unusual aspect ratio (5.40), possibly folded or partial banknote.
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [AG0/Gate] source=contour bbox=[3,102,608,214] action=REVIEW banknote_score=0.4353 document_score=0.8100 agent_eligible=False positive=['reasonable crop area_ratio=0.221', 'rich local texture=12389.1', 'usable edge density=0.0803', 'adequate contrast=46.5'] negative=['very elongated crop aspect_ratio=5.40', 'large white background ratio=0.939', 'low color richness=0.077', 'low mean saturation=0.0', 'many long straight lines=1.000', 'heuristic source=contour with non-banknote aspect']
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [AG0] source=contour bbox=[3,207,608,335] action=REVIEW confidence=0.600 reason=Unusual aspect ratio (4.73), possibly folded or partial banknote.
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [AG0/Gate] source=contour bbox=[3,207,608,335] action=REVIEW banknote_score=0.4369 document_score=0.7897 agent_eligible=False positive=['reasonable crop area_ratio=0.251', 'rich local texture=13513.5', 'usable edge density=0.0860', 'adequate contrast=48.8'] negative=['very elongated crop aspect_ratio=4.73', 'large white background ratio=0.929', 'low color richness=0.085', 'low mean saturation=0.0', 'many long straight lines=1.000', 'heuristic source=contour with non-banknote aspect']
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [AG0] provider=opencv before=2 keep=0 review=0 drop=2
+2026-06-19 11:54:15 | app.utils.image_processing | INFO | [AG0] All candidates dropped by AG0 Checker. Returning empty list (no_banknote_detected). opencv_fallback_used=True dropped_total=2
+2026-06-19 11:54:15 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=0 all_fallback=False raw_candidate_count=0
+2026-06-19 11:54:15 | app.services.recognition_service | INFO | [AG0/Gate] no_banknote_detected: eligible=0 rejected=2 failure_reason=all_candidates_rejected_by_ag0. Skipping Agent1/2/3, Aggregator and billing. task_id=6a34cb7587ca1a5303ee8c6e
+2026-06-19 12:25:44 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34d2d887ca1a5303ee8c70 user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 12:25:44 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34d2d887ca1a5303ee8c70 path=uploads/recognition_tasks/6a34d2d887ca1a5303ee8c70_14ce4ef6f9975242.jpg
+2026-06-19 12:25:44 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34d2d887ca1a5303ee8c70
+2026-06-19 12:25:44 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34d2d887ca1a5303ee8c70
+2026-06-19 12:25:44 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34d2d887ca1a5303ee8c70
+2026-06-19 12:25:44 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34d2d887ca1a5303ee8c70
+2026-06-19 12:25:46 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34d2d887ca1a5303ee8c70
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [CropYOLO] No detections from YOLO model.
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=True
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=0 h_split=2 color=0 total=2
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[104, 2, 190, 40] source=horizontal_split area_ratio=0.065 aspect=2.26 score=3007.4
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[43, 66, 213, 167] source=horizontal_split area_ratio=0.341 aspect=1.68 score=10857.4
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [AG0] source=horizontal_split bbox=[100,0,194,42] action=REVIEW confidence=0.600 reason=Marginal quality: texture=3467.6, edge=0.1104, contrast=42.0. Cannot confirm but not dropping.
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split bbox=[100,0,194,42] action=REVIEW banknote_score=0.7779 document_score=0.0481 agent_eligible=True positive=['banknote-like aspect_ratio=2.24', 'reasonable crop area_ratio=0.065', 'rich local texture=3467.6', 'usable edge density=0.1104', 'adequate contrast=42.0', 'meaningful saturation=77.9'] negative=['low color richness=0.338']
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [AG0] source=horizontal_split bbox=[34,61,222,168] action=REVIEW confidence=0.600 reason=Marginal quality: texture=3034.8, edge=0.1447, contrast=50.5. Cannot confirm but not dropping.
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split bbox=[34,61,222,168] action=REVIEW banknote_score=0.8287 document_score=0.0007 agent_eligible=True positive=['banknote-like aspect_ratio=1.76', 'reasonable crop area_ratio=0.341', 'rich local texture=3034.8', 'usable edge density=0.1447', 'adequate contrast=50.5', 'color richness=0.543', 'meaningful saturation=165.9'] negative=[]
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [AG0] provider=opencv before=2 keep=0 review=2 drop=0
+2026-06-19 12:25:46 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=horizontal_split): texture_variance=3467.6 OK
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [CropFinal] #1: source=horizontal_split bbox=[100,0,194,42] area_ratio=0.078 aspect=2.24 texture_var=3467.6 confidence=0.528 ag0=REVIEW banknote_score=0.7779 document_score=0.0481 agent_eligible=True
+2026-06-19 12:25:46 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #2 (source=horizontal_split): texture_variance=3034.8 OK
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | [CropFinal] #2: source=horizontal_split bbox=[34,61,222,168] area_ratio=0.399 aspect=1.76 texture_var=3034.8 confidence=0.849 ag0=REVIEW banknote_score=0.8287 document_score=0.0007 agent_eligible=True
+2026-06-19 12:25:46 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s). opencv_fallback=True dropped_total=0
+2026-06-19 12:25:46 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-19 12:25:46 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=horizontal_split confidence=0.5283 fallback=False bbox=[100, 0, 194, 42]
+2026-06-19 12:25:46 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=horizontal_split confidence=0.8491 fallback=False bbox=[34, 61, 222, 168]
+2026-06-19 12:25:46 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=REVIEW
+2026-06-19 12:25:46 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.7779 document_score=0.0481 agent_eligible=True
+2026-06-19 12:25:46 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 12:26:10 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-19 12:26:10 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 12:26:10 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=Không xác định
+2026-06-19 12:26:10 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/2 pattern=transient_error matched_agents=0
+2026-06-19 12:26:11 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=2/3
+2026-06-19 12:26:27 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-19 12:26:27 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 12:26:27 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Failed denomination=Không xác định
+2026-06-19 12:26:27 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=2/2 pattern=transient_error matched_agents=0
+2026-06-19 12:26:27 | app.services.recognition_service | INFO | [AG0] processing object_index=2 ag0_action=REVIEW
+2026-06-19 12:26:27 | app.services.recognition_service | INFO | [AG0/Gate] object_index=2 banknote_score=0.8287 document_score=0.0007 agent_eligible=True
+2026-06-19 12:26:27 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=1/3
+2026-06-19 12:26:52 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-19 12:26:52 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-19 12:26:52 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Partial denomination=Không xác định
+2026-06-19 12:26:52 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=1/2 pattern=transient_error matched_agents=0
+2026-06-19 12:26:53 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=2/3
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=Không xác định
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=2/2 pattern=transient_error matched_agents=0
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] before count = 2
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=1 display_index=1 bbox=[100, 0, 194, 42] status=agent_error matched_agents=0
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=False
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=False
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=0
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] DROP reason=zero_evidence_background
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=2 display_index=2 bbox=[34, 61, 222, 168] status=agent_error matched_agents=0
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=False
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=0
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_crop_quality_evidence
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 12:27:05 | app.services.recognition_service | INFO | [Recognition] final status=Needs Review require_rerun=False detected_count=1
+2026-06-19 12:28:00 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34d36087ca1a5303ee8c7a user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 12:28:00 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34d36087ca1a5303ee8c7a path=uploads/recognition_tasks/6a34d36087ca1a5303ee8c7a_ad900ce094479562.jpg
+2026-06-19 12:28:00 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34d36087ca1a5303ee8c7a
+2026-06-19 12:28:00 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34d36087ca1a5303ee8c7a
+2026-06-19 12:28:00 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34d36087ca1a5303ee8c7a
+2026-06-19 12:28:00 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34d36087ca1a5303ee8c7a
+2026-06-19 12:28:03 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34d36087ca1a5303ee8c7a
+2026-06-19 12:28:04 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-19 12:28:04 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-19 12:28:04 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-19 12:28:04 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[0, 0, 1893, 830] source=yolo_crop area_ratio=0.998 aspect=2.28 score=1531365.5
+2026-06-19 12:28:04 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-19 12:28:04 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-19 12:28:04 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-19 12:28:05 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[0,0,1896,830] action=KEEP confidence=0.910 reason=YOLO high confidence (0.97) combined with 3/3 good metrics. Accepted as banknote.
+2026-06-19 12:28:05 | app.utils.image_processing | INFO | [AG0/Gate] source=yolo_crop bbox=[0,0,1896,830] action=KEEP banknote_score=0.8523 document_score=0.1145 agent_eligible=True positive=['banknote-like aspect_ratio=2.28', 'rich local texture=4569.0', 'adequate contrast=51.5', 'color richness=0.484', 'meaningful saturation=86.9', 'YOLO banknote confidence=0.97'] negative=[]
+2026-06-19 12:28:05 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-19 12:28:05 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-19 12:28:05 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=4569.0 OK
+2026-06-19 12:28:05 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[0,0,1896,830] area_ratio=1.000 aspect=2.28 texture_var=4569.0 confidence=0.980 ag0=KEEP banknote_score=0.8523 document_score=0.1145 agent_eligible=True
+2026-06-19 12:28:05 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-19 12:28:05 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-19 12:28:05 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.98 fallback=False bbox=[0, 0, 1896, 830]
+2026-06-19 12:28:05 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-19 12:28:05 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.8523 document_score=0.1145 agent_eligible=True
+2026-06-19 12:28:05 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 12:28:22 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=100000 VND
+2026-06-19 12:28:22 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 12:28:22 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=100000 VND
+2026-06-19 12:28:22 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=2/3 matched_agents=2
+2026-06-19 12:28:22 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-19 12:28:22 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-19 12:28:22 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 12:28:22 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-19 12:39:25 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 12:39:38 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 12:41:51 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34d69f30b5ed1a5e0e4b76 user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 12:41:51 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34d69f30b5ed1a5e0e4b76 path=uploads/recognition_tasks/6a34d69f30b5ed1a5e0e4b76_14ce4ef6f9975242.jpg
+2026-06-19 12:41:51 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34d69f30b5ed1a5e0e4b76
+2026-06-19 12:41:51 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34d69f30b5ed1a5e0e4b76
+2026-06-19 12:41:51 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34d69f30b5ed1a5e0e4b76
+2026-06-19 12:41:51 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34d69f30b5ed1a5e0e4b76
+2026-06-19 12:41:53 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34d69f30b5ed1a5e0e4b76
+2026-06-19 12:42:05 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [CropYOLO] No detections from YOLO model.
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=True
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=0 h_split=2 color=0 total=2
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[104, 2, 190, 40] source=horizontal_split area_ratio=0.065 aspect=2.26 score=3007.4
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[43, 66, 213, 167] source=horizontal_split area_ratio=0.341 aspect=1.68 score=10857.4
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [AG0] source=horizontal_split bbox=[100,0,194,42] action=REVIEW confidence=0.600 reason=Marginal quality: texture=3467.6, edge=0.1104, contrast=42.0. Cannot confirm but not dropping.
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split bbox=[100,0,194,42] action=REVIEW banknote_score=0.7779 document_score=0.0481 agent_eligible=True positive=['banknote-like aspect_ratio=2.24', 'reasonable crop area_ratio=0.065', 'rich local texture=3467.6', 'usable edge density=0.1104', 'adequate contrast=42.0', 'meaningful saturation=77.9'] negative=['low color richness=0.338']
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [AG0] source=horizontal_split bbox=[34,61,222,168] action=REVIEW confidence=0.600 reason=Marginal quality: texture=3034.8, edge=0.1447, contrast=50.5. Cannot confirm but not dropping.
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split bbox=[34,61,222,168] action=REVIEW banknote_score=0.8287 document_score=0.0007 agent_eligible=True positive=['banknote-like aspect_ratio=1.76', 'reasonable crop area_ratio=0.341', 'rich local texture=3034.8', 'usable edge density=0.1447', 'adequate contrast=50.5', 'color richness=0.543', 'meaningful saturation=165.9'] negative=[]
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [AG0] provider=opencv before=2 keep=0 review=2 drop=0
+2026-06-19 12:42:06 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=horizontal_split): texture_variance=3467.6 OK
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [CropFinal] #1: source=horizontal_split bbox=[100,0,194,42] area_ratio=0.078 aspect=2.24 texture_var=3467.6 confidence=0.528 ag0=REVIEW banknote_score=0.7779 document_score=0.0481 agent_eligible=True
+2026-06-19 12:42:06 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #2 (source=horizontal_split): texture_variance=3034.8 OK
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | [CropFinal] #2: source=horizontal_split bbox=[34,61,222,168] area_ratio=0.399 aspect=1.76 texture_var=3034.8 confidence=0.849 ag0=REVIEW banknote_score=0.8287 document_score=0.0007 agent_eligible=True
+2026-06-19 12:42:06 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s). opencv_fallback=True dropped_total=0
+2026-06-19 12:42:06 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-19 12:42:06 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=horizontal_split confidence=0.5283 fallback=False bbox=[100, 0, 194, 42]
+2026-06-19 12:42:06 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=horizontal_split confidence=0.8491 fallback=False bbox=[34, 61, 222, 168]
+2026-06-19 12:42:06 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=REVIEW
+2026-06-19 12:42:06 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.7779 document_score=0.0481 agent_eligible=True
+2026-06-19 12:42:06 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 12:42:13 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-19 12:42:13 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 12:42:13 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-19 12:42:13 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/3 pattern=conflict matched_agents=0
+2026-06-19 12:42:14 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=2/3
+2026-06-19 12:42:23 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-19 12:42:23 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 12:42:23 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=Không xác định
+2026-06-19 12:42:23 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=2/2 pattern=transient_error matched_agents=0
+2026-06-19 12:42:23 | app.services.recognition_service | INFO | [AG0] processing object_index=2 ag0_action=REVIEW
+2026-06-19 12:42:23 | app.services.recognition_service | INFO | [AG0/Gate] object_index=2 banknote_score=0.8287 document_score=0.0007 agent_eligible=True
+2026-06-19 12:42:23 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=1/3
+2026-06-19 12:42:32 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-19 12:42:32 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-19 12:42:32 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Partial denomination=Không xác định
+2026-06-19 12:42:32 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=1/2 pattern=transient_error matched_agents=0
+2026-06-19 12:42:33 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=2/3
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Partial denomination=Không xác định
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=2/2 pattern=transient_error matched_agents=0
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] before count = 2
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=1 display_index=1 bbox=[100, 0, 194, 42] status=agent_error matched_agents=0
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=False
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=False
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=0
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] DROP reason=zero_evidence_background
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=2 display_index=2 bbox=[34, 61, 222, 168] status=agent_error matched_agents=0
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=False
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=0
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_crop_quality_evidence
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 12:42:48 | app.services.recognition_service | INFO | [Recognition] final status=Needs Review require_rerun=False detected_count=1
+2026-06-19 12:47:37 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 12:51:52 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 13:01:42 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34db467fe196d5ee506a95 user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 13:01:42 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34db467fe196d5ee506a95 path=uploads/recognition_tasks/6a34db467fe196d5ee506a95_bbae64e71a0b74d1.jpg
+2026-06-19 13:01:42 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34db467fe196d5ee506a95
+2026-06-19 13:01:42 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34db467fe196d5ee506a95
+2026-06-19 13:01:42 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34db467fe196d5ee506a95
+2026-06-19 13:01:42 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34db467fe196d5ee506a95
+2026-06-19 13:01:45 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34db467fe196d5ee506a95
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropYOLO] No detections from YOLO model.
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=True
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=4 h_split=1 color=0 total=5
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 5
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[129, 172, 445, 400] source=contour area_ratio=0.225 aspect=1.39 score=48946.8
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[24, 55, 233, 339] source=contour area_ratio=0.185 aspect=1.36 score=37278.2
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=3 bbox=[374, 0, 712, 400] source=contour area_ratio=0.422 aspect=1.18 score=86213.3
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=4 bbox=[174, 0, 332, 76] source=contour area_ratio=0.038 aspect=2.08 score=8541.3
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=5 bbox=[57, 9, 712, 394] source=horizontal_split area_ratio=0.788 aspect=1.70 score=131484.5
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 4
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropMerge] checking pair 1/2 (y_ov=0.974, x_gap_ratio=-0.395, union_area_ratio=0.800, union_aspect=1.68)
+2026-06-19 13:01:56 | app.utils.image_processing | DEBUG | [CropMerge] Skip pair #1+#2: skip_union_area_too_large (union_area=0.800 > 0.50)
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropMerge] checking pair 1/3 (y_ov=1.000, x_gap_ratio=-0.220, union_area_ratio=0.828, union_aspect=1.79)
+2026-06-19 13:01:56 | app.utils.image_processing | DEBUG | [CropMerge] Skip pair #1+#3: skip_union_area_too_large (union_area=0.828 > 0.50)
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropMerge] checking pair 1/4 (y_ov=0.882, x_gap_ratio=-0.198, union_area_ratio=0.806, union_aspect=1.66)
+2026-06-19 13:01:56 | app.utils.image_processing | DEBUG | [CropMerge] Skip pair #1+#4: skip_union_area_too_large (union_area=0.806 > 0.50)
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropProvider] after merge count = 4
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [AG0] source=horizontal_split_large_single_note bbox=[21,0,748,400] action=REVIEW confidence=0.600 reason=Background score is high (0.975) but texture/edge/contrast suggest possible banknote content. Not dropping.
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split_large_single_note bbox=[21,0,748,400] action=REVIEW banknote_score=0.8519 document_score=0.0000 agent_eligible=True positive=['banknote-like aspect_ratio=1.82', 'reasonable crop area_ratio=0.788', 'rich local texture=1417.0', 'usable edge density=0.1686', 'adequate contrast=48.0', 'color richness=0.659', 'meaningful saturation=192.3'] negative=[]
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [AG0] provider=opencv before=1 keep=0 review=1 drop=0
+2026-06-19 13:01:56 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=horizontal_split_large_single_note): texture_variance=1417.1 OK
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | [CropFinal] #1: source=horizontal_split_large_single_note bbox=[21,0,748,400] area_ratio=0.909 aspect=1.82 texture_var=1417.1 confidence=0.980 ag0=REVIEW banknote_score=0.8519 document_score=0.0000 agent_eligible=True
+2026-06-19 13:01:56 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=True dropped_total=0
+2026-06-19 13:01:56 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-19 13:01:56 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=horizontal_split_large_single_note confidence=0.98 fallback=False bbox=[21, 0, 748, 400]
+2026-06-19 13:01:56 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=REVIEW
+2026-06-19 13:01:56 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.8519 document_score=0.0 agent_eligible=True
+2026-06-19 13:01:56 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 13:02:15 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-19 13:02:15 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 13:02:15 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-19 13:02:15 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/3 pattern=conflict matched_agents=0
+2026-06-19 13:02:16 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=2/3
+2026-06-19 13:02:32 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-19 13:02:32 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 13:02:32 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Failed denomination=Không xác định
+2026-06-19 13:02:32 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=2/2 pattern=transient_error matched_agents=0
+2026-06-19 13:02:32 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-19 13:02:32 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-19 13:02:32 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 13:02:32 | app.services.recognition_service | INFO | [Recognition] final status=Needs Review require_rerun=False detected_count=1
+2026-06-19 13:02:54 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34db8e7fe196d5ee506a9c user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 13:02:54 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34db8e7fe196d5ee506a9c path=uploads/recognition_tasks/6a34db8e7fe196d5ee506a9c_4b63e6be7816040b.jpg
+2026-06-19 13:02:54 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34db8e7fe196d5ee506a9c
+2026-06-19 13:02:54 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34db8e7fe196d5ee506a9c
+2026-06-19 13:02:54 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34db8e7fe196d5ee506a9c
+2026-06-19 13:02:54 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34db8e7fe196d5ee506a9c
+2026-06-19 13:02:55 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34db8e7fe196d5ee506a9c
+2026-06-19 13:02:56 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[291, 389, 611, 1095] source=yolo_crop area_ratio=0.184 aspect=2.21 score=212961.3
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[274,351,628,1133] action=KEEP confidence=0.910 reason=YOLO high confidence (0.94) combined with 3/3 good metrics. Accepted as banknote.
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [AG0/Gate] source=yolo_crop bbox=[274,351,628,1133] action=KEEP banknote_score=0.7881 document_score=0.0894 agent_eligible=True positive=['banknote-like aspect_ratio=2.21', 'reasonable crop area_ratio=0.184', 'rich local texture=1273.2', 'usable edge density=0.1365', 'adequate contrast=41.4', 'YOLO banknote confidence=0.94'] negative=['low mean saturation=25.1']
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-19 13:02:56 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=1273.2 OK
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[274,351,628,1133] area_ratio=0.225 aspect=2.21 texture_var=1273.2 confidence=0.675 ag0=KEEP banknote_score=0.7881 document_score=0.0894 agent_eligible=True
+2026-06-19 13:02:56 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-19 13:02:56 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-19 13:02:56 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.6753 fallback=False bbox=[274, 351, 628, 1133]
+2026-06-19 13:02:56 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-19 13:02:56 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.7881 document_score=0.0894 agent_eligible=True
+2026-06-19 13:02:56 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 13:03:16 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=500000 VND
+2026-06-19 13:03:16 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=500000 VND
+2026-06-19 13:03:16 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=500000 VND
+2026-06-19 13:03:16 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-19 13:03:16 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-19 13:03:16 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-19 13:03:16 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 13:03:16 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-19 14:05:29 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34ea397fe196d5ee506aa3 user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 14:05:29 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34ea397fe196d5ee506aa3 path=uploads/recognition_tasks/6a34ea397fe196d5ee506aa3_3b0896ec14df4dee.jpg
+2026-06-19 14:05:29 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34ea397fe196d5ee506aa3
+2026-06-19 14:05:29 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34ea397fe196d5ee506aa3
+2026-06-19 14:05:29 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34ea397fe196d5ee506aa3
+2026-06-19 14:05:29 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34ea397fe196d5ee506aa3
+2026-06-19 14:05:30 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34ea397fe196d5ee506aa3
+2026-06-19 14:05:31 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[159, 138, 480, 287] source=yolo_crop area_ratio=0.156 aspect=2.15 score=41930.4
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[142,130,497,295] action=KEEP confidence=0.910 reason=YOLO high confidence (0.88) combined with 3/3 good metrics. Accepted as banknote.
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [AG0/Gate] source=yolo_crop bbox=[142,130,497,295] action=KEEP banknote_score=0.8509 document_score=0.2349 agent_eligible=True positive=['banknote-like aspect_ratio=2.15', 'reasonable crop area_ratio=0.156', 'rich local texture=3138.1', 'usable edge density=0.1817', 'adequate contrast=82.7', 'color richness=0.514', 'meaningful saturation=52.0', 'YOLO banknote confidence=0.88'] negative=['many long straight lines=0.852', 'rectangle-like layout=0.208']
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-19 14:05:31 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=3138.1 OK
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[142,130,497,295] area_ratio=0.191 aspect=2.15 texture_var=3138.1 confidence=0.641 ag0=KEEP banknote_score=0.8509 document_score=0.2349 agent_eligible=True
+2026-06-19 14:05:31 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-19 14:05:31 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-19 14:05:31 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.6411 fallback=False bbox=[142, 130, 497, 295]
+2026-06-19 14:05:31 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-19 14:05:31 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.8509 document_score=0.2349 agent_eligible=True
+2026-06-19 14:05:31 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 14:05:43 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=100 USD
+2026-06-19 14:05:43 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=100 USD
+2026-06-19 14:05:43 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-19 14:05:43 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=2/3 matched_agents=2
+2026-06-19 14:05:43 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-19 14:05:43 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-19 14:05:43 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 14:05:43 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-19 14:45:49 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 14:51:50 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34f5163d38375f2f63301d user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 14:51:50 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34f5163d38375f2f63301d path=uploads/recognition_tasks/6a34f5163d38375f2f63301d_b8474795127bc5df.jpg
+2026-06-19 14:51:50 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34f5163d38375f2f63301d
+2026-06-19 14:51:50 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34f5163d38375f2f63301d
+2026-06-19 14:51:50 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34f5163d38375f2f63301d
+2026-06-19 14:51:50 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34f5163d38375f2f63301d
+2026-06-19 14:51:53 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34f5163d38375f2f63301d
+2026-06-19 14:52:05 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-19 14:52:05 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-19 14:52:05 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-19 14:52:05 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-19 14:52:05 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[120, 62, 588, 293] source=yolo_crop area_ratio=0.428 aspect=2.03 score=101750.0
+2026-06-19 14:52:05 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-19 14:52:05 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-19 14:52:05 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-19 14:52:06 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[95,50,613,305] action=KEEP confidence=0.970 reason=Good texture (2295.9), edge density (0.1772), contrast (32.5), aspect ratio (2.03). Crop is likely a banknote.
+2026-06-19 14:52:06 | app.utils.image_processing | INFO | [AG0/Gate] source=yolo_crop bbox=[95,50,613,305] action=KEEP banknote_score=0.8291 document_score=0.1574 agent_eligible=True positive=['banknote-like aspect_ratio=2.03', 'reasonable crop area_ratio=0.428', 'rich local texture=2295.9', 'usable edge density=0.1772', 'adequate contrast=32.5', 'meaningful saturation=64.2', 'YOLO banknote confidence=0.94'] negative=['many long straight lines=0.781']
+2026-06-19 14:52:06 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-19 14:52:06 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-19 14:52:06 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=2295.9 OK
+2026-06-19 14:52:06 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[95,50,613,305] area_ratio=0.523 aspect=2.03 texture_var=2295.9 confidence=0.973 ag0=KEEP banknote_score=0.8291 document_score=0.1574 agent_eligible=True
+2026-06-19 14:52:06 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-19 14:52:06 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-19 14:52:06 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.9734 fallback=False bbox=[95, 50, 613, 305]
+2026-06-19 14:52:06 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-19 14:52:06 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.8291 document_score=0.1574 agent_eligible=True
+2026-06-19 14:52:06 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 14:52:18 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=1000 VND
+2026-06-19 14:52:18 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=1000 VND
+2026-06-19 14:52:18 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=1000 VND
+2026-06-19 14:52:18 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-19 14:52:18 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-19 14:52:18 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-19 14:52:18 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 14:52:18 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-19 15:37:16 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a34ffbc3d38375f2f633024 user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 15:37:16 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a34ffbc3d38375f2f633024 path=uploads/recognition_tasks/6a34ffbc3d38375f2f633024_653c6b33069b200c.jpg
+2026-06-19 15:37:16 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34ffbc3d38375f2f633024
+2026-06-19 15:37:16 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a34ffbc3d38375f2f633024
+2026-06-19 15:37:16 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a34ffbc3d38375f2f633024
+2026-06-19 15:37:16 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a34ffbc3d38375f2f633024
+2026-06-19 15:37:19 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a34ffbc3d38375f2f633024
+2026-06-19 15:37:20 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 2 box(es).
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [CropYOLO] Detected 2 YOLO candidate(s).
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[47, 312, 1343, 785] source=yolo_crop area_ratio=0.390 aspect=2.74 score=527365.7
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[704, 803, 1249, 1085] source=yolo_crop area_ratio=0.098 aspect=1.93 score=61405.8
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[0,286,1414,811] action=KEEP confidence=0.970 reason=Good texture (1837.7), edge density (0.1621), contrast (52.6), aspect ratio (2.69). Crop is likely a banknote.
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [AG0/Gate] source=yolo_crop bbox=[0,286,1414,811] action=KEEP banknote_score=0.9064 document_score=0.0000 agent_eligible=True positive=['banknote-like aspect_ratio=2.69', 'reasonable crop area_ratio=0.390', 'rich local texture=1837.7', 'usable edge density=0.1621', 'adequate contrast=52.6', 'color richness=0.588', 'meaningful saturation=82.2', 'YOLO banknote confidence=0.86'] negative=[]
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[675,788,1278,1086] action=REVIEW confidence=0.550 reason=YOLO confidence moderate (0.40). Metrics marginal: texture=68.2, edge=0.0348, contrast=37.5.
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [AG0/Gate] source=yolo_crop bbox=[675,788,1278,1086] action=REVIEW banknote_score=0.6946 document_score=0.0809 agent_eligible=True positive=['banknote-like aspect_ratio=2.02', 'reasonable crop area_ratio=0.098', 'rich local texture=68.2', 'usable edge density=0.0348', 'adequate contrast=37.5'] negative=['low mean saturation=30.7']
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [AG0] provider=yolo before=2 keep=1 review=1 drop=0
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=2)
+2026-06-19 15:37:20 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=1837.7 OK
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[0,286,1414,811] area_ratio=0.472 aspect=2.69 texture_var=1837.7 confidence=0.922 ag0=KEEP banknote_score=0.9064 document_score=0.0000 agent_eligible=True
+2026-06-19 15:37:20 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #2 (source=yolo_crop): texture_variance=68.2 OK
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | [CropFinal] #2: source=yolo_crop bbox=[675,788,1278,1086] area_ratio=0.114 aspect=2.02 texture_var=68.2 confidence=0.564 ag0=REVIEW banknote_score=0.6946 document_score=0.0809 agent_eligible=True
+2026-06-19 15:37:20 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-19 15:37:20 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-19 15:37:20 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.9221 fallback=False bbox=[0, 286, 1414, 811]
+2026-06-19 15:37:20 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=yolo_crop confidence=0.5643 fallback=False bbox=[675, 788, 1278, 1086]
+2026-06-19 15:37:20 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-19 15:37:20 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.9064 document_score=0.0 agent_eligible=True
+2026-06-19 15:37:20 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 15:37:31 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=100000 VND
+2026-06-19 15:37:31 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=100000 VND
+2026-06-19 15:37:31 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=100000 VND
+2026-06-19 15:37:31 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-19 15:37:31 | app.services.recognition_service | INFO | [AG0] processing object_index=2 ag0_action=REVIEW
+2026-06-19 15:37:31 | app.services.recognition_service | INFO | [AG0/Gate] object_index=2 banknote_score=0.6946 document_score=0.0809 agent_eligible=True
+2026-06-19 15:37:31 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=1/3
+2026-06-19 15:37:59 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-19 15:37:59 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-19 15:37:59 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=Không xác định
+2026-06-19 15:37:59 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=1/2 pattern=transient_error matched_agents=0
+2026-06-19 15:38:00 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=2/3
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Failed denomination=Không xác định
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=2/2 pattern=transient_error matched_agents=0
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] before count = 2
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=1 display_index=1 bbox=[0, 286, 1414, 811] status=completed matched_agents=3
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=True
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=3
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_raw_agent_evidence
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=2 display_index=2 bbox=[675, 788, 1278, 1086] status=agent_error matched_agents=0
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=False
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=0
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_crop_quality_evidence
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [ObjectFilter] after count = 2
+2026-06-19 15:38:22 | app.services.recognition_service | INFO | [Recognition] final status=Needs Review require_rerun=False detected_count=2
+2026-06-19 15:39:15 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a3500333d38375f2f63302e user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 15:39:15 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a3500333d38375f2f63302e path=uploads/recognition_tasks/6a3500333d38375f2f63302e_14ce4ef6f9975242.jpg
+2026-06-19 15:39:15 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a3500333d38375f2f63302e
+2026-06-19 15:39:15 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a3500333d38375f2f63302e
+2026-06-19 15:39:15 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a3500333d38375f2f63302e
+2026-06-19 15:39:15 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a3500333d38375f2f63302e
+2026-06-19 15:39:16 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a3500333d38375f2f63302e
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [CropYOLO] No detections from YOLO model.
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=True
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=0 h_split=2 color=0 total=2
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[104, 2, 190, 40] source=horizontal_split area_ratio=0.065 aspect=2.26 score=3007.4
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[43, 66, 213, 167] source=horizontal_split area_ratio=0.341 aspect=1.68 score=10857.4
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [AG0] source=horizontal_split bbox=[100,0,194,42] action=REVIEW confidence=0.600 reason=Marginal quality: texture=3467.6, edge=0.1104, contrast=42.0. Cannot confirm but not dropping.
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split bbox=[100,0,194,42] action=REVIEW banknote_score=0.7779 document_score=0.0481 agent_eligible=True positive=['banknote-like aspect_ratio=2.24', 'reasonable crop area_ratio=0.065', 'rich local texture=3467.6', 'usable edge density=0.1104', 'adequate contrast=42.0', 'meaningful saturation=77.9'] negative=['low color richness=0.338']
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [AG0] source=horizontal_split bbox=[34,61,222,168] action=REVIEW confidence=0.600 reason=Marginal quality: texture=3034.8, edge=0.1447, contrast=50.5. Cannot confirm but not dropping.
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split bbox=[34,61,222,168] action=REVIEW banknote_score=0.8287 document_score=0.0007 agent_eligible=True positive=['banknote-like aspect_ratio=1.76', 'reasonable crop area_ratio=0.341', 'rich local texture=3034.8', 'usable edge density=0.1447', 'adequate contrast=50.5', 'color richness=0.543', 'meaningful saturation=165.9'] negative=[]
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [AG0] provider=opencv before=2 keep=0 review=2 drop=0
+2026-06-19 15:39:17 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=horizontal_split): texture_variance=3467.6 OK
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [CropFinal] #1: source=horizontal_split bbox=[100,0,194,42] area_ratio=0.078 aspect=2.24 texture_var=3467.6 confidence=0.528 ag0=REVIEW banknote_score=0.7779 document_score=0.0481 agent_eligible=True
+2026-06-19 15:39:17 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #2 (source=horizontal_split): texture_variance=3034.8 OK
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | [CropFinal] #2: source=horizontal_split bbox=[34,61,222,168] area_ratio=0.399 aspect=1.76 texture_var=3034.8 confidence=0.849 ag0=REVIEW banknote_score=0.8287 document_score=0.0007 agent_eligible=True
+2026-06-19 15:39:17 | app.utils.image_processing | INFO | Returned 2 final crop object(s) from 2 raw candidate(s). opencv_fallback=True dropped_total=0
+2026-06-19 15:39:17 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=2 all_fallback=False raw_candidate_count=2
+2026-06-19 15:39:17 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=horizontal_split confidence=0.5283 fallback=False bbox=[100, 0, 194, 42]
+2026-06-19 15:39:17 | app.services.recognition_service | INFO | [Recognition/Object] object_index=2 source=horizontal_split confidence=0.8491 fallback=False bbox=[34, 61, 222, 168]
+2026-06-19 15:39:17 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=REVIEW
+2026-06-19 15:39:17 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.7779 document_score=0.0481 agent_eligible=True
+2026-06-19 15:39:17 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 15:39:38 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-19 15:39:38 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 15:39:38 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=Không xác định
+2026-06-19 15:39:38 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/2 pattern=transient_error matched_agents=0
+2026-06-19 15:39:39 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=2/3
+2026-06-19 15:39:54 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Failed denomination=Không xác định
+2026-06-19 15:39:54 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Failed denomination=Không xác định
+2026-06-19 15:39:54 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Failed denomination=Không xác định
+2026-06-19 15:39:54 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=2/2 pattern=transient_error matched_agents=0
+2026-06-19 15:39:54 | app.services.recognition_service | INFO | [AG0] processing object_index=2 ag0_action=REVIEW
+2026-06-19 15:39:54 | app.services.recognition_service | INFO | [AG0/Gate] object_index=2 banknote_score=0.8287 document_score=0.0007 agent_eligible=True
+2026-06-19 15:39:54 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=1/3
+2026-06-19 15:40:20 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-19 15:40:20 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-19 15:40:20 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=Không xác định
+2026-06-19 15:40:20 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=1/2 pattern=transient_error matched_agents=0
+2026-06-19 15:40:21 | app.services.recognition_service | INFO | [Recognition/Object] start object_2 attempt=2/3
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [Agent1] done object_2 status=Failed denomination=Không xác định
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [Agent2] done object_2 status=Failed denomination=Không xác định
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [Agent3] done object_2 status=Completed denomination=Không xác định
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ConsensusRetry] object_2 attempt=2/2 pattern=transient_error matched_agents=0
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] before count = 2
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=1 display_index=1 bbox=[100, 0, 194, 42] status=agent_error matched_agents=0
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=False
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=False
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=0
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] DROP reason=zero_evidence_background
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] object original_index=2 display_index=2 bbox=[34, 61, 222, 168] status=agent_error matched_agents=0
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] raw_agent_evidence=False
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] crop_quality_evidence=True
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] valid_votes_count=0
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] KEEP reason=has_crop_quality_evidence
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 15:40:38 | app.services.recognition_service | INFO | [Recognition] final status=Needs Review require_rerun=False detected_count=1
+2026-06-19 15:45:39 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 15:46:31 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 16:08:50 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 16:19:19 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 16:19:46 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 16:24:12 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a350abc14b134bab83cf57e user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 16:24:12 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a350abc14b134bab83cf57e path=uploads/recognition_tasks/6a350abc14b134bab83cf57e_14ce4ef6f9975242.jpg
+2026-06-19 16:24:12 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a350abc14b134bab83cf57e
+2026-06-19 16:24:12 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a350abc14b134bab83cf57e
+2026-06-19 16:24:12 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a350abc14b134bab83cf57e
+2026-06-19 16:24:12 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a350abc14b134bab83cf57e
+2026-06-19 16:24:14 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a350abc14b134bab83cf57e
+2026-06-19 16:24:26 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-19 16:24:26 | app.utils.image_processing | INFO | [CropYOLO] No detections from YOLO model.
+2026-06-19 16:24:26 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=True
+2026-06-19 16:24:26 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=0 h_split=2 color=0 total=2
+2026-06-19 16:24:26 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-19 16:24:26 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[104, 2, 190, 40] source=horizontal_split area_ratio=0.065 aspect=2.26 score=3007.4
+2026-06-19 16:24:26 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[43, 66, 213, 167] source=horizontal_split area_ratio=0.341 aspect=1.68 score=10857.4
+2026-06-19 16:24:26 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-19 16:24:26 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-19 16:24:26 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-19 16:24:27 | app.utils.image_processing | INFO | [AG0] source=horizontal_split bbox=[100,0,194,42] action=REVIEW confidence=0.600 reason=Marginal quality: texture=3467.6, edge=0.1104, contrast=42.0. Cannot confirm but not dropping.
+2026-06-19 16:24:27 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split bbox=[100,0,194,42] action=REVIEW banknote_score=0.7779 document_score=0.0481 agent_eligible=False positive=['banknote-like aspect_ratio=2.24', 'reasonable crop area_ratio=0.065', 'rich local texture=3467.6', 'usable edge density=0.1104', 'adequate contrast=42.0', 'meaningful saturation=77.9'] negative=['low color richness=0.338']
+2026-06-19 16:24:27 | app.utils.image_processing | INFO | [AG0] source=horizontal_split bbox=[34,61,222,168] action=REVIEW confidence=0.600 reason=Marginal quality: texture=3034.8, edge=0.1447, contrast=50.5. Cannot confirm but not dropping.
+2026-06-19 16:24:27 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split bbox=[34,61,222,168] action=REVIEW banknote_score=0.8287 document_score=0.0007 agent_eligible=False positive=['banknote-like aspect_ratio=1.76', 'reasonable crop area_ratio=0.341', 'rich local texture=3034.8', 'usable edge density=0.1447', 'adequate contrast=50.5', 'color richness=0.543', 'meaningful saturation=165.9'] negative=[]
+2026-06-19 16:24:27 | app.utils.image_processing | INFO | [AG0] provider=opencv before=2 keep=0 review=0 drop=2
+2026-06-19 16:24:27 | app.utils.image_processing | INFO | [AG0] All candidates dropped by AG0 Checker. Returning empty list (no_banknote_detected). opencv_fallback_used=True dropped_total=2
+2026-06-19 16:24:27 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=0 all_fallback=False raw_candidate_count=0
+2026-06-19 16:24:27 | app.services.recognition_service | INFO | [AG0_GATE] eligible_count=0 -> no_banknote_detected, skip all agents. rejected=2 failure_reason=all_candidates_rejected_by_ag0 task_id=6a350abc14b134bab83cf57e
+2026-06-19 16:24:27 | app.services.recognition_service | INFO | [AG0_GATE] skip original-image fallback
+2026-06-19 16:24:27 | app.services.recognition_service | INFO | [AG0_GATE] no AI billing
+2026-06-19 17:57:20 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 17:58:27 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a3520d326ebbb6dac346b3e user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 17:58:27 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a3520d326ebbb6dac346b3e path=uploads/recognition_tasks/6a3520d326ebbb6dac346b3e_77619ec7c66a6051.jpg
+2026-06-19 17:58:27 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a3520d326ebbb6dac346b3e
+2026-06-19 17:58:27 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a3520d326ebbb6dac346b3e
+2026-06-19 17:58:27 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a3520d326ebbb6dac346b3e
+2026-06-19 17:58:27 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a3520d326ebbb6dac346b3e
+2026-06-19 17:58:30 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a3520d326ebbb6dac346b3e
+2026-06-19 17:58:48 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-19 17:58:49 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[200, 11, 447, 136] source=yolo_crop area_ratio=0.316 aspect=1.98 score=28842.2
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[187,5,460,142] action=KEEP confidence=0.910 reason=YOLO high confidence (0.93) combined with 3/3 good metrics. Accepted as banknote.
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [AG0/Gate] source=yolo_crop bbox=[187,5,460,142] action=KEEP banknote_score=0.8450 document_score=0.3332 agent_eligible=True positive=['banknote-like aspect_ratio=1.99', 'reasonable crop area_ratio=0.316', 'rich local texture=1192.4', 'usable edge density=0.1763', 'adequate contrast=30.8', 'meaningful saturation=78.6', 'YOLO banknote confidence=0.93'] negative=['many long straight lines=0.940', 'rectangle-like layout=0.791']
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-19 17:58:49 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=1192.4 OK
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[187,5,460,142] area_ratio=0.383 aspect=1.99 texture_var=1192.4 confidence=0.833 ag0=KEEP banknote_score=0.8450 document_score=0.3332 agent_eligible=True
+2026-06-19 17:58:49 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-19 17:58:49 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-19 17:58:49 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.8326 fallback=False bbox=[187, 5, 460, 142]
+2026-06-19 17:58:49 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-19 17:58:49 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.845 document_score=0.3332 agent_eligible=True
+2026-06-19 17:58:49 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 17:59:05 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=1000 VND
+2026-06-19 17:59:05 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=1000 VND
+2026-06-19 17:59:05 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=1000 VND
+2026-06-19 17:59:05 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=3/3 matched_agents=3
+2026-06-19 17:59:05 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-19 17:59:05 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-19 17:59:05 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 17:59:05 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1
+2026-06-19 18:00:15 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a35213f26ebbb6dac346b45 user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 18:00:15 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a35213f26ebbb6dac346b45 path=uploads/recognition_tasks/6a35213f26ebbb6dac346b45_14ce4ef6f9975242.jpg
+2026-06-19 18:00:15 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a35213f26ebbb6dac346b45
+2026-06-19 18:00:15 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a35213f26ebbb6dac346b45
+2026-06-19 18:00:15 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a35213f26ebbb6dac346b45
+2026-06-19 18:00:15 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a35213f26ebbb6dac346b45
+2026-06-19 18:00:16 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a35213f26ebbb6dac346b45
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [CropYOLO] No detections from YOLO model.
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=True
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [Crop] Heuristic provider: contour=0 h_split=2 color=0 total=2
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 2
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[104, 2, 190, 40] source=horizontal_split area_ratio=0.065 aspect=2.26 score=3007.4
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=2 bbox=[43, 66, 213, 167] source=horizontal_split area_ratio=0.341 aspect=1.68 score=10857.4
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 2
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [CropProvider] after merge count = 2
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [CropProvider] after nested count = 2
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [AG0] source=horizontal_split bbox=[100,0,194,42] action=REVIEW confidence=0.600 reason=Marginal quality: texture=3467.6, edge=0.1104, contrast=42.0. Cannot confirm but not dropping.
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split bbox=[100,0,194,42] action=REVIEW banknote_score=0.7779 document_score=0.0481 agent_eligible=False positive=['banknote-like aspect_ratio=2.24', 'reasonable crop area_ratio=0.065', 'rich local texture=3467.6', 'usable edge density=0.1104', 'adequate contrast=42.0', 'meaningful saturation=77.9'] negative=['low color richness=0.338']
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [AG0] source=horizontal_split bbox=[34,61,222,168] action=REVIEW confidence=0.600 reason=Marginal quality: texture=3034.8, edge=0.1447, contrast=50.5. Cannot confirm but not dropping.
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [AG0/Gate] source=horizontal_split bbox=[34,61,222,168] action=REVIEW banknote_score=0.8287 document_score=0.0007 agent_eligible=False positive=['banknote-like aspect_ratio=1.76', 'reasonable crop area_ratio=0.341', 'rich local texture=3034.8', 'usable edge density=0.1447', 'adequate contrast=50.5', 'color richness=0.543', 'meaningful saturation=165.9'] negative=[]
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [AG0] provider=opencv before=2 keep=0 review=0 drop=2
+2026-06-19 18:00:17 | app.utils.image_processing | INFO | [AG0] All candidates dropped by AG0 Checker. Returning empty list (no_banknote_detected). opencv_fallback_used=True dropped_total=2
+2026-06-19 18:00:17 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=0 all_fallback=False raw_candidate_count=0
+2026-06-19 18:00:17 | app.services.recognition_service | INFO | [AG0_GATE] eligible_count=0 -> no_banknote_detected, skip all agents. rejected=2 failure_reason=all_candidates_rejected_by_ag0 task_id=6a35213f26ebbb6dac346b45
+2026-06-19 18:00:17 | app.services.recognition_service | INFO | [AG0_GATE] skip original-image fallback
+2026-06-19 18:00:17 | app.services.recognition_service | INFO | [AG0_GATE] no AI billing
+2026-06-19 19:57:03 | app.routers.auth_router | INFO | Redirecting login request from localhost:8000 to backshift-hula-showman.ngrok-free.dev to match GOOGLE_REDIRECT_URI: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/login
+2026-06-19 19:57:03 | app.routers.auth_router | INFO | GOOGLE OAUTH dynamic frontend_url detected: http://localhost:5173
+2026-06-19 19:57:03 | app.routers.auth_router | INFO | GOOGLE OAUTH redirect_uri USED: https://backshift-hula-showman.ngrok-free.dev/api/v1/auth/google/callback
+2026-06-19 22:11:14 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 22:15:06 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a355cfac11adb042a46b85a user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 22:15:06 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a355cfac11adb042a46b85a path=uploads/recognition_tasks/6a355cfac11adb042a46b85a_62f2647a705015ba.jpg
+2026-06-19 22:15:06 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a355cfac11adb042a46b85a
+2026-06-19 22:15:06 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a355cfac11adb042a46b85a
+2026-06-19 22:15:06 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a355cfac11adb042a46b85a
+2026-06-19 22:15:06 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a355cfac11adb042a46b85a
+2026-06-19 22:15:09 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a355cfac11adb042a46b85a
+2026-06-19 22:15:23 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-19 22:15:24 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[388, 336, 669, 730] source=yolo_crop area_ratio=0.090 aspect=1.40 score=101107.1
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[373,315,684,751] action=KEEP confidence=0.970 reason=Good texture (183.5), edge density (0.1058), contrast (50.9), aspect ratio (1.40). Crop is likely a banknote.
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [AG0/Gate] source=yolo_crop bbox=[373,315,684,751] action=KEEP banknote_score=0.7874 document_score=0.0445 agent_eligible=True positive=['banknote-like aspect_ratio=1.40', 'reasonable crop area_ratio=0.090', 'rich local texture=183.5', 'usable edge density=0.1058', 'adequate contrast=50.9', 'YOLO banknote confidence=0.91'] negative=[]
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-19 22:15:24 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=183.5 OK
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[373,315,684,751] area_ratio=0.110 aspect=1.40 texture_var=183.5 confidence=0.560 ag0=KEEP banknote_score=0.7874 document_score=0.0445 agent_eligible=True
+2026-06-19 22:15:24 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-19 22:15:24 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-19 22:15:24 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.5603 fallback=False bbox=[373, 315, 684, 751]
+2026-06-19 22:15:24 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-19 22:15:24 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.7874 document_score=0.0445 agent_eligible=True
+2026-06-19 22:15:24 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 22:15:42 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=500000 VND
+2026-06-19 22:15:42 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=50000 VND
+2026-06-19 22:15:42 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-19 22:15:42 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/3 pattern=1-1-1 matched_agents=0
+2026-06-19 22:15:43 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=2/3
+2026-06-19 22:15:57 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=500000 VND
+2026-06-19 22:15:57 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=50000 VND
+2026-06-19 22:15:57 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-19 22:15:57 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=2/3 pattern=1-1-1 matched_agents=0
+2026-06-19 22:15:58 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=3/3
+2026-06-19 22:16:07 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=500000 VND
+2026-06-19 22:16:07 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=50000 VND
+2026-06-19 22:16:07 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Partial denomination=Không xác định
+2026-06-19 22:16:07 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=3/3 pattern=1-1-1 matched_agents=0
+2026-06-19 22:16:07 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-19 22:16:07 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-19 22:16:07 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 22:16:07 | app.services.recognition_service | INFO | [Recognition] final status=Needs Review require_rerun=False detected_count=1
+2026-06-19 22:35:33 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 22:36:19 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 22:37:13 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 22:38:46 | app.core.database | INFO | MongoDB connected successfully. Database: banknote_system
+2026-06-19 22:45:04 | app.services.recognition_service | INFO | [RecognitionTask] created task_id=6a356400eedc5410a0f35c22 user_id=6a0a73739c3ed8edd1e82107
+2026-06-19 22:45:04 | app.services.recognition_service | INFO | [RecognitionTask] image_saved task_id=6a356400eedc5410a0f35c22 path=uploads/recognition_tasks/6a356400eedc5410a0f35c22_62f2647a705015ba.jpg
+2026-06-19 22:45:04 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a356400eedc5410a0f35c22
+2026-06-19 22:45:04 | app.services.recognition_service | INFO | [RecognitionTask] worker_started task_id=6a356400eedc5410a0f35c22
+2026-06-19 22:45:04 | app.services.recognition_service | INFO | [RecognitionTask] pipeline_started task_id=6a356400eedc5410a0f35c22
+2026-06-19 22:45:04 | app.services.recognition_service | INFO | [Recognition] Start scan task_id=6a356400eedc5410a0f35c22
+2026-06-19 22:45:11 | app.services.recognition_service | INFO | [RecognitionTask] cloudinary_uploaded task_id=6a356400eedc5410a0f35c22
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [CropYOLO] Loaded crop model từ 'ml_models/yolo/best.pt' — names: {0: 'banknote'}.
+2026-06-19 22:45:26 | app.utils.image_processing | DEBUG | [CropYOLO] Raw detections: 1 box(es).
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [CropYOLO] Detected 1 YOLO candidate(s).
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [CropProvider] raw candidates count = 1
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [CropCandidate/raw] idx=1 bbox=[388, 336, 669, 730] source=yolo_crop area_ratio=0.090 aspect=1.40 score=101107.1
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [CropProvider] after NMS count = 1
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [CropProvider] after merge count = 1
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [CropProvider] after nested count = 1
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [AG0] source=yolo_crop bbox=[373,315,684,751] action=KEEP confidence=0.970 reason=Good texture (183.5), edge density (0.1058), contrast (50.9), aspect ratio (1.40). Crop is likely a banknote.
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [AG0/Gate] source=yolo_crop bbox=[373,315,684,751] action=KEEP banknote_score=0.7874 document_score=0.0445 agent_eligible=True positive=['banknote-like aspect_ratio=1.40', 'reasonable crop area_ratio=0.090', 'rich local texture=183.5', 'usable edge density=0.1058', 'adequate contrast=50.9', 'YOLO banknote confidence=0.91'] negative=[]
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [AG0] provider=yolo before=1 keep=1 review=0 drop=0
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [AG0] opencv_fallback_used=False (YOLO valid=1)
+2026-06-19 22:45:26 | app.utils.image_processing | DEBUG | [CropTexture] Candidate #1 (source=yolo_crop): texture_variance=183.5 OK
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | [CropFinal] #1: source=yolo_crop bbox=[373,315,684,751] area_ratio=0.110 aspect=1.40 texture_var=183.5 confidence=0.560 ag0=KEEP banknote_score=0.7874 document_score=0.0445 agent_eligible=True
+2026-06-19 22:45:26 | app.utils.image_processing | INFO | Returned 1 final crop object(s) from 1 raw candidate(s). opencv_fallback=False dropped_total=0
+2026-06-19 22:45:26 | app.services.recognition_service | INFO | [Recognition/Crop] total_detected=1 all_fallback=False raw_candidate_count=1
+2026-06-19 22:45:26 | app.services.recognition_service | INFO | [Recognition/Object] object_index=1 source=yolo_crop confidence=0.5603 fallback=False bbox=[373, 315, 684, 751]
+2026-06-19 22:45:26 | app.services.recognition_service | INFO | [AG0] processing object_index=1 ag0_action=KEEP
+2026-06-19 22:45:26 | app.services.recognition_service | INFO | [AG0/Gate] object_index=1 banknote_score=0.7874 document_score=0.0445 agent_eligible=True
+2026-06-19 22:45:26 | app.services.recognition_service | INFO | [Recognition/Object] start object_1 attempt=1/3
+2026-06-19 22:45:45 | app.services.recognition_service | INFO | [Agent1] done object_1 status=Completed denomination=500000 VND
+2026-06-19 22:45:45 | app.services.recognition_service | INFO | [Agent2] done object_1 status=Completed denomination=50000 VND
+2026-06-19 22:45:45 | app.services.recognition_service | INFO | [Agent3] done object_1 status=Completed denomination=50000 VND
+2026-06-19 22:45:45 | app.services.recognition_service | INFO | [ConsensusRetry] object_1 attempt=1/1 pattern=2/3 matched_agents=2
+2026-06-19 22:45:45 | app.services.recognition_service | INFO | [ObjectFilter] before count = 1
+2026-06-19 22:45:45 | app.services.recognition_service | INFO | [ObjectFilter] Skip filter (no evidence in any object or only 1 object)
+2026-06-19 22:45:45 | app.services.recognition_service | INFO | [ObjectFilter] after count = 1
+2026-06-19 22:45:45 | app.services.recognition_service | INFO | [Recognition] final status=Completed require_rerun=False detected_count=1

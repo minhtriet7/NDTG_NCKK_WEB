@@ -40,7 +40,7 @@ function getId(item) {
   return item?.id || item?._id || item?.transaction_id || item?.payment_id;
 }
 
-function safeText(value, fallback = "N/A") {
+function safeText(value, fallback = "") {
   if (value === null || value === undefined || value === "") return fallback;
   return String(value);
 }
@@ -76,7 +76,7 @@ function normalizeTransaction(tx = {}) {
       tx.payment_code ||
       tx.code ||
       id ||
-      "N/A",
+      "",
     package_name:
       tx.package_name ||
       pkg.name ||
@@ -89,7 +89,7 @@ function normalizeTransaction(tx = {}) {
       tx.email ||
       tx.user_id ||
       tx.client_id ||
-      "N/A",
+      "",
     user_id: String(tx.user_id || user.id || user._id || ""),
     amount: Number(tx.amount || tx.amount_vnd || tx.total_amount || tx.price_vnd || 0),
     tokens_added: Number(
@@ -130,13 +130,14 @@ function formatCurrency(amount) {
   return `${new Intl.NumberFormat("vi-VN").format(Number(amount || 0))} đ`;
 }
 
-function formatDateTime(value) {
-  if (!value) return "N/A";
+function formatDateTime(value, lang = "EN") {
+  const fallback = lang === "VI" ? "Chưa có dữ liệu" : "No data yet";
+  if (!value) return fallback;
 
   try {
     return new Date(value).toLocaleString("vi-VN");
   } catch {
-    return "N/A";
+    return fallback;
   }
 }
 
@@ -196,6 +197,7 @@ export default function TransactionsManager() {
       msgCancel: "Transaction cancelled.",
       msgDel: "Transaction deleted.",
       msgCopied: "JSON copied.",
+      noDataYet: "No data yet",
     },
     VI: {
       title: "Quản lý Giao dịch",
@@ -237,6 +239,7 @@ export default function TransactionsManager() {
       msgCancel: "Đã hủy hóa đơn.",
       msgDel: "Đã xóa giao dịch.",
       msgCopied: "Đã sao chép JSON.",
+      noDataYet: "Chưa có dữ liệu",
     },
   }[lang || "EN"];
 
@@ -704,16 +707,16 @@ export default function TransactionsManager() {
                     className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
                   >
                     <td className="px-5 py-4 text-xs text-slate-500">
-                      {formatDateTime(tx.created_at)}
+                        {formatDateTime(tx.created_at, lang)}
                     </td>
 
                     <td className="px-5 py-4">
                       <p className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
-                        {safeText(tx.transaction_code)}
+                        {safeText(tx.transaction_code, t.noDataYet)}
                       </p>
 
                       <p className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[120px]">
-                        {safeText(tx.package_name)}
+                        {safeText(tx.package_name, t.noDataYet)}
                       </p>
                     </td>
 
@@ -723,11 +726,11 @@ export default function TransactionsManager() {
                           isDark ? "text-slate-200" : "text-slate-800"
                         }`}
                       >
-                        {safeText(tx.user_email)}
+                        {safeText(tx.user_email, t.noDataYet)}
                       </p>
 
                       <p className="text-[10px] text-slate-500 font-mono mt-0.5">
-                        ID: ...{String(tx.user_id || "").slice(-6) || "N/A"}
+                        ID: ...{String(tx.user_id || "").slice(-6) || t.noDataYet}
                       </p>
                     </td>
 
@@ -938,21 +941,21 @@ function TransactionDetailModal({
             <InfoRow
               isDark={isDark}
               label={t.createdAt}
-              value={formatDateTime(tx.created_at)}
+              value={formatDateTime(tx.created_at, lang)}
             />
 
             {tx.paid_at && (
               <InfoRow
                 isDark={isDark}
                 label={t.paidAt}
-                value={formatDateTime(tx.paid_at)}
+                value={formatDateTime(tx.paid_at, lang)}
                 valueClassName="font-bold text-emerald-600 dark:text-emerald-400"
               />
             )}
           </div>
 
           <p className="text-center text-[10px] font-mono text-slate-400">
-            DB_ID: {safeText(getId(tx))}
+            DB_ID: {safeText(getId(tx), t.noDataYet)}
           </p>
 
           <div

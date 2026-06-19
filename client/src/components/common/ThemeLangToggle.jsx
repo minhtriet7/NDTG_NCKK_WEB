@@ -18,13 +18,7 @@ export default function ThemeLangToggle() {
     }
 
     const nextTheme = isDark ? "light" : "dark";
-
-    if (typeof appStore.setTheme === "function") {
-      appStore.setTheme(nextTheme);
-    } else {
-      useAppStore.setState({ theme: nextTheme });
-      document.documentElement.classList.toggle("dark", nextTheme === "dark");
-    }
+    appStore.setTheme?.(nextTheme);
   };
 
   const handleToggleLang = () => {
