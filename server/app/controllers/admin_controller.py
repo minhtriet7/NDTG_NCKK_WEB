@@ -85,6 +85,18 @@ class AdminController:
         return await AdminService.update_system_config(data)
 
     # ============================================================
+    # AG3 TEST ISOLATED RUNNER
+    # ============================================================
+
+    @staticmethod
+    async def test_ag3(user, options: dict, image_file = None):
+        from app.services.ag3_test_service import run_ag3_test
+        image_bytes = None
+        if image_file:
+            image_bytes = await image_file.read()
+        return await run_ag3_test(options, image_bytes)
+
+    # ============================================================
     # USERS
     # ============================================================
 
@@ -105,7 +117,6 @@ class AdminController:
             status=status,
             provider=provider,
         )
-
     @staticmethod
     async def get_user_detail(user_id: str):
         return await AdminService.get_admin_user_detail(user_id)

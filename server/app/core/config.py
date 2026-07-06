@@ -5,11 +5,39 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+
+    # =========================================================
+    # GLOBAL VISION IMAGE RESIZE - PRODUCTION + EXPERIMENT
+    # =========================================================
+    VISION_RESIZE_ENABLED: bool = False
+    VISION_RESIZE_MAX_SIDE: int = 512
+    VISION_RESIZE_KEEP_ASPECT_RATIO: bool = True
+    VISION_RESIZE_APPLY_PRODUCTION: bool = True
+    VISION_RESIZE_APPLY_EXPERIMENT: bool = True
+    VISION_RESIZE_APPLY_TO_AG1: bool = True
+    VISION_RESIZE_APPLY_TO_AG2: bool = True
+    VISION_RESIZE_APPLY_TO_AG3: bool = True
+    VISION_RESIZE_SAVE_DEBUG: bool = True
+    VISION_RESIZE_JPEG_QUALITY: int = 85
+
     # ============================================================
     # APP
     # ============================================================
     PROJECT_NAME: str = "Banknote Recognition API"
     ENV: str = "development"
+    ENABLE_EXPERIMENT_API: bool = True
+    OPENAI_EXPERIMENT_MODEL: str = "gpt-4o"
+    OPENAI_EXPERIMENT_FALLBACK_MODEL: str = "gpt-4o"
+    GEMINI_EXPERIMENT_MODEL: str = "gemini-2.5-flash"
+    GEMINI_EXPERIMENT_FALLBACK_MODEL: str = "gemini-2.5-flash"
+    GEMINI_EXPERIMENT_PRO_MODEL: str = ""
+    EXPERIMENT_IMAGE_DETAIL: str = "auto"
+    EXPERIMENT_MAX_OUTPUT_TOKENS: int = 500
+    EXPERIMENT_TEMPERATURE: float = 0.0
+    EXPERIMENT_AG3_POLICY: str = "always"
+    EXPERIMENT_AG0_ALLOW_ORIGINAL_FALLBACK: bool = False
+    EXPERIMENT_AG0_NO_HARD_STOP: bool = False
+    EXPERIMENT_AGENT_IMAGE_FALLBACK_ORIGINAL: bool = False
 
     # ============================================================
     # DATABASE
@@ -104,6 +132,30 @@ class Settings(BaseSettings):
     AGENT1_RES_IMGSZ: int = 224
 
     # ============================================================
+    # AGENT 2 LLM
+    # ============================================================
+    # AGENT 4 (AGGREGATOR)
+    # ============================================================
+    AG4_ACCEPT_TWO_STRONG_VOTES: bool = True
+    # AG2 Gemini Chain
+    AG2_GEMINI_CHAIN_ENABLED: bool = True
+    AG2_GEMINI_CHAIN_APPLY_PRODUCTION: bool = True
+    AG2_GEMINI_CHAIN_APPLY_EXPERIMENT: bool = True
+    AG2_GEMINI_CHAIN_MAX_MODELS: int = 4
+    AG2_GEMINI_MODEL_CHAIN: str = "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite,gemini-3.5-flash"
+
+    # AG4 Conflict Rerun
+    AG4_CONFLICT_RERUN_ENABLED: bool = False
+    AG4_CONFLICT_RERUN_APPLY_PRODUCTION: bool = False
+    AG4_CONFLICT_RERUN_APPLY_EXPERIMENT: bool = True
+    AG4_CONFLICT_RERUN_MAX_ATTEMPTS: int = 2
+    AG4_CONFLICT_RERUN_USE_ORIGINAL_IMAGE: bool = True
+    AG4_CONFLICT_RERUN_INCLUDE_AG1: bool = True
+    AG4_CONFLICT_RERUN_INCLUDE_AG2: bool = True
+    AG4_CONFLICT_RERUN_INCLUDE_AG3: bool = True
+    AG4_CONFLICT_RERUN_ONLY_ON_PATTERN: str = "1-1-1"
+
+    # ============================================================
     # AGENT 3 CONFIG DEFAULTS
     # ============================================================
     AGENT3_PRIMARY_PROVIDER: str = "serpapi"
@@ -112,6 +164,7 @@ class Settings(BaseSettings):
     AGENT3_FALLBACK_ENABLED: bool = False
     AGENT3_SERPAPI_TIMEOUT_SECONDS: int = 20
     AGENT3_SERPAPI_MAX_RETRIES: int = 1
+    AGENT3_SERPAPI_NO_CACHE: bool = False
     AGENT3_SELENIUM_ENABLED: bool = False
     AGENT3_SELENIUM_HEADLESS: bool = True
     AGENT3_SELENIUM_TIMEOUT_SECONDS: int = 35
@@ -121,13 +174,48 @@ class Settings(BaseSettings):
     AGENT3_V2_ENABLED: bool = False
 
     # ============================================================
-    # SEP PAY / VIETQR PAYMENT
+    # GROQ - AGENT 3 TEXT-ONLY FORMATTER (NOT WIRED TO PIPELINE YET)
+    # ============================================================
+    GROQ_API_KEY: Optional[str] = None
+    AGENT3_GROQ_FORMATTER_ENABLED: bool = False
+    AGENT3_GROQ_FORMATTER_APPLY_PRODUCTION: bool = False
+    AGENT3_GROQ_FORMATTER_APPLY_EXPERIMENT: bool = True
+    AGENT3_FORMATTER_PROVIDER: str = "groq"
+    AGENT3_GROQ_MODEL: str = "auto"
+    AGENT3_GROQ_MODEL_CHAIN: str = ""
+    AGENT3_GROQ_FALLBACK_MODEL: str = "llama-3.3-70b-versatile"
+    AGENT3_GROQ_FALLBACK_ENABLED: bool = True
+    AGENT3_GROQ_TIMEOUT_SECONDS: float = 8.0
+    AGENT3_GROQ_PRIMARY_MAX_RETRIES: int = 1
+    AGENT3_GROQ_FALLBACK_MAX_RETRIES: int = 1
+    AGENT3_GROQ_MAX_OUTPUT_TOKENS: int = 500
+    AGENT3_GROQ_TEMPERATURE: float = 0.0
+    AGENT3_FORMATTER_MAX_EVIDENCE: int = 5
+
+    # ============================================================
+    # GROQ - AGENT 3 EVIDENCE READER (reads text evidence, NOT images)
+    # ============================================================
+    # Enable/disable the Evidence Reader layer entirely.
+    AGENT3_GROQ_EVIDENCE_READER_ENABLED: bool = False
+    # always = always call when evidence_count > 0
+    # when_weak = only call when deterministic parser has low confidence or conflict
+    # never = skip entirely (deterministic only)
+    AGENT3_GROQ_EVIDENCE_READER_MODE: str = "when_weak"
+    AGENT3_GROQ_EVIDENCE_READER_TIMEOUT_SECONDS: float = 5.0
+    AGENT3_GROQ_EVIDENCE_READER_TOP_N: int = 5
+    AGENT3_GROQ_EVIDENCE_READER_MAX_OUTPUT_TOKENS: int = 800
+
+
+    # ============================================================
+    # DEPRECATED SEPAY SETTINGS (webhook/payment method disabled)
+    # Kept temporarily for backward-compatible configuration loading only.
     # ============================================================
     SEPAY_API_KEY: Optional[str] = None
     SEPAY_API_TOKEN: Optional[str] = None
     SEPAY_ACCOUNT_NUMBER: Optional[str] = None
     SEPAY_BANK_BRAND: Optional[str] = None
 
+    # ACTIVE VIETQR / MANUAL BANK TRANSFER SETTINGS
     BANK_ACCOUNT_NUMBER: Optional[str] = None
     BANK_ID: Optional[str] = None
     ACCOUNT_NAME: Optional[str] = None
@@ -136,6 +224,14 @@ class Settings(BaseSettings):
     # ============================================================
     # VNPAY PAYMENT
     # ============================================================
+    VNPAY_ENABLED: bool = False
+    VNPAY_TMN_CODE: Optional[str] = None
+    VNPAY_HASH_SECRET: Optional[str] = None
+    VNPAY_PAYMENT_URL: str = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"
+    VNPAY_RETURN_URL: str = "http://localhost:5173/vnpay-return"
+    VNPAY_IPN_URL: str = "http://localhost:8000/api/v1/payment/vnpay/ipn"
+
+    # Legacy aliases kept so existing deployments continue to load safely.
     VNP_TMNCODE: Optional[str] = None
     VNP_HASHSECRET: Optional[str] = None
     VNP_URL: str = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"

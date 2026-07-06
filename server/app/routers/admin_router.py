@@ -68,37 +68,43 @@ class FbStatusSchema(BaseModel):
 class FbPrioritySchema(BaseModel):
     priority: str
 
-
 class FbReplySchema(BaseModel):
     admin_reply: str
     status: str = "resolved"
 
-
 class TxStatusUpdateSchema(BaseModel):
     status: str
 
-
-def admin_user(current_user: User = Depends(require_admin)):
+def admin_user(current_user=Depends(require_admin)):
     return current_user
-
 
 # ============================================================
 # Dashboard
 # ============================================================
 @router.get("/dashboard/summary")
-async def get_dashboard_summary(current_user: User = Depends(admin_user)):
+async def get_dashboard_summary(current_user=Depends(admin_user)):
     return await maybe_await(AdminController.get_dashboard_summary())
 
-
 @router.get("/system/health")
-async def get_system_health(current_user: User = Depends(admin_user)):
+async def get_system_health(current_user=Depends(admin_user)):
     return await maybe_await(AdminController.get_system_health())
 
-
 @router.get("/agents/performance")
-async def get_agent_performance(current_user: User = Depends(admin_user)):
+async def get_agent_performance(current_user=Depends(admin_user)):
     return await maybe_await(AdminController.get_agent_performance())
 
+# ============================================================
+# AG3 TEST ISOLATED RUNNER
+# ============================================================
+@router.post("/ag3-test/run")
+async def run_ag3_test(
+    options: str = Query(..., description="JSON string of options"),
+    image: Optional[UploadFile] = File(None),
+    current_user = Depends(admin_user)
+):
+    import json
+    opts = json.loads(options)
+    return await maybe_await(AdminController.test_ag3(current_user, opts, image))
 
 @router.get("/recognition/recent")
 async def get_recent_scans(

@@ -1,4 +1,3 @@
-
 import { Routes, Route, Navigate } from "react-router-dom";
 
 // Common
@@ -68,12 +67,16 @@ import TokenPackagesManager from "../pages/admin/TokenPackagesManager.jsx";
 import TransactionsManager from "../pages/admin/TransactionsManager.jsx";
 import Settings from "../pages/admin/Settings.jsx";
 import PagesManager from "../pages/admin/PagesManager.jsx";
+import Experiments from "../pages/admin/Experiments.jsx";
+import Ag3Test from "../pages/admin/Ag3Test.jsx";
+import DebugRecognition from "../pages/dev/DebugRecognition.jsx";
 
 // Error Components
 import NotFound404 from "../errors/NotFound404.jsx";
 
-// Dev
-import DebugPlayground from "../pages/dev/DebugPlayground.jsx";
+const EXPERIMENTS_ENABLED =
+  String(import.meta.env.VITE_ENABLE_EXPERIMENT_PAGE ?? "true").toLowerCase() !==
+  "false";
 
 export default function AppRoutes() {
   return (
@@ -85,8 +88,10 @@ export default function AppRoutes() {
         {/* PUBLIC + USER APP LAYOUT */}
         {/* ===================================================== */}
         
-        {/* Dev Playground (Hidden from navigation) */}
-        <Route path="/dev/debug" element={<DebugPlayground />} />
+        {/* ===================================================== */}
+        {/* DEV / DEBUG — standalone, no layout wrapping */}
+        {/* ===================================================== */}
+        <Route path="/dev/debug" element={<DebugRecognition />} />
         
         <Route element={<MainLayout />}>
           {/* Public */}
@@ -137,6 +142,8 @@ export default function AppRoutes() {
             <Route path="/feedback" element={<Feedback />} />
             <Route path="/checkout" element={<Checkout />} />
             <Route path="/sepay-checkout" element={<SepayCheckout />} />
+            
+            {/* Thanh toán thành công/thất bại */}
             <Route path="/payment/success" element={<PaymentReturn status="success" />} />
             <Route path="/payment/failed" element={<PaymentReturn status="failed" />} />
           </Route>
@@ -176,6 +183,16 @@ export default function AppRoutes() {
             <Route path="/admin/logs" element={<SystemLogs />} />
             <Route path="/admin/settings" element={<Settings />} />
             <Route path="/admin/pages" element={<PagesManager />} />
+            <Route
+              path="/admin/experiments"
+              element={
+                EXPERIMENTS_ENABLED ? (
+                  <Experiments />
+                ) : (
+                  <Navigate to="/admin/dashboard" replace />
+                )
+              }
+            />
 
             {/* User & Payments */}
             <Route path="/admin/users" element={<UsersManager />} />
@@ -205,6 +222,10 @@ export default function AppRoutes() {
             <Route
               path="/admin/agents/google-lens"
               element={<GoogleLensConfig />}
+            />
+            <Route
+              path="/admin/ag3-test"
+              element={<Ag3Test />}
             />
             <Route
               path="/admin/agents/aggregator"

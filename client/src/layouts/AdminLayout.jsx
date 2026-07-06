@@ -7,11 +7,15 @@ import { useLanguageStore } from "../store/languageStore";
 import { 
   LayoutDashboard, Users, Coins, Settings, LogOut, FileImage, 
   ArrowRightLeft, MessageSquare, Terminal, Landmark, Cpu, 
-  BotMessageSquare, SearchCheck, GitMerge, FileText, Sun, Moon, Globe, Home, User as UserIcon, Menu, X, ChevronRight, Shield
+  BotMessageSquare, SearchCheck, GitMerge, FileText, Sun, Moon, Globe, Home, User as UserIcon, Menu, X, ChevronRight, Shield, FlaskConical
 } from "lucide-react";
 import SEO from "../components/SEO";
 
 function Box(props) { return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>; }
+
+const EXPERIMENTS_ENABLED =
+  String(import.meta.env.VITE_ENABLE_EXPERIMENT_PAGE ?? "true").toLowerCase() !==
+  "false";
 
 export default function AdminLayout() {
   const { logout, user } = useAuthStore();
@@ -78,6 +82,9 @@ export default function AdminLayout() {
       title: lang === "VI" ? "Dữ liệu Nhận diện" : "Recognition Data",
       items: [
         { name: lang === "VI" ? "Kết quả" : "Results", icon: Terminal, path: "/admin/results" },
+        ...(EXPERIMENTS_ENABLED
+          ? [{ name: lang === "VI" ? "Thực nghiệm" : "Experiments", icon: FlaskConical, path: "/admin/experiments" }]
+          : []),
         { name: lang === "VI" ? "Tiền giấy" : "Banknotes", icon: FileImage, path: "/admin/banknotes" },
         { name: lang === "VI" ? "Tỷ giá" : "Currency Rates", icon: Landmark, path: "/admin/currency-rates" },
       ]
@@ -90,6 +97,7 @@ export default function AdminLayout() {
         { name: "AG1 OpenAI/GPT Vision", icon: Box, path: "/admin/agents/ai-model" },
         { name: "AG2 Gemini/LLM", icon: BotMessageSquare, path: "/admin/agents/llm" },
         { name: "AG3 Google Lens/Visual Search", icon: SearchCheck, path: "/admin/agents/google-lens" },
+        { name: "AG3 Isolated Test", icon: SearchCheck, path: "/admin/ag3-test" },
         { name: lang === "VI" ? "Tổng hợp" : "Aggregator", icon: GitMerge, path: "/admin/agents/aggregator" },
       ]
     },
