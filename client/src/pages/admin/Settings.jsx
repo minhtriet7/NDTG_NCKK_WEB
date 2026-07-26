@@ -36,10 +36,10 @@ const DEFAULT_CONFIG = {
   scan_history_retention_days: 30,
   token_cost_per_scan: 1,
 
-  payment_gateway_default: "sepay",
-  enabled_payment_gateways: ["sepay"],
+  payment_gateway_default: "bank_transfer",
+  enabled_payment_gateways: ["bank_transfer"],
 
-  sepay_enabled: true,
+  sepay_enabled: false,
   vnpay_enabled: false,
   mock_payment_enabled: false,
 
@@ -108,24 +108,27 @@ const DEFAULT_CONFIG = {
 
 function unwrapSettings(data) {
   const raw = data?.settings || data?.data || data || {};
-  return { ...DEFAULT_CONFIG, ...raw };
+  const merged = { ...DEFAULT_CONFIG, ...raw };
+  return {
+    ...merged,
+    sepay_enabled: false,
+    vnpay_enabled: false,
+    mock_payment_enabled: false,
+    enabled_payment_gateways: ["bank_transfer"],
+    payment_gateway_default: "bank_transfer",
+  };
 }
 
 function normalizePayload(config) {
-  const gateways = [];
-  if (config.sepay_enabled) gateways.push("sepay");
-  if (config.vnpay_enabled) gateways.push("vnpay");
-  if (config.mock_payment_enabled) gateways.push("mock");
-
-  let defaultGateway = config.payment_gateway_default || "sepay";
-  if (!gateways.includes(defaultGateway)) {
-    defaultGateway = gateways[0] || "sepay";
-  }
+  const gateways = ["bank_transfer"];
 
   return {
     ...config,
+    sepay_enabled: false,
+    vnpay_enabled: false,
+    mock_payment_enabled: false,
     enabled_payment_gateways: gateways,
-    payment_gateway_default: defaultGateway,
+    payment_gateway_default: "bank_transfer",
     max_upload_size_mb: Number(config.max_upload_size_mb || 5),
     scan_history_retention_days: Number(config.scan_history_retention_days || 30),
     token_cost_per_scan: Number(config.token_cost_per_scan || 1),
@@ -342,19 +345,41 @@ export default function Settings() {
 
           {activeTab === "payment" && (
             <Section title="Payment Integrations" panelCls={panelCls}>
-              <ToggleGrid>
-                <Toggle title="SEPAY Gateway" name="sepay_enabled" checked={config.sepay_enabled} onChange={handleInputChange} />
-                <Toggle title="VNPay Gateway" name="vnpay_enabled" checked={config.vnpay_enabled} onChange={handleInputChange} />
-                <Toggle title="Mock Processor (Dev)" name="mock_payment_enabled" checked={config.mock_payment_enabled} onChange={handleInputChange} />
-              </ToggleGrid>
+              {/* VNPay is disabled by default. Requires approved merchant website and return URL. */}
+              <div className={`rounded-lg border p-4 flex items-start gap-3 ${
+                isDark ? "bg-slate-800/50 border-slate-700" : "bg-amber-50 border-amber-200"
+              }`}>
+                <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <p className={`font-bold mb-1 ${isDark ? "text-amber-300" : "text-amber-800"}`}>
+                    VNPay — {lang === "VI" ? "Tạm vô hiệu hóa" : "Temporarily Disabled"}
+                  </p>
+                  <p className={isDark ? "text-slate-300" : "text-amber-700"}>
+                    {lang === "VI"
+                      ? "VNPay yêu cầu website và Return URL được phê duyệt bởi VNPay trước khi kích hoạt. Hiện tại chỉ dùng VietQR / Chuyển khoản."
+                      : "VNPay requires an approved merchant website and return URL before enabling. Currently using VietQR / Bank Transfer only."}
+                  </p>
+                </div>
+              </div>
+              {/* VNPay config fields — kept for admin reference, not exposed to users */}
               <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
                 <Grid>
-                  <Select label="Primary Gateway" name="payment_gateway_default" value={config.payment_gateway_default} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} options={["sepay", "vnpay", "mock"]} />
-                  <Input label="SEPAY Inst Name" name="sepay_bank_name" value={config.sepay_bank_name || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="SEPAY Account No." name="sepay_account_number" value={config.sepay_account_number || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="SEPAY Account Holder" name="sepay_account_name" value={config.sepay_account_name || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="VNPay Return URI" name="vnpay_return_url" value={config.vnpay_return_url || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
-                  <Input label="VNPay Webhook URI" name="vnpay_ipn_url" value={config.vnpay_ipn_url || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <div>
+                    <label className={labelCls}>Primary Gateway</label>
+                    <input
+                      value="bank_transfer"
+                      readOnly
+                      className={`${inputCls} opacity-70 cursor-not-allowed`}
+                    />
+                    <p className="text-xs text-slate-400 mt-1">
+                      {lang === "VI" ? "Chỉ VietQR / Chuyển khoản được kích hoạt." : "Only VietQR / Bank Transfer is active."}
+                    </p>
+                  </div>
+                  <Input label="VietQR Bank" name="sepay_bank_name" value={config.sepay_bank_name || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="Bank Account No." name="sepay_account_number" value={config.sepay_account_number || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="Account Holder" name="sepay_account_name" value={config.sepay_account_name || ""} onChange={handleInputChange} inputCls={inputCls} labelCls={labelCls} />
+                  <Input label="VNPay Return URI (Disabled)" name="vnpay_return_url" value={config.vnpay_return_url || ""} onChange={handleInputChange} inputCls={`${inputCls} opacity-60`} labelCls={labelCls} />
+                  <Input label="VNPay Webhook URI (Disabled)" name="vnpay_ipn_url" value={config.vnpay_ipn_url || ""} onChange={handleInputChange} inputCls={`${inputCls} opacity-60`} labelCls={labelCls} />
                 </Grid>
               </div>
             </Section>

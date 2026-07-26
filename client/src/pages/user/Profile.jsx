@@ -494,6 +494,20 @@ function formatNumber(value, lang = "EN") {
   );
 }
 
+function formatGatewayLabel(value, lang = "EN") {
+  const gateway = String(value || "").trim().toLowerCase();
+  if (gateway === "vnpay") {
+    return lang === "VI" ? "VNPay (Tạm tắt)" : "VNPay (Disabled)";
+  }
+  if (["bank_transfer", "vietqr"].includes(gateway)) {
+    return lang === "VI" ? "VietQR / Chuyển khoản" : "VietQR / Bank Transfer";
+  }
+  if (gateway === "sepay") {
+    return lang === "VI" ? "SePay (Đã ngừng)" : "SePay (Deprecated)";
+  }
+  return value || (lang === "VI" ? "Nạp token" : "Token recharge");
+}
+
 function formatMoney(value, currency = "VND", lang = "EN") {
   const currencyCode = String(currency || "VND").trim().toUpperCase();
   const rawValue = String(value ?? "").trim();
@@ -2233,9 +2247,7 @@ function TokenPaymentActivityCard({
               const key = item?.id || item?._id || item?.transaction_id || index;
               const title =
                 item?.package_name ||
-                item?.payment_gateway ||
-                item?.gateway ||
-                "Token recharge";
+                formatGatewayLabel(item?.payment_gateway || item?.gateway, lang);
               const tokens = formatNumber(item?.tokens_added || item?.tokens || 0, lang);
 
               return (
@@ -2287,7 +2299,7 @@ function TokenPaymentActivityCard({
                     className="bg-white transition hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-950"
                   >
                     <td className="px-4 py-3 font-medium text-slate-950 dark:text-white">
-                      {item?.package_name || item?.payment_gateway || item?.gateway || "Token recharge"}
+                      {item?.package_name || formatGatewayLabel(item?.payment_gateway || item?.gateway, lang)}
                     </td>
                     <td className="px-4 py-3 font-semibold text-emerald-700 dark:text-emerald-300">
                       +{formatNumber(item?.tokens_added || item?.tokens || 0, lang)}

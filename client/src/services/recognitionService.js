@@ -2,34 +2,58 @@ import api from "./api";
 
 const ACTIVE_TASK_KEY = "active_recognition_task";
 
+export const isValidRecognitionImage = (file) => {
+  const isFile = typeof File !== "undefined" && file instanceof File;
+  const isBlob = typeof Blob !== "undefined" && file instanceof Blob;
+
+  return Boolean(
+    (isFile || isBlob) &&
+      Number(file?.size) > 0 &&
+      String(file?.type || "").startsWith("image/"),
+  );
+};
+
+export const getRecognitionFileDebug = (file) => ({
+  hasFile: isValidRecognitionImage(file),
+  name: typeof file?.name === "string" ? file.name : null,
+  type: typeof file?.type === "string" ? file.type : null,
+  size: Number.isFinite(Number(file?.size)) ? Number(file.size) : null,
+});
+
 export const recognitionService = {
   scan: async (file) => {
     const formData = new FormData();
     formData.append("file", file);
 
-    return await api.post("/recognition/scan", formData, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    });
+    return await api.post("/recognition/scan", formData);
   },
 
   scanDebug: async (formData) => {
+    // QUAN TRONG: phai unset Content-Type de axios tu generate
+    // multipart/form-data; boundary=... cho FormData.
+    // Neu de Content-Type: application/json thi FastAPI khong parse duoc file -> 422.
+    // Token duoc tu dong gan boi api interceptor (Authorization: Bearer ...).
     return await api.post("/recognition/debug_scan", formData, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
+      headers: { "Content-Type": undefined },
     });
   },
 
   startTask: async (file) => {
+    const fileDebug = getRecognitionFileDebug(file);
+    console.debug("[RecognitionTask] upload", fileDebug);
+
+    if (!fileDebug.hasFile) {
+      throw new Error("Missing image file. Please choose or capture an image again.");
+    }
+
     const formData = new FormData();
     formData.append("file", file);
 
+    // QUAN TRỌNG: xóa Content-Type default (application/json) của axios instance.
+    // Nếu không, Axios không thể tự set multipart/form-data; boundary=...
+    // và FastAPI sẽ không parse được file → 422 body.file: Field required.
     return await api.post("/recognition/tasks", formData, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
+      headers: { "Content-Type": undefined },
     });
   },
 
@@ -61,6 +85,25 @@ export const scanBanknote = async (file) => {
 export const scanBanknoteDebug = async (formData) => {
   return await recognitionService.scanDebug(formData);
 };
+
+// Kiem tra xem auth token co trong store khong (debug helper, khong call API)
+export const getDebugAuthStatus = () => {
+  try {
+    const { getStoredToken } = require("./api");
+    const token = getStoredToken();
+    return { hasToken: Boolean(token), tokenPreview: token ? `${token.slice(0, 20)}...` : null };
+  } catch {
+    // fallback neu require khong work (ES module)
+    try {
+      const authStorage = JSON.parse(localStorage.getItem("auth-storage") || "null");
+      const token = authStorage?.state?.token || localStorage.getItem("access_token") || localStorage.getItem("token") || "";
+      return { hasToken: Boolean(token), tokenPreview: token ? `${token.slice(0, 20)}...` : null };
+    } catch {
+      return { hasToken: false, tokenPreview: null };
+    }
+  }
+};
+
 
 export const saveActiveRecognitionTask = (taskId, inputMeta = {}) => {
   const payload = {

@@ -11,7 +11,6 @@ import {
   Timer,
   Hash,
   ShieldCheck,
-  Sparkles,
   Gavel,
   UploadCloud,
   ChevronRight,
@@ -23,10 +22,15 @@ import {
   saveActiveRecognitionTask,
   clearActiveRecognitionTask,
   getActiveRecognitionTask,
+  getRecognitionFileDebug,
+  isValidRecognitionImage,
 } from "../../services/recognitionService";
 
 import { useAuthStore } from "../../store/authStore";
-import { useRecognitionStore } from "../../store/recognitionStore";
+import {
+  getRecognitionFileFingerprint,
+  useRecognitionStore,
+} from "../../store/recognitionStore";
 import { useLanguageStore } from "../../store/languageStore";
 
 const dict = {
@@ -131,6 +135,8 @@ const TERMINAL_DONE_STATUSES = new Set([
   "succeeded",
   "needs_review",
   "needs review",
+  "no_banknote_detected",
+  "needs_better_image",
 ]);
 
 const TERMINAL_FAILED_STATUSES = new Set([
@@ -140,6 +146,8 @@ const TERMINAL_FAILED_STATUSES = new Set([
   "cancelled",
   "canceled",
   "timeout",
+  "agent_error",
+  "technical_error",
 ]);
 
 function normalizeStatus(value) {
@@ -320,13 +328,30 @@ function getCropDebug(task) {
 }
 
 function getLensStatus(task, fallback) {
+  const agentResults = task?.result?.agent_results || task?.agent_results || [];
+  const lensFromList = agentResults.find(a =>
+    String(a?.agent || a?.agent_name || a?.name || "").toLowerCase().includes("lens") ||
+    String(a?.agent || a?.agent_name || a?.name || "").toLowerCase().includes("visual")
+  );
+
   const lens =
+    lensFromList?.data ||
+    lensFromList?.result ||
     task?.agents?.visual_search ||
     task?.result?.agents?.visual_search ||
     task?.data?.agents?.visual_search ||
     task?.visual_search ||
     null;
-  const joined = JSON.stringify(lens || {}).toLowerCase();
+
+  if (!lens) return fallback;
+
+  const status = String(lens?.status || lensFromList?.status || "").toLowerCase();
+
+  if (["failed", "technical_error", "timeout", "no_source", "disabled"].includes(status)) {
+    return "not_counted";
+  }
+
+  const joined = JSON.stringify(lens).toLowerCase();
   if (
     joined.includes("timeout") ||
     joined.includes("quota") ||
@@ -337,10 +362,15 @@ function getLensStatus(task, fallback) {
   ) {
     return "not_counted";
   }
+
+  if (["completed", "success", "partial"].includes(status)) {
+    return "completed";
+  }
+
   return fallback;
 }
 
-function StepCard({ icon: Icon, title, desc, status }) {
+function StepCard({ title, desc, status }) {
   return (
     <div
       className={`relative overflow-hidden rounded-3xl border p-5 shadow-sm transition-all duration-500 ${
@@ -356,34 +386,12 @@ function StepCard({ icon: Icon, title, desc, status }) {
       {(status === "running" || status === "scanning") && (
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-400 via-indigo-500 to-violet-500" />
       )}
-      <div className="flex items-center gap-3">
-        <div
-          className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
-            status === "completed" || status === "success"
-              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
-              : status === "running" || status === "scanning"
-              ? "bg-indigo-500/15 text-indigo-600 dark:text-indigo-300"
-              : status === "error" || status === "not_counted"
-              ? "bg-rose-500/15 text-rose-600 dark:text-rose-300"
-              : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-          }`}
-        >
-          {status === "completed" || status === "success" ? (
-            <CheckCircle2 className="w-5 h-5" />
-          ) : status === "running" || status === "scanning" ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
-          ) : (
-            <Icon className="w-5 h-5" />
-          )}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="font-black text-slate-900 dark:text-slate-100">{title}</h3>
+          <StatusBadge status={status} />
         </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <h3 className="font-black text-slate-900 dark:text-slate-100">{title}</h3>
-            <StatusBadge status={status} />
-          </div>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">{desc}</p>
-        </div>
+        <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">{desc}</p>
       </div>
     </div>
   );
@@ -408,6 +416,29 @@ function TimelineStep({ icon: Icon, title, status, isActive }) {
   );
 }
 
+const getApiErrorMessage = (error) => {
+  const data = error?.response?.data;
+
+  if (typeof data === "string") return data;
+
+  if (Array.isArray(data?.detail)) {
+    return data.detail
+      .map((item) => {
+        if (typeof item === "string") return item;
+        const loc = Array.isArray(item?.loc) ? item.loc.join(".") : "";
+        const msg = item?.msg || item?.message || "Validation error";
+        return loc ? `${loc}: ${msg}` : msg;
+      })
+      .join("; ");
+  }
+
+  if (typeof data?.detail === "string") return data.detail;
+  if (typeof data?.message === "string") return data.message;
+  if (typeof error?.message === "string") return error.message;
+
+  return "Cannot start analysis. Please try again.";
+};
+
 export default function Processing() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -418,9 +449,31 @@ export default function Processing() {
   const currentImageFile = useRecognitionStore((state) => state.currentImageFile);
   const currentPreviewUrl = useRecognitionStore((state) => state.currentPreviewUrl);
 
-  const imageFile = currentImageFile;
-  const initialPreviewUrl = currentPreviewUrl;
-  const [previewUrl, setPreviewUrl] = useState(initialPreviewUrl);
+  const fileToUse = location.state?.imageFile || location.state?.file || currentImageFile;
+  const previewDataUrl = location.state?.previewDataUrl;
+  const routePreviewUrl = location.state?.previewUrl;
+  const routeScanNonce = location.state?.scanNonce || null;
+  const routeFileFingerprint = location.state?.fileFingerprint || null;
+
+  const [localObjectURL, setLocalObjectURL] = useState(null);
+  const [backendPreviewUrl, setBackendPreviewUrl] = useState(null);
+
+  useEffect(() => {
+    let urlToRevoke = null;
+    if (fileToUse && typeof fileToUse !== 'string') {
+      try {
+        urlToRevoke = URL.createObjectURL(fileToUse);
+        setLocalObjectURL(urlToRevoke);
+      } catch (e) {
+        console.error("Could not create object URL from file:", e);
+      }
+    }
+    return () => {
+      if (urlToRevoke) URL.revokeObjectURL(urlToRevoke);
+    };
+  }, [fileToUse]);
+
+  const previewUrl = previewDataUrl || localObjectURL || routePreviewUrl || currentPreviewUrl || backendPreviewUrl;
 
   const updateTokenBalance = useAuthStore((state) => state.updateTokenBalance);
   const syncProfile = useAuthStore((state) => state.syncProfile);
@@ -438,6 +491,7 @@ export default function Processing() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [taskSnapshot, setTaskSnapshot] = useState(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isMissingFileError, setIsMissingFileError] = useState(false);
 
   const [agentsStatus, setAgentsStatus] = useState({
     crop: "running",
@@ -577,7 +631,7 @@ export default function Processing() {
       
       // Cập nhật lại ảnh preview nếu frontend bị mất URL do reload tab
       if (!previewUrl && task?.input_image_url) {
-        setPreviewUrl(task.input_image_url);
+        setBackendPreviewUrl(task.input_image_url);
       }
 
       setVisualStage(
@@ -609,6 +663,12 @@ export default function Processing() {
         clearActiveTask();
         navigate("/recognize", { replace: true });
         return;
+      }
+
+      // Không kết thúc flow ngay khi lỗi network tạm thời (network error hoặc 5xx)
+      if (!err?.response || err?.response?.status >= 500) {
+        console.warn("Polling network error, retrying...", err.message);
+        return; // Return mà không fail, để poll timer vòng sau gọi lại
       }
 
       failProcessing(
@@ -648,27 +708,50 @@ export default function Processing() {
       try {
         setVisualStage("uploading", 10);
 
-        const storedTask = getActiveRecognitionTask();
-        const restoredTask = peekFreshActiveTask?.();
         const queryTaskId = new URLSearchParams(location.search).get("taskId");
         const pathTaskId = location.pathname.startsWith("/processing/")
           ? location.pathname.split("/").filter(Boolean).at(-1)
           : null;
+        const explicitTaskId = location.state?.taskId || queryTaskId || pathTaskId;
+        const startsNewScan = Boolean(
+          routeScanNonce || location.state?.imageFile || location.state?.file,
+        );
+        const storedTask = startsNewScan ? null : getActiveRecognitionTask();
+        const restoredTask = startsNewScan ? null : peekFreshActiveTask?.();
         let taskId =
-          location.state?.taskId ||
-          queryTaskId ||
-          pathTaskId ||
+          explicitTaskId ||
           restoredTask?.taskId ||
           storedTask?.taskId ||
           null;
 
         if (!taskId) {
-          if (!imageFile) {
-            navigate("/workspace", { replace: true });
+          const fileDebug = getRecognitionFileDebug(fileToUse);
+          console.debug("[Processing] recognition upload preflight", fileDebug);
+
+          if (!isValidRecognitionImage(fileToUse)) {
+            setIsMissingFileError(true);
+            failProcessing(
+              activeLang === "VI"
+                ? "Không tìm thấy file ảnh, vui lòng chọn ảnh lại."
+                : "Image file not found. Please choose the image again.",
+            );
+            return;
+          }
+          const actualFingerprint = getRecognitionFileFingerprint(fileToUse);
+          if (
+            routeFileFingerprint &&
+            actualFingerprint !== routeFileFingerprint
+          ) {
+            setIsMissingFileError(true);
+            failProcessing(
+              activeLang === "VI"
+                ? "File ảnh đã thay đổi, vui lòng chọn ảnh lại."
+                : "The selected image changed. Please choose it again.",
+            );
             return;
           }
 
-          const response = await startRecognitionTask(imageFile);
+          const response = await startRecognitionTask(fileToUse);
           const task = unwrapApiResponse(response);
           taskId = getTaskId(task);
           setTaskSnapshot(task);
@@ -678,15 +761,19 @@ export default function Processing() {
           }
 
           saveActiveRecognitionTask(taskId, {
-            filename: imageFile.name,
-            size: imageFile.size,
-            type: imageFile.type,
+            filename: fileToUse.name || "unknown",
+            size: fileToUse.size || 0,
+            type: fileToUse.type || "image/jpeg",
+            fileFingerprint: actualFingerprint,
+            scanNonce: routeScanNonce,
           });
 
           setActiveTask(taskId, {
-            filename: imageFile.name,
-            size: imageFile.size,
-            type: imageFile.type,
+            filename: fileToUse.name || "unknown",
+            size: fileToUse.size || 0,
+            type: fileToUse.type || "image/jpeg",
+            fileFingerprint: actualFingerprint,
+            scanNonce: routeScanNonce,
           });
 
           setVisualStage(
@@ -721,12 +808,31 @@ export default function Processing() {
           return;
         }
 
-        failProcessing(
-          err?.response?.data?.detail ||
-            err?.response?.data?.message ||
-            err?.message ||
-            t.failDesc,
-        );
+        // Không kết thúc flow ngay khi lỗi network tạm thời
+        if (!err?.response || err?.response?.status >= 500) {
+          console.error("Start task network error:", {
+            status: err?.response?.status,
+            endpoint: err?.config?.url,
+            message: err?.message,
+            responseData: err?.response?.data,
+            stage: "init"
+          });
+          // Nếu lỗi ngay từ lần init mà chưa có taskId thì không thể poll được
+          if (!currentTaskIdRef.current) {
+            failProcessing(`Network error: ${err?.message}. ${err?.response?.status ? `(Status: ${err.response.status})` : ''} Please try again.`);
+          }
+          return;
+        }
+
+        console.error("Start task error:", {
+            status: err?.response?.status,
+            endpoint: err?.config?.url,
+            message: err?.message,
+            responseData: err?.response?.data,
+            stage: "init"
+        });
+
+        failProcessing(getApiErrorMessage(err));
       } finally {
         if (isMountedRef.current) {
           setIsBootstrapping(false);
@@ -779,14 +885,37 @@ export default function Processing() {
               {t.failTitle}
             </h2>
 
-            <p className="mb-6 text-sm leading-relaxed text-rose-500 dark:text-rose-300">{error}</p>
+            <p className="mb-6 text-sm leading-relaxed text-rose-500 dark:text-rose-300 break-words">{error}</p>
 
-            <button
-              onClick={() => navigate("/workspace", { replace: true })}
-              className="rounded-xl bg-rose-600 px-5 py-2.5 font-bold text-white shadow-lg shadow-rose-500/20 transition hover:bg-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-2 dark:focus:ring-offset-slate-950"
-            >
-              {t.retryBtn}
-            </button>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button
+                onClick={() => {
+                  if (isMissingFileError) {
+                    navigate("/workspace", { replace: true });
+                    return;
+                  }
+                  window.location.reload();
+                }}
+                className="w-full sm:w-auto rounded-xl bg-rose-600 px-5 py-2.5 font-bold text-white shadow-lg shadow-rose-500/20 transition hover:bg-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:ring-offset-2 dark:focus:ring-offset-slate-950"
+              >
+                {isMissingFileError
+                  ? activeLang === "VI"
+                    ? "Chọn ảnh lại"
+                    : "Choose image again"
+                  : activeLang === "VI"
+                    ? "Thử lại"
+                    : "Try Again"}
+              </button>
+
+              {!isMissingFileError && (
+                <button
+                  onClick={() => navigate("/workspace", { replace: true })}
+                  className="w-full sm:w-auto rounded-xl bg-slate-200 px-5 py-2.5 font-bold text-slate-700 transition hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-950"
+                >
+                  {activeLang === "VI" ? "Quay lại Workspace" : "Back to Workspace"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -830,7 +959,6 @@ export default function Processing() {
           <div className="space-y-6">
             <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-xl shadow-slate-900/5 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80 sm:p-8">
               <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-black uppercase tracking-wide text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-300">
-                <Sparkles className="h-3.5 w-3.5" />
                 {t.pipelineName}
               </div>
 
@@ -916,7 +1044,21 @@ export default function Processing() {
                   <p className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{t.originalImage}</p>
                   <div className="flex flex-1 min-h-[160px] items-center justify-center overflow-hidden rounded-2xl bg-slate-950">
                     {previewUrl ? (
-                      <img src={previewUrl} alt={t.originalImage} className="h-full w-full object-contain" />
+                      <>
+                        <img
+                          src={previewUrl}
+                          alt={t.originalImage}
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.nextElementSibling.style.display = 'flex';
+                          }}
+                          className="h-full w-full object-contain"
+                        />
+                        <div className="hidden flex-col items-center gap-2 text-slate-500">
+                          <ImageIcon className="h-8 w-8 opacity-50" />
+                          <span className="text-xs">Preview unavailable</span>
+                        </div>
+                      </>
                     ) : (
                       <div className="flex flex-col items-center gap-2 text-slate-500">
                         <ImageIcon className="h-8 w-8" />
@@ -932,7 +1074,19 @@ export default function Processing() {
                   <div className="flex flex-1 min-h-[160px] items-center justify-center overflow-hidden rounded-2xl bg-white dark:bg-slate-950">
                     {cropImage ? (
                       <div className="relative h-full w-full flex items-center justify-center">
-                        <img src={cropImage} alt={t.cropUnderAnalysis} className="max-h-full max-w-full object-contain" />
+                        <img
+                          src={cropImage}
+                          alt={t.cropUnderAnalysis}
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.nextElementSibling.style.display = 'flex';
+                          }}
+                          className="max-h-full max-w-full object-contain"
+                        />
+                        <div className="hidden flex-col items-center gap-2 text-slate-500">
+                          <ImageIcon className="h-8 w-8 opacity-50" />
+                          <span className="text-xs">Crop unavailable</span>
+                        </div>
                         <div className="absolute bottom-2 inset-x-0 text-center">
                           <span className="bg-slate-900/80 text-white text-[10px] px-2 py-1.5 rounded-full backdrop-blur-md shadow-lg font-semibold border border-white/10">{t.cropUnderAnalysis}</span>
                         </div>
@@ -1000,19 +1154,16 @@ export default function Processing() {
             </div>
             <div className="grid gap-4 lg:grid-cols-3">
               <StepCard
-                icon={Brain}
                 title="AG1 GPT Vision"
                 status={agentsStatus.gpt}
                 desc={t.agent1Desc}
               />
               <StepCard
-                icon={Sparkles}
                 title="AG2 Gemini Vision"
                 status={agentsStatus.gemini}
                 desc={t.agent2Desc}
               />
               <StepCard
-                icon={Globe}
                 title="AG3 Google Lens"
                 status={lensStatus}
                 desc={lensHasTechnicalIssue ? t.agent3DescErr : t.agent3DescOk}

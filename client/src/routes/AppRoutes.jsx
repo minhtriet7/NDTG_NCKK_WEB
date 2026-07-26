@@ -69,6 +69,7 @@ import Settings from "../pages/admin/Settings.jsx";
 import PagesManager from "../pages/admin/PagesManager.jsx";
 import Experiments from "../pages/admin/Experiments.jsx";
 import Ag3Test from "../pages/admin/Ag3Test.jsx";
+import BenchmarkMetrics from "../pages/admin/BenchmarkMetrics.jsx";
 import DebugRecognition from "../pages/dev/DebugRecognition.jsx";
 
 // Error Components
@@ -193,6 +194,7 @@ export default function AppRoutes() {
                 )
               }
             />
+            <Route path="/admin/benchmark-metrics" element={<BenchmarkMetrics />} />
 
             {/* User & Payments */}
             <Route path="/admin/users" element={<UsersManager />} />

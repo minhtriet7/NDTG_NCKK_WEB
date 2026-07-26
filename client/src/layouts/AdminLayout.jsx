@@ -83,7 +83,8 @@ export default function AdminLayout() {
       items: [
         { name: lang === "VI" ? "Kết quả" : "Results", icon: Terminal, path: "/admin/results" },
         ...(EXPERIMENTS_ENABLED
-          ? [{ name: lang === "VI" ? "Thực nghiệm" : "Experiments", icon: FlaskConical, path: "/admin/experiments" }]
+          ? [{ name: lang === "VI" ? "Thực nghiệm" : "Experiments", icon: FlaskConical, path: "/admin/experiments" },
+             { name: "Benchmark Metrics", icon: FlaskConical, path: "/admin/benchmark-metrics" }]
           : []),
         { name: lang === "VI" ? "Tiền giấy" : "Banknotes", icon: FileImage, path: "/admin/banknotes" },
         { name: lang === "VI" ? "Tỷ giá" : "Currency Rates", icon: Landmark, path: "/admin/currency-rates" },

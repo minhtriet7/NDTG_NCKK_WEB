@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { getMyHistory } from "../../services/userService";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../store/appStore";
+import { useCurrencyStore } from "../../store/currencyStore";
 import {
   Search,
   X,
@@ -32,7 +33,6 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { getRates } from "../../services/currencyService";
 
 // ==========================================
 // DATA HELPER FUNCTIONS
@@ -287,25 +287,19 @@ const normalizeStatusLabel = (status, lang) => {
 export default function History() {
   const navigate = useNavigate();
   const { lang, theme } = useAppStore();
+  const { ratesData, fetchRates } = useCurrencyStore();
   const isDark = theme === "dark";
 
   const [records, setRecords] = useState([]);
-  const [ratesData, setRatesData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState(null);
 
   useEffect(() => {
-    const fetchRatesData = async () => {
-      try {
-        const rates = await getRates();
-        setRatesData(rates);
-      } catch (err) {
-        console.error("Error fetching rates in History:", err);
-      }
-    };
-    fetchRatesData();
-  }, []);
+    fetchRates().catch((err) => {
+      console.error("Error fetching rates in History:", err);
+    });
+  }, [fetchRates]);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");

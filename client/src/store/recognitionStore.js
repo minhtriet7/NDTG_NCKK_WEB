@@ -29,6 +29,12 @@ const TERMINAL_TASK_STATUSES = new Set([
   "cancelled",
   "canceled",
   "timeout",
+  "completed_partial",
+  "completed_with_limit",
+  "no_banknote_detected",
+  "needs_better_image",
+  "agent_error",
+  "technical_error",
 ]);
 
 const clearActiveTaskStorage = () => {
@@ -39,6 +45,21 @@ const clearActiveTaskStorage = () => {
 };
 
 const normalizeTaskId = (task) => task?.taskId || task?.task_id || task?.id || null;
+
+export const getRecognitionFileFingerprint = (file) => {
+  if (!file) return null;
+  return [file.name || "unnamed", file.size || 0, file.lastModified || 0].join("-");
+};
+
+const revokeBlobUrl = (url) => {
+  if (
+    typeof URL !== "undefined" &&
+    typeof URL.revokeObjectURL === "function" &&
+    String(url || "").startsWith("blob:")
+  ) {
+    URL.revokeObjectURL(url);
+  }
+};
 
 const normalizeStatus = (value) =>
   String(value || "")
@@ -118,17 +139,22 @@ export const useRecognitionStore = create(
       // Temporary UI states for workspace
       currentImageFile: null,
       currentPreviewUrl: null,
+      currentFileFingerprint: null,
+      scanNonce: null,
+      lastResetAt: null,
       isScanning: false,
       fileInputKey: 0,
 
       setCurrentImage: (file, url) => set({
         currentImageFile: file,
-        currentPreviewUrl: url
+        currentPreviewUrl: url,
+        currentFileFingerprint: getRecognitionFileFingerprint(file),
       }),
 
       clearCurrentImage: () => set({
         currentImageFile: null,
-        currentPreviewUrl: null
+        currentPreviewUrl: null,
+        currentFileFingerprint: null,
       }),
 
       setIsScanning: (status) => set({
@@ -348,18 +374,23 @@ export const useRecognitionStore = create(
         }),
 
       // Reset TOÀN BỘ scan state khi người dùng bấm "Scan Another" hoặc task completed.
-      resetScanSession: () => {
-        set((state) => ({
+      resetScanSession: (requestedNonce = null) => {
+        const state = get();
+        const resetAt = Date.now();
+        const nextNonce = String(requestedNonce || resetAt);
+        revokeBlobUrl(state.currentPreviewUrl);
+        set({
           currentImageFile: null,
           currentPreviewUrl: null,
+          currentFileFingerprint: null,
           isScanning: false,
           activeTask: null,
           currentScanSession: null,
+          scanNonce: nextNonce,
+          lastResetAt: new Date(resetAt).toISOString(),
           fileInputKey: (state.fileInputKey || 0) + 1,
-        }));
-        localStorage.removeItem("activeRecognitionTaskId");
-        sessionStorage.removeItem("activeRecognitionTaskId");
-        localStorage.removeItem("active_recognition_task");
+        });
+        clearActiveTaskStorage();
       },
 
       // Dùng khi muốn reset sạch toàn bộ recognition.
@@ -382,6 +413,8 @@ export const useRecognitionStore = create(
           : null,
 
         activeTask: isFreshTask(state.activeTask) ? state.activeTask : null,
+        scanNonce: state.scanNonce,
+        lastResetAt: state.lastResetAt,
         // Exclude currentImageFile, currentPreviewUrl and isScanning from persistence
       }),
     },

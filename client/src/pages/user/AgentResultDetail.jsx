@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
-import { ArrowLeft, Terminal, MessageSquare } from "lucide-react";
+import { ArrowLeft, Terminal, MessageSquare, Loader2 } from "lucide-react";
 import { useLanguageStore } from "../../store/languageStore";
+import { useRecognitionStore } from "../../store/recognitionStore";
+import { getRecognitionResult } from "../../services/recognitionService";
 
 const firstDefined = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
@@ -23,11 +25,35 @@ export default function AgentResultDetail() {
   const location = useLocation();
   const navigate = useNavigate();
   const { lang } = useLanguageStore();
-  const result =
+  const currentScanSession = useRecognitionStore((state) => state.currentScanSession);
+
+  const [result, setResult] = useState(
     location.state?.scanResult ||
     location.state?.result ||
     location.state?.agentResult ||
-    null;
+    currentScanSession?.result ||
+    null
+  );
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const id = params.get("id") || params.get("taskId") || params.get("resultId");
+
+    if (!result && id) {
+      setLoading(true);
+      getRecognitionResult(id)
+        .then((res) => {
+          setResult(res?.data || res);
+        })
+        .catch((err) => {
+          console.error("Failed to fetch result detail", err);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
+  }, [location.search, result]);
   const finalResult =
     result?.final_result ||
     result?.result?.final_result ||
@@ -140,6 +166,14 @@ export default function AgentResultDetail() {
       },
     });
   };
+
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto font-sans flex justify-center py-12">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+      </div>
+    );
+  }
 
   if (!result) {
     return (

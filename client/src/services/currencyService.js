@@ -12,6 +12,18 @@ export const convertCurrency = async (payload) => {
   });
 };
 
+export const getCurrencyCountries = async () => {
+  const data = await api.get("/currency/countries");
+  return normalizeList(data);
+};
+
+export const searchCurrencyCountries = async (query = "", limit = 20) => {
+  const data = await api.get("/currency/search", {
+    params: { q: query, limit },
+  });
+  return normalizeList(data);
+};
+
 export const getBanknotes = async (params = {}) => {
   const data = await api.get("/banknotes/", { params });
   return normalizeList(data);

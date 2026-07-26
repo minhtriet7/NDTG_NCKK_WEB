@@ -1,10 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../../store/appStore";
+import { useCurrencyStore } from "../../store/currencyStore";
 import {
   getAdminCurrencyRates,
   syncCurrencyRates,
   updateCurrencyRate,
   getCurrencySyncLogs,
+  getCurrencyCountryMappings,
+  patchCurrencyCountryMapping,
 } from "../../services/adminService";
 import {
   Search,
@@ -17,6 +20,8 @@ import {
   SlidersHorizontal,
   Database,
   Clock,
+  ListChecks,
+  MapPinned,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -44,22 +49,30 @@ function getId(item) {
 
 export default function CurrencyRatesManager() {
   const { lang, theme } = useAppStore();
+  const { fetchRates: refreshPublicRates } = useCurrencyStore();
   const isDark = theme === "dark";
 
   const [rates, setRates] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [countryMappings, setCountryMappings] = useState([]);
 
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMappings, setIsLoadingMappings] = useState(false);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  const [activeTab, setActiveTab] = useState("rates");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterSource, setFilterSource] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterFreshness, setFilterFreshness] = useState("all");
+  const [mappingSearch, setMappingSearch] = useState("");
+  const [mappingStatus, setMappingStatus] = useState("all");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [logModalOpen, setLogModalOpen] = useState(false);
+  const [mappingModalOpen, setMappingModalOpen] = useState(false);
 
   const [formData, setFormData] = useState({
     id: "",
@@ -71,6 +84,15 @@ export default function CurrencyRatesManager() {
     override: false,
     is_active: true,
     is_base: false,
+  });
+  const [mappingForm, setMappingForm] = useState({
+    country_code: "",
+    country_name_en: "",
+    country_name_vi: "",
+    primary_currency: "",
+    supported_currencies: "",
+    aliases: "",
+    active: true,
   });
 
   const t = {
@@ -178,6 +200,69 @@ export default function CurrencyRatesManager() {
     },
   }[lang || "EN"];
 
+  const extraText = {
+    EN: {
+      tabRates: "Rates",
+      tabMapping: "Country Mapping",
+      tabLogs: "Sync Logs",
+      totalCurrencies: "Total currencies",
+      freshRates: "Fresh rates",
+      lastSuccessfulSync: "Last successful sync",
+      nameEn: "Name EN",
+      nameVi: "Name VI",
+      countryCode: "Country code",
+      countryEn: "Country EN",
+      countryVi: "Country VI",
+      primaryCurrency: "Primary currency",
+      supportedCurrencies: "Supported currencies",
+      aliases: "Aliases",
+      mappingSaved: "Country mapping saved.",
+      mappingSaveFailed: "Failed to save country mapping.",
+      loadingMappings: "Loading country mappings...",
+      noMappings: "No country mappings found",
+      noMappingsDesc: "Country mappings connect country search with currency codes.",
+      startedTime: "Started time",
+      completedTime: "Completed time",
+      result: "Result",
+      updatedCurrencies: "Updated currencies",
+      missingCurrencies: "Missing currencies",
+      errorSummary: "Error summary",
+      initializeData: "Initialize data",
+      checkConnection: "Check connection",
+    },
+    VI: {
+      tabRates: "Tỷ giá",
+      tabMapping: "Mapping quốc gia",
+      tabLogs: "Lịch sử đồng bộ",
+      totalCurrencies: "Tổng tiền tệ",
+      freshRates: "Tỷ giá mới",
+      lastSuccessfulSync: "Đồng bộ thành công gần nhất",
+      nameEn: "Tên EN",
+      nameVi: "Tên VI",
+      countryCode: "Mã quốc gia",
+      countryEn: "Quốc gia EN",
+      countryVi: "Quốc gia VI",
+      primaryCurrency: "Tiền tệ chính",
+      supportedCurrencies: "Tiền tệ hỗ trợ",
+      aliases: "Bí danh",
+      mappingSaved: "Đã lưu mapping quốc gia.",
+      mappingSaveFailed: "Không thể lưu mapping quốc gia.",
+      loadingMappings: "Đang tải mapping quốc gia...",
+      noMappings: "Chưa có mapping quốc gia",
+      noMappingsDesc: "Mapping quốc gia kết nối tìm kiếm quốc gia với mã tiền tệ.",
+      startedTime: "Bắt đầu",
+      completedTime: "Hoàn tất",
+      result: "Kết quả",
+      updatedCurrencies: "Tiền tệ cập nhật",
+      missingCurrencies: "Tiền tệ thiếu",
+      errorSummary: "Tóm tắt lỗi",
+      initializeData: "Khởi tạo dữ liệu",
+      checkConnection: "Kiểm tra kết nối",
+    },
+  }[lang || "EN"];
+
+  Object.assign(t, extraText);
+
 const loadData = async () => {
   setIsLoading(true);
 
@@ -222,10 +307,68 @@ const loadData = async () => {
   }
 };
 
+const loadMappings = async () => {
+  setIsLoadingMappings(true);
+
+  try {
+    const data = await getCurrencyCountryMappings({
+      search: mappingSearch.trim(),
+      status: mappingStatus,
+    });
+    setCountryMappings(normalizeList(data));
+  } catch (error) {
+    console.error("Load country mappings failed:", error);
+    toast.error(
+      error?.response?.data?.detail ||
+        error?.response?.data?.message ||
+        t.loadFailed,
+    );
+    setCountryMappings([]);
+  } finally {
+    setIsLoadingMappings(false);
+  }
+};
+
+const loadLogs = async () => {
+  setIsLoadingLogs(true);
+
+  try {
+    const data = await getCurrencySyncLogs();
+    setLogs(normalizeList(data));
+  } catch (error) {
+    console.error("Load sync logs failed:", error);
+    toast.error(
+      error?.response?.data?.detail ||
+        error?.response?.data?.message ||
+        "Failed to load logs.",
+    );
+    setLogs([]);
+  } finally {
+    setIsLoadingLogs(false);
+  }
+};
+
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSource, filterStatus, filterFreshness]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadLogs();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "mapping") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      loadMappings();
+    }
+    if (activeTab === "logs") {
+      loadLogs();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, mappingStatus]);
 
  const filteredRates = useMemo(() => {
   const keyword = searchTerm.trim().toLowerCase();
@@ -267,16 +410,20 @@ const loadData = async () => {
 }, [rates, searchTerm, filterSource, filterStatus, filterFreshness]);
 
   const kpis = useMemo(() => {
+    const lastSuccess = logs.find((log) => log.status === "success");
+
     return {
       total: rates.length,
       active: rates.filter((r) => r.is_active).length,
+      fresh: rates.filter((r) => String(r.target_currency || "").toUpperCase() === "VND" || !r.is_stale).length,
       overrides: rates.filter((r) => r.manual_override).length,
       stale: rates.filter(
         (r) =>
           String(r.target_currency || "").toUpperCase() !== "VND" && r.is_stale,
       ).length,
+      lastSuccessfulSync: lastSuccess?.finished_at || lastSuccess?.started_at || null,
     };
-  }, [rates]);
+  }, [logs, rates]);
 
   const formatVND = (value) => {
     const num = Number(value);
@@ -380,6 +527,7 @@ const loadData = async () => {
       toast.success(t.saved);
       setModalOpen(false);
       await loadData();
+      await refreshPublicRates({ forceRefresh: true }).catch(() => {});
     } catch (error) {
       console.error("Save currency rate failed:", error);
       toast.error(
@@ -399,6 +547,13 @@ const loadData = async () => {
       await syncCurrencyRates();
       toast.success(t.syncSuccess);
       await loadData();
+      if (activeTab === "mapping") {
+        await loadMappings();
+      }
+      if (activeTab === "logs") {
+        await loadLogs();
+      }
+      await refreshPublicRates({ forceRefresh: true }).catch(() => {});
     } catch (error) {
       console.error("Sync currency rates failed:", error);
       toast.error(
@@ -413,9 +568,8 @@ const loadData = async () => {
 
   const handleOpenLogs = async () => {
     try {
-      const data = await getCurrencySyncLogs();
-      setLogs(normalizeList(data));
-      setLogModalOpen(true);
+      await loadLogs();
+      setActiveTab("logs");
     } catch (error) {
       console.error("Load sync logs failed:", error);
       toast.error(
@@ -423,6 +577,60 @@ const loadData = async () => {
           error?.response?.data?.message ||
           "Failed to load logs.",
       );
+    }
+  };
+
+  const openMappingModal = (mapping) => {
+    setMappingForm({
+      country_code: mapping.country_code || "",
+      country_name_en: mapping.country_name_en || "",
+      country_name_vi: mapping.country_name_vi || "",
+      primary_currency: mapping.primary_currency || "",
+      supported_currencies: (mapping.supported_currencies || []).join(", "),
+      aliases: (mapping.aliases || []).join(", "),
+      active: mapping.active !== false,
+    });
+    setMappingModalOpen(true);
+  };
+
+  const handleSaveMapping = async (event) => {
+    event.preventDefault();
+
+    if (!mappingForm.country_code) {
+      toast.error(t.mappingSaveFailed);
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await patchCurrencyCountryMapping(mappingForm.country_code, {
+        country_name_en: mappingForm.country_name_en,
+        country_name_vi: mappingForm.country_name_vi,
+        primary_currency: mappingForm.primary_currency,
+        supported_currencies: mappingForm.supported_currencies
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        aliases: mappingForm.aliases
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+        active: mappingForm.active,
+      });
+
+      toast.success(t.mappingSaved);
+      setMappingModalOpen(false);
+      await loadMappings();
+    } catch (error) {
+      console.error("Save country mapping failed:", error);
+      toast.error(
+        error?.response?.data?.detail ||
+          error?.response?.data?.message ||
+          t.mappingSaveFailed,
+      );
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -487,10 +695,39 @@ const loadData = async () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className={`rounded-xl border p-1 shadow-sm inline-flex flex-wrap gap-1 ${cardClass}`}>
+        {[
+          { key: "rates", label: t.tabRates, icon: Database },
+          { key: "mapping", label: t.tabMapping, icon: MapPinned },
+          { key: "logs", label: t.tabLogs, icon: History },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const active = activeTab === tab.key;
+
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`h-10 px-4 rounded-lg text-sm font-black flex items-center gap-2 transition-colors ${
+                active
+                  ? "bg-teal-600 text-white"
+                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              }`}
+            >
+              <Icon size={15} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {activeTab === "rates" && (
+        <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
         {[
           {
-            label: t.totalRates,
+            label: t.totalCurrencies,
             value: kpis.total,
             tone: "text-slate-900 dark:text-white",
             icon: Database,
@@ -500,6 +737,12 @@ const loadData = async () => {
             value: kpis.active,
             tone: "text-teal-600 dark:text-teal-400",
             icon: Activity,
+          },
+          {
+            label: t.freshRates,
+            value: kpis.fresh,
+            tone: "text-emerald-500",
+            icon: ListChecks,
           },
           {
             label: t.manualOverrides,
@@ -512,6 +755,13 @@ const loadData = async () => {
             value: kpis.stale,
             tone: kpis.stale > 0 ? "text-rose-500" : "text-emerald-500",
             icon: AlertTriangle,
+          },
+          {
+            label: t.lastSuccessfulSync,
+            value: kpis.lastSuccessfulSync ? formatDate(kpis.lastSuccessfulSync) : "N/A",
+            tone: "text-slate-700 dark:text-slate-200",
+            icon: Clock,
+            compact: true,
           },
         ].map((item) => {
           const Icon = item.icon;
@@ -526,7 +776,7 @@ const loadData = async () => {
                   <div className="text-xs font-black text-slate-400 uppercase tracking-wider mb-3">
                     {item.label}
                   </div>
-                  <div className={`text-3xl font-black ${item.tone}`}>
+                  <div className={`${item.compact ? "text-sm leading-5" : "text-3xl"} font-black ${item.tone}`}>
                     {item.value}
                   </div>
                 </div>
@@ -608,10 +858,13 @@ const loadData = async () => {
             <thead className="uppercase text-[10px] font-black tracking-wider text-slate-500 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
               <tr>
                 <th className="px-6 py-4">{t.currency}</th>
+                <th className="px-6 py-4">{t.nameEn}</th>
+                <th className="px-6 py-4">{t.nameVi}</th>
                 <th className="px-6 py-4">{t.marketRate}</th>
                 <th className="px-6 py-4 text-amber-500">{t.manualOverride}</th>
                 <th className="px-6 py-4 text-teal-500">{t.effectiveRate}</th>
                 <th className="px-6 py-4">{t.source}</th>
+                <th className="px-6 py-4">{t.provider}</th>
                 <th className="px-6 py-4">{t.lastUpdated}</th>
                 <th className="px-6 py-4">{t.status}</th>
                 <th className="px-6 py-4 text-right">{t.actions}</th>
@@ -622,7 +875,7 @@ const loadData = async () => {
               {isLoading ? (
                 Array.from({ length: 6 }).map((_, index) => (
                   <tr key={index}>
-                    {Array.from({ length: 8 }).map((__, cellIndex) => (
+                    {Array.from({ length: 11 }).map((__, cellIndex) => (
                       <td key={cellIndex} className="px-6 py-5">
                         <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
                       </td>
@@ -631,7 +884,7 @@ const loadData = async () => {
                 ))
               ) : filteredRates.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="px-6 py-16">
+                  <td colSpan="11" className="px-6 py-16">
                     <div className="flex flex-col items-center justify-center text-center">
                       <div className="w-14 h-14 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-4">
                         <Database size={24} />
@@ -674,6 +927,14 @@ const loadData = async () => {
                         </div>
                       </td>
 
+                      <td className="px-6 py-5 text-slate-700 dark:text-slate-200">
+                        {rate.currency_name || rate.target_currency || t.noData}
+                      </td>
+
+                      <td className="px-6 py-5 text-slate-500 dark:text-slate-400">
+                        {rate.currency_name_vi || rate.currency_name || rate.target_currency || t.noData}
+                      </td>
+
                       <td className="px-6 py-5 font-mono text-slate-600 dark:text-slate-300">
                         {formatVND(rate.market_rate_to_vnd || rate.rate_to_vnd)}
                       </td>
@@ -701,6 +962,10 @@ const loadData = async () => {
                             ? "manual override"
                             : rate.source || "unknown"}
                         </div>
+                      </td>
+
+                      <td className="px-6 py-5 text-slate-600 dark:text-slate-300">
+                        {rate.provider || "system"}
                       </td>
 
                       <td className="px-6 py-5">
@@ -751,6 +1016,235 @@ const loadData = async () => {
           </table>
         </div>
       </div>
+        </>
+      )}
+
+      {activeTab === "mapping" && (
+        <div className={`rounded-xl border shadow-sm overflow-hidden ${cardClass}`}>
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col xl:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search
+                className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                size={18}
+              />
+              <input
+                type="text"
+                placeholder={t.search}
+                value={mappingSearch}
+                onChange={(event) => setMappingSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") loadMappings();
+                }}
+                className={`w-full h-12 pl-11 pr-4 rounded-xl border outline-none text-sm transition-colors ${inputClass}`}
+              />
+            </div>
+
+            <select
+              value={mappingStatus}
+              onChange={(event) => setMappingStatus(event.target.value)}
+              className={`h-12 px-4 rounded-xl border outline-none font-bold text-sm min-w-[170px] ${inputClass}`}
+            >
+              <option value="all">{t.statusAll}</option>
+              <option value="active">{t.active}</option>
+              <option value="inactive">{t.hidden}</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={loadMappings}
+              className={`h-12 px-4 rounded-xl border font-bold text-sm flex items-center gap-2 transition-colors ${cardClass} text-slate-700 dark:text-slate-300 hover:border-teal-400`}
+            >
+              <RefreshCw size={16} className={isLoadingMappings ? "animate-spin" : ""} />
+              {t.refresh}
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm whitespace-nowrap">
+              <thead className="uppercase text-[10px] font-black tracking-wider text-slate-500 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
+                <tr>
+                  <th className="px-6 py-4">{t.countryCode}</th>
+                  <th className="px-6 py-4">{t.countryEn}</th>
+                  <th className="px-6 py-4">{t.countryVi}</th>
+                  <th className="px-6 py-4">{t.primaryCurrency}</th>
+                  <th className="px-6 py-4">{t.supportedCurrencies}</th>
+                  <th className="px-6 py-4">{t.aliases}</th>
+                  <th className="px-6 py-4">{t.status}</th>
+                  <th className="px-6 py-4 text-right">{t.actions}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {isLoadingMappings ? (
+                  Array.from({ length: 6 }).map((_, index) => (
+                    <tr key={index}>
+                      {Array.from({ length: 8 }).map((__, cellIndex) => (
+                        <td key={cellIndex} className="px-6 py-5">
+                          <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : countryMappings.length === 0 ? (
+                  <tr>
+                    <td colSpan="8" className="px-6 py-16">
+                      <div className="flex flex-col items-center justify-center text-center">
+                        <div className="w-14 h-14 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-4">
+                          <MapPinned size={24} />
+                        </div>
+                        <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                          {t.noMappings}
+                        </h3>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                          {t.noMappingsDesc}
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  countryMappings.map((mapping, index) => (
+                    <tr
+                      key={mapping.country_code || index}
+                      className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+                    >
+                      <td className="px-6 py-5">
+                        <span className="inline-flex h-9 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-2 text-xs font-black text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                          {mapping.country_code}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 font-bold text-slate-900 dark:text-white">
+                        {mapping.country_name_en}
+                      </td>
+                      <td className="px-6 py-5 text-slate-600 dark:text-slate-300">
+                        {mapping.country_name_vi}
+                      </td>
+                      <td className="px-6 py-5">
+                        <span className="inline-flex px-2.5 py-1 rounded-lg bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 font-black text-xs">
+                          {mapping.primary_currency}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5 text-slate-600 dark:text-slate-300">
+                        {(mapping.supported_currencies || []).join(", ")}
+                      </td>
+                      <td className="px-6 py-5 max-w-[260px] truncate text-slate-500 dark:text-slate-400">
+                        {(mapping.aliases || []).join(", ")}
+                      </td>
+                      <td className="px-6 py-5">
+                        {mapping.active !== false ? (
+                          <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            {t.active}
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                            {t.hidden}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openMappingModal(mapping)}
+                          className="inline-flex items-center justify-center w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-teal-500 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+                          title={t.config}
+                        >
+                          <Edit size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "logs" && (
+        <div className={`rounded-xl border shadow-sm overflow-hidden ${cardClass}`}>
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center gap-3">
+            <div>
+              <h2 className="font-black text-lg text-slate-900 dark:text-white">
+                {t.logTitle}
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                {t.provider}, {t.startedTime}, {t.completedTime}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadLogs}
+              className={`h-11 px-4 rounded-xl border font-bold text-sm flex items-center gap-2 transition-colors ${cardClass} text-slate-700 dark:text-slate-300 hover:border-teal-400`}
+            >
+              <RefreshCw size={16} className={isLoadingLogs ? "animate-spin" : ""} />
+              {t.refresh}
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm whitespace-nowrap">
+              <thead className="uppercase text-[10px] font-black tracking-wider text-slate-500 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
+                <tr>
+                  <th className="px-6 py-4">{t.startedTime}</th>
+                  <th className="px-6 py-4">{t.completedTime}</th>
+                  <th className="px-6 py-4">{t.provider}</th>
+                  <th className="px-6 py-4">{t.result}</th>
+                  <th className="px-6 py-4">{t.updatedCurrencies}</th>
+                  <th className="px-6 py-4">{t.missingCurrencies}</th>
+                  <th className="px-6 py-4">{t.errorSummary}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {isLoadingLogs ? (
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <tr key={index}>
+                      {Array.from({ length: 7 }).map((__, cellIndex) => (
+                        <td key={cellIndex} className="px-6 py-5">
+                          <div className="h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : logs.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="px-6 py-16">
+                      <div className="flex flex-col items-center justify-center text-center">
+                        <div className="w-14 h-14 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 mb-4">
+                          <History size={24} />
+                        </div>
+                        <h3 className="text-lg font-black text-slate-900 dark:text-white">
+                          {t.noLogs}
+                        </h3>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  logs.map((log, index) => (
+                    <tr key={getId(log) || index} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="px-6 py-5">{formatDate(log.started_at || log.created_at)}</td>
+                      <td className="px-6 py-5">{formatDate(log.finished_at || log.completed_at)}</td>
+                      <td className="px-6 py-5">{log.provider || "system"}</td>
+                      <td className="px-6 py-5">
+                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase ${
+                          log.status === "success"
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                            : "bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400"
+                        }`}
+                        >
+                          {log.status || "unknown"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-5">{(log.updated_currencies || []).join(", ") || log.fetched_count || 0}</td>
+                      <td className="px-6 py-5">{(log.missing_currencies || []).join(", ") || "0"}</td>
+                      <td className="px-6 py-5 max-w-[280px] truncate text-slate-500 dark:text-slate-400">
+                        {log.error_detail || log.message || "N/A"}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
@@ -887,6 +1381,146 @@ const loadData = async () => {
                       ...formData,
                       is_active: e.target.checked,
                     })
+                  }
+                  className="w-5 h-5 accent-teal-600"
+                />
+              </label>
+
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="w-full h-12 bg-teal-600 hover:bg-teal-500 text-white font-black rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-60 transition-colors"
+              >
+                {isSaving ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    {t.saving}
+                  </>
+                ) : (
+                  t.save
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {mappingModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div
+            className={`w-full max-w-2xl rounded-[2rem] shadow-2xl border p-6 md:p-8 animate-[slideInUp_0.2s_ease-out] ${
+              isDark
+                ? "bg-slate-900 border-slate-800"
+                : "bg-white border-slate-200"
+            }`}
+          >
+            <div className="flex justify-between items-start gap-4 mb-6">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-teal-600 dark:text-teal-400 mb-1">
+                  {t.tabMapping}
+                </p>
+                <h3 className="text-2xl font-black text-slate-900 dark:text-white">
+                  {mappingForm.country_code}
+                </h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  {mappingForm.country_name_en}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setMappingModalOpen(false)}
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-rose-500 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveMapping} className="grid gap-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">
+                    {t.countryEn}
+                  </label>
+                  <input
+                    value={mappingForm.country_name_en}
+                    onChange={(event) =>
+                      setMappingForm({ ...mappingForm, country_name_en: event.target.value })
+                    }
+                    className={`w-full h-12 px-4 rounded-xl border outline-none font-bold text-sm ${inputClass}`}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">
+                    {t.countryVi}
+                  </label>
+                  <input
+                    value={mappingForm.country_name_vi}
+                    onChange={(event) =>
+                      setMappingForm({ ...mappingForm, country_name_vi: event.target.value })
+                    }
+                    className={`w-full h-12 px-4 rounded-xl border outline-none font-bold text-sm ${inputClass}`}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">
+                    {t.primaryCurrency}
+                  </label>
+                  <input
+                    value={mappingForm.primary_currency}
+                    onChange={(event) =>
+                      setMappingForm({ ...mappingForm, primary_currency: event.target.value.toUpperCase() })
+                    }
+                    className={`w-full h-12 px-4 rounded-xl border outline-none font-mono font-black text-sm ${inputClass}`}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">
+                    {t.supportedCurrencies}
+                  </label>
+                  <input
+                    value={mappingForm.supported_currencies}
+                    onChange={(event) =>
+                      setMappingForm({ ...mappingForm, supported_currencies: event.target.value.toUpperCase() })
+                    }
+                    className={`w-full h-12 px-4 rounded-xl border outline-none font-mono font-black text-sm ${inputClass}`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-black uppercase text-slate-500 dark:text-slate-400 mb-2 block">
+                  {t.aliases}
+                </label>
+                <textarea
+                  value={mappingForm.aliases}
+                  onChange={(event) =>
+                    setMappingForm({ ...mappingForm, aliases: event.target.value })
+                  }
+                  rows={3}
+                  className={`w-full px-4 py-3 rounded-xl border outline-none font-semibold text-sm ${inputClass}`}
+                />
+              </div>
+
+              <label className="flex items-center justify-between p-4 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer hover:border-teal-500 transition-colors">
+                <div>
+                  <p className="text-sm font-black text-slate-900 dark:text-white">
+                    {t.status}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {mappingForm.active ? t.active : t.hidden}
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={mappingForm.active}
+                  onChange={(event) =>
+                    setMappingForm({ ...mappingForm, active: event.target.checked })
                   }
                   className="w-5 h-5 accent-teal-600"
                 />

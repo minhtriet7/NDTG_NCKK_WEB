@@ -10,9 +10,30 @@ export const getTokenPackages = async () => {
 };
 
 export const createCheckoutSession = async (payload) => {
+  const requestedGateway = String(payload?.gateway || "")
+    .trim()
+    .toLowerCase();
+
+  // Normalize vietqr alias -> bank_transfer
+  const gateway =
+    requestedGateway === "vietqr" ? "bank_transfer" : requestedGateway;
+
+  // Reject all non-bank_transfer gateways on the client side.
+  // VNPay is disabled (VNPAY_ENABLED=false). SePay/mock/momo/paypal are not supported.
+  const DISABLED_GATEWAYS = ["vnpay", "sepay", "mock", "momo", "paypal"];
+  if (DISABLED_GATEWAYS.includes(gateway)) {
+    throw new Error(
+      "VNPay is not available yet. Please use VietQR / Bank Transfer."
+    );
+  }
+
+  if (gateway !== "bank_transfer") {
+    throw new Error("Unsupported payment method. Please use VietQR / Bank Transfer.");
+  }
+
   return await api.post("/payment/buy", {
     package_id: payload.package_id,
-    gateway: payload.gateway || null,
+    gateway,
   });
 };
 

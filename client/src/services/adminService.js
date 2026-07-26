@@ -287,7 +287,10 @@ export const getAdminCurrencyRates = async (params = {}) => {
     params: cleanParams,
   });
 
-  return res.data;
+  // api.js interceptor (normalizeApiData) already unwraps the Axios response.
+  // At this point, res is already the unwrapped data (array of currency rates).
+  // Returning res directly — NOT res.data — to avoid double-unwrap that returned undefined.
+  return res;
 };
 
 export const createCurrencyRate = async (payload) => {
@@ -308,6 +311,14 @@ export const syncCurrencyRates = async () => {
 
 export const getCurrencySyncLogs = async () => {
   return await api.get("/admin/currency-rates/sync-logs");
+};
+
+export const getCurrencyCountryMappings = async (params = {}) => {
+  return await api.get("/admin/currency/country-mappings", { params });
+};
+
+export const patchCurrencyCountryMapping = async (countryCode, payload) => {
+  return await api.patch(`/admin/currency/country-mappings/${countryCode}`, payload);
 };
 
 /* =========================================================
@@ -379,6 +390,7 @@ export const getSystemSettings = async () => {
 export const updateSystemSettings = async (payload) => {
   return await api.put("/admin/settings", payload);
 };
+
 export const getPaymentGatewaySettings = async () => {
   return await getSystemSettings();
 };
@@ -402,6 +414,7 @@ export const getEmailNotificationSettings = async () => {
 export const updateEmailNotificationSettings = async (payload) => {
   return await updateSystemSettings(payload);
 };
+
 /* =========================================================
    SAFE FALLBACKS
 ========================================================= */
@@ -463,4 +476,52 @@ export const getPage = async (slug) => {
 
 export const updatePageContent = async (slug, payload) => {
   return await api.put(`/pages/${slug}`, payload);
+};
+
+/* =========================================================
+   ADMIN EXPERIMENTS
+========================================================= */
+
+export const runAdminExperiment = async (formData) => {
+  return await api.post("/admin/experiments/run", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+  });
+};
+
+export const getAdminExperiments = async (params = {}) => {
+  return await api.get("/admin/experiments", { params });
+};
+
+export const stopAdminExperiment = async (experimentId) => {
+  return await api.post(`/admin/experiments/${experimentId}/stop`);
+};
+
+export const exportAdminExperiments = async (params = {}) => {
+  return await api.get("/admin/experiments/export", {
+    params,
+    responseType: "blob",
+    timeout: 180000,
+  });
+};
+
+export const calculateMetricsFromExcel = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return await api.post("/admin/experiments/metrics-calculator", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    responseType: "blob",
+    timeout: 120000,
+  });
+};
+
+export const exportBenchmarkMetrics = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return await api.post("/admin/benchmark-metrics/export", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    responseType: "blob",
+    timeout: 120000,
+  });
 };

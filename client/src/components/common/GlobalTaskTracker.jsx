@@ -9,10 +9,10 @@ import { useAppStore } from "../../store/appStore";
 const POLL_INTERVAL_MS = 3000;
 const TERMINAL_DONE_STATUSES = new Set([
   "done", "completed", "complete", "success", "succeeded", "needs_review", "needs review",
-  "completed_partial", "completed_with_limit", "no_banknote_detected"
+  "completed_partial", "completed_with_limit", "no_banknote_detected", "needs_better_image"
 ]);
 const TERMINAL_FAILED_STATUSES = new Set([
-  "failed", "failure", "error", "cancelled", "canceled"
+  "failed", "failure", "error", "cancelled", "canceled", "timeout", "agent_error", "technical_error"
 ]);
 
 export default function GlobalTaskTracker() {

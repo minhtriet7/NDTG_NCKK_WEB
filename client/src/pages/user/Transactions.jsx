@@ -46,27 +46,73 @@ function formatDate(value, lang = "EN") {
   }
 }
 
-function getStatusConfig(status) {
+function formatGatewayLabel(value, lang = "EN") {
+  const gateway = String(value || "").trim().toLowerCase();
+  if (["bank_transfer", "vietqr"].includes(gateway)) {
+    return lang === "VI" ? "VietQR / Chuyển khoản" : "VietQR / Bank Transfer";
+  }
+  if (gateway === "vnpay") {
+    // VNPay is temporarily disabled — show as legacy label.
+    return lang === "VI" ? "VNPay (Tạm tắt)" : "VNPay (Disabled)";
+  }
+  if (gateway === "sepay") {
+    return lang === "VI" ? "SePay (Đã ngừng)" : "SePay (Deprecated)";
+  }
+  if (gateway === "mock") {
+    return lang === "VI" ? "Thử nghiệm" : "Mock / Test";
+  }
+  return value || (lang === "VI" ? "Không xác định" : "Unknown");
+}
+
+function getStatusConfig(status, lang = "EN", gateway = "") {
   const value = String(status || "pending").toLowerCase();
+  const isVI = lang === "VI";
 
   if (["success", "completed", "paid"].includes(value)) {
     return {
-      label: "Completed",
+      label: isVI ? "Đã cộng token" : "Tokens Added",
       icon: CheckCircle,
       className: "bg-emerald-50 text-emerald-700 border-emerald-100",
     };
   }
 
-  if (["failed", "cancelled", "canceled"].includes(value)) {
+  if (["failed"].includes(value)) {
     return {
-      label: value === "failed" ? "Failed" : "Cancelled",
+      label: isVI ? "Thất bại" : "Failed",
       icon: XCircle,
       className: "bg-red-50 text-red-700 border-red-100",
     };
   }
 
+  if (["cancelled", "canceled"].includes(value)) {
+    return {
+      label: isVI ? "Đã hủy" : "Cancelled",
+      icon: XCircle,
+      className: "bg-red-50 text-red-700 border-red-100",
+    };
+  }
+
+  if (["expired"].includes(value)) {
+    return {
+      label: isVI ? "Hết hạn" : "Expired",
+      icon: XCircle,
+      className: "bg-slate-100 text-slate-600 border-slate-200",
+    };
+  }
+
+  // pending — differentiate bank_transfer vs vnpay
+  const gw = String(gateway || "").trim().toLowerCase();
+  const pendingLabel =
+    ["bank_transfer", "vietqr"].includes(gw)
+      ? isVI
+        ? "Chờ chuyển khoản"
+        : "Awaiting Transfer"
+      : isVI
+        ? "Chờ xử lý"
+        : "Pending";
+
   return {
-    label: "Pending",
+    label: pendingLabel,
     icon: Clock,
     className: "bg-amber-50 text-amber-700 border-amber-100",
   };
@@ -252,7 +298,11 @@ export default function Transactions() {
         ) : (
           <div className="divide-y divide-slate-100">
             {transactions.map((tx) => {
-              const statusConfig = getStatusConfig(tx.status);
+              const statusConfig = getStatusConfig(
+                tx.status,
+                lang,
+                tx.payment_gateway || tx.gateway,
+              );
               const StatusIcon = statusConfig.icon;
 
               const reference =
@@ -296,7 +346,7 @@ export default function Transactions() {
                       {packageName}
                     </span>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {tx.payment_gateway || tx.gateway || "sepay"}
+                      {formatGatewayLabel(tx.payment_gateway || tx.gateway, lang)}
                     </p>
                   </div>
 

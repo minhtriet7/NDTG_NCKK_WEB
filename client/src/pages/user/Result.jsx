@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import toast from "react-hot-toast";
@@ -6,6 +6,25 @@ import toast from "react-hot-toast";
 import { useCurrencyStore } from "../../store/currencyStore";
 import { useRecognitionStore } from "../../store/recognitionStore";
 import { useLanguageStore } from "../../store/languageStore";
+import { getRecognitionTaskStatus, getRecognitionResult } from "../../services/recognitionService";
+import {
+  buildRecognitionRestoreKey,
+  buildMoneyCanonical,
+  findBackendValidVote,
+  formatSuggestedResultText,
+  getAg3FormatterLabel,
+  getAg3MethodLabel,
+  getAg3ProviderLabel,
+  getCropPreviewSource,
+  inferMoneyCurrency,
+  isSameMoneyVote,
+  normalizeConsensusAgentKey,
+  normalizeCurrencyCode,
+  normalizeMoneyText,
+  parseMoneyAmount,
+  resolveAgentVoteStatus,
+  shouldRefetchRecognitionResult,
+} from "../../utils/agentVote";
 
 import {
   AlertCircle,
@@ -46,84 +65,6 @@ import {
 const normalizeText = (value) => {
   if (value === null || value === undefined || value === "") return "N/A";
   return String(value);
-};
-
-const normalizeMoneyText = (value) => {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-};
-
-const parseMoneyAmount = (value) => {
-  const text = String(value || "");
-  const numberText = text
-    .replace(/[^\d.,]/g, "")
-    .replace(/[.,]/g, "");
-
-  const amount = Number.parseInt(numberText, 10);
-  return Number.isFinite(amount) ? amount : null;
-};
-
-const inferMoneyCurrency = (denomination, fallbackCurrency) => {
-  const text = String(`${denomination || ""} ${fallbackCurrency || ""}`).toUpperCase();
-
-  const known = [
-    "VND", "USD", "EUR", "JPY", "CNY", "KRW",
-    "THB", "MYR", "SGD", "IDR", "PHP", "KHR",
-    "LAK", "MMK", "BND", "GBP", "AUD"
-  ];
-
-  return known.find((code) => text.includes(code)) || String(fallbackCurrency || "").toUpperCase() || "";
-};
-
-const normalizeCountryCanonical = (country) => {
-  const text = normalizeMoneyText(country);
-
-  const aliases = {
-    "viet nam": "vietnam",
-    "vietnam": "vietnam",
-    "vn": "vietnam",
-    "việt nam": "vietnam",
-    "usa": "united states",
-    "us": "united states",
-    "united states": "united states",
-    "myanmar": "myanmar",
-    "burma": "myanmar",
-  };
-
-  return aliases[text] || text;
-};
-
-const buildMoneyCanonical = ({ denomination, currency, country }) => {
-  return {
-    amount: parseMoneyAmount(denomination),
-    currency: inferMoneyCurrency(denomination, currency),
-    country: normalizeCountryCanonical(country),
-  };
-};
-
-const isSameMoneyVote = (agentCanonical, finalCanonical) => {
-  if (!agentCanonical || !finalCanonical) return false;
-
-  const sameAmount =
-    agentCanonical.amount !== null &&
-    finalCanonical.amount !== null &&
-    agentCanonical.amount === finalCanonical.amount;
-
-  const sameCurrency =
-    agentCanonical.currency &&
-    finalCanonical.currency &&
-    agentCanonical.currency === finalCanonical.currency;
-
-  const sameCountry =
-    !agentCanonical.country ||
-    !finalCanonical.country ||
-    agentCanonical.country === finalCanonical.country;
-
-  return sameAmount && sameCurrency && sameCountry;
 };
 
 const normalizeStatusLabel = (status, lang) => {
@@ -226,6 +167,71 @@ const formatScore = (value) => {
 const firstDefined = (...values) =>
   values.find((value) => value !== undefined && value !== null);
 
+const TECHNICAL_OR_CONFLICTING_DETAIL = {
+  VI: "Không đủ đồng thuận do tác tử kỹ thuật bị lỗi hoặc bằng chứng mâu thuẫn. Vui lòng kiểm tra thủ công hoặc thử lại.",
+  EN: "There is not enough consensus because a technical agent failed or the evidence conflicts. Please review manually or try again.",
+};
+
+const normalizeForSearch = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d")
+    .toLowerCase();
+
+const getSuggestedResultFromItem = (item) =>
+  firstDefined(
+    item?.consensus?.suggested_result_from_valid_agent,
+    item?.data?.suggested_result_from_valid_agent,
+    item?.suggested_result_from_valid_agent,
+    item?.raw_backend?.suggested_result_from_valid_agent,
+    item?.raw_backend?.final_result?.suggested_result_from_valid_agent,
+    item?.raw_backend?.result?.suggested_result_from_valid_agent,
+    item?.raw_backend?.result?.final_result?.suggested_result_from_valid_agent,
+    item?.detected_objects?.[0]?.final_result?.suggested_result_from_valid_agent,
+  ) || null;
+
+const normalizeInvalidConclusionDetail = (message, item, suggestedResult, lang) => {
+  const detail = String(message || "").trim();
+  const consensusReason = firstDefined(
+    item?.consensus?.consensus_reason,
+    item?.raw_backend?.consensus_reason,
+    item?.raw_backend?.final_result?.consensus_reason,
+    item?.raw_backend?.result?.final_result?.consensus_reason,
+  );
+  const consensusPattern = firstDefined(
+    item?.consensus?.consensus_pattern,
+    item?.raw_backend?.consensus_pattern,
+    item?.raw_backend?.final_result?.consensus_pattern,
+    item?.raw_backend?.result?.final_result?.consensus_pattern,
+  );
+  const validVotes = firstDefined(
+    item?.consensus?.valid_votes,
+    item?.raw_backend?.valid_votes,
+    item?.raw_backend?.final_result?.valid_votes,
+    item?.raw_backend?.result?.final_result?.valid_votes,
+  );
+  const hasSingleValidVote =
+    Array.isArray(validVotes) && validVotes.length === 1;
+  const isTechnicalOrConflict =
+    Boolean(suggestedResult) ||
+    String(consensusReason || "").toLowerCase() === "technical_or_conflicting_evidence" ||
+    (String(consensusPattern || "").toLowerCase() === "1-valid-only" && hasSingleValidVote);
+
+  if (!isTechnicalOrConflict) return detail;
+
+  const searchable = normalizeForSearch(detail);
+  const isMisleadingImagePrompt =
+    !detail ||
+    searchable.includes("can anh ro hon") ||
+    searchable.includes("clearer image") ||
+    searchable.includes("khong dat dong thuan sau 3 lan");
+
+  return isMisleadingImagePrompt
+    ? TECHNICAL_OR_CONFLICTING_DETAIL[lang === "VI" ? "VI" : "EN"]
+    : detail;
+};
+
 const formatResultDate = (value, lang) => {
   if (!value) return "—";
   const date = new Date(value);
@@ -317,31 +323,8 @@ const stripMarkdownSymbols = (text) => {
     .trim();
 };
 
-const inferCurrencyFromDenomination = (denomination, fallback = "VND") => {
-  const text = String(denomination || "").toUpperCase();
-
-  const known = [
-    "VND",
-    "USD",
-    "THB",
-    "MYR",
-    "SGD",
-    "IDR",
-    "PHP",
-    "KHR",
-    "LAK",
-    "MMK",
-    "BND",
-    "EUR",
-    "GBP",
-    "JPY",
-    "CNY",
-    "KRW",
-    "AUD",
-  ];
-
-  const found = known.find((code) => text.includes(code));
-  return found || fallback || "VND";
+const inferCurrencyFromDenomination = (denomination, fallback = null) => {
+  return inferMoneyCurrency(denomination, fallback);
 };
 
 const parseAmountFromDenomination = (value) => {
@@ -375,8 +358,15 @@ const getAgentReasoning = (agent) =>
       agent?.error,
   );
 
-const getAgentMethod = (agent, fallback) =>
-  normalizeText(agent?.phuong_phap || agent?.method || fallback);
+const getAgentMethod = (agent, fallback) => {
+  const rawMethod = normalizeText(agent?.phuong_phap || agent?.method || fallback);
+  const looksLikeAg3 =
+    agent?.ag3_groq_formatter_used !== undefined ||
+    agent?.formatter_provider !== undefined ||
+    agent?.provider_trace?.formatter_provider !== undefined ||
+    /google lens|serpapi|visual search/i.test(rawMethod);
+  return looksLikeAg3 ? getAg3MethodLabel(agent, fallback) : rawMethod;
+};
 
 const getConsensusStatusLabel = (consensus, lang) => {
   const status = consensus?.status;
@@ -552,6 +542,17 @@ const buildMultiObjectDebateLog = (objects, lang = "EN") => {
     const country = getObjectCountry(item);
     const matched = getObjectMatchedAgents(item);
     const agents = Array.isArray(item?.agent_results) ? item.agent_results : [];
+    const finalData = getObjectFinalData(item);
+    const finalCanonical = buildMoneyCanonical({
+      denomination: finalDenom,
+      currency:
+        finalData.ma_tien_te ||
+        finalData.currency ||
+        finalData.currency_code ||
+        inferMoneyCurrency(finalDenom),
+      country,
+    });
+    const validVotes = finalData.valid_votes || item?.consensus?.valid_votes || [];
 
     lines.push("");
     lines.push(`## ${lang === "VI" ? "Đối tượng" : "Object"} #${objectNo}`);
@@ -572,7 +573,17 @@ const buildMultiObjectDebateLog = (objects, lang = "EN") => {
       const denom = getAgentDenomination(payload);
       const countryVote = getAgentCountry(payload);
       const reasoning = stripMarkdownSymbols(getAgentReasoning(payload));
-      const status = denom === finalDenom ? (lang === "VI" ? "khớp" : "matched") : (lang === "VI" ? "khác" : "different");
+      const normalizedVote = normalizeAgentVote(
+        agentItem,
+        finalCanonical,
+        validVotes,
+        getAgentConsensusKey(agentItem),
+      );
+      const status = normalizedVote.voteStatus === "matched"
+        ? lang === "VI" ? "đồng thuận" : "agreed"
+        : normalizedVote.voteStatus === "different"
+          ? lang === "VI" ? "khác biệt" : "differed"
+          : lang === "VI" ? "không tính phiếu" : "not counted";
 
       lines.push(`- ${agentName}: ${denom} / ${countryVote} (${status})`);
       if (reasoning && reasoning !== "N/A") {
@@ -597,12 +608,12 @@ const safeText = (text, fallback = "N/A") => {
 const formatCountry = (country) => {
   const c = safeText(country, "Không xác định").trim();
   if (c === "Không xác định" || c === "N/A" || c === "Multiple") return c;
-  return c.charAt(0).toUpperCase() + c.slice(1).toLowerCase();
+  return c.charAt(0).toUpperCase() + c.slice(1);
 };
 
 const formatCurrency = (currency) => {
-  const c = safeText(currency, "VND").trim();
-  if (c === "Multiple" || c === "N/A") return c;
+  const c = safeText(currency, "Không xác định").trim();
+  if (c === "Multiple" || c === "N/A" || c === "Không xác định" || c.toLowerCase() === "null") return "Không xác định";
   return c.toUpperCase();
 };
 
@@ -662,61 +673,196 @@ const isTechnicalError = (agentPayload) => {
   const status = String(agentPayload.status || "").toLowerCase();
   const error = String(agentPayload.error || "").toLowerCase();
   const reasoning = String(agentPayload.quan_diem || agentPayload.reasoning || "").toLowerCase();
-  
+
   if (status === "failed" || status === "timeout" || status === "error") return true;
   if (error !== "" && error !== "undefined" && error !== "null") return true;
   if (reasoning.includes("timeout") || reasoning.includes("network") || reasoning.includes("quota") || reasoning.includes("exception")) return true;
-  
+
   const denom = getAgentDenomination(agentPayload);
   if ((denom === "N/A" || !denom) && (reasoning.includes("failed") || reasoning.includes("error"))) return true;
 
   return false;
 };
 
-const normalizeAgentVote = (agentItem, finalCanonical) => {
+const getAgentConsensusKey = (agentItem, fallbackKey) => {
+  const payload = getAgentPayload(agentItem);
+  const candidates = [
+    fallbackKey,
+    agentItem?.agent_key,
+    payload?.agent_key,
+    agentItem?.agent,
+    agentItem?.agent_name,
+    agentItem?.name,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeConsensusAgentKey(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
+};
+
+const getBackendValidVoteCanonical = (validVote) => {
+  if (!validVote || typeof validVote !== "object") return null;
+  const voteKey = Array.isArray(validVote.vote_key) ? validVote.vote_key : [];
+  const agentData = validVote.agent_data || validVote.data || {};
+  const agentDenomination = getAgentDenomination(agentData);
+  const country =
+    validVote.country ||
+    validVote.raw_country ||
+    voteKey[0] ||
+    getAgentCountry(agentData);
+  const currency =
+    validVote.currency_code ||
+    validVote.currency ||
+    voteKey[1] ||
+    agentData.ma_tien_te ||
+    agentData.currency ||
+    agentData.currency_code;
+  const amount = validVote.amount ?? voteKey[2];
+  const denomination =
+    validVote.raw_denomination ||
+    validVote.denomination ||
+    validVote.menh_gia ||
+    (agentDenomination !== "N/A" ? agentDenomination : null) ||
+    (amount !== null && amount !== undefined ? `${amount} ${currency || ""}` : null);
+
+  return buildMoneyCanonical({ denomination, currency, country });
+};
+
+const isNonVotingAgent = (payload) => {
+  if (!payload || typeof payload !== "object") return true;
+  if (payload.not_counted_in_consensus === true) return true;
+
+  const status = String(payload.status || "").trim().toLowerCase().replace(/\s+/g, "_");
+  const errorType = String(payload.error_type || "").trim().toLowerCase().replace(/\s+/g, "_");
+  const nonVotingStatuses = new Set([
+    "failed",
+    "partial",
+    "disabled",
+    "error",
+    "technical_error",
+    "no_source",
+    "agent_error",
+    "timeout",
+    "unknown",
+  ]);
+
+  return (
+    payload.technical_error === true ||
+    nonVotingStatuses.has(status) ||
+    nonVotingStatuses.has(errorType)
+  );
+};
+
+const getNonVotingAgentMessage = (vote, lang) => {
+  const payload = vote?.payload || {};
+  const trace = payload?.promotion_trace || {};
+  const reason = String(trace.reason || payload.reason || "").trim().toLowerCase();
+  const weakEvidenceReasons = new Set([
+    "insufficient_support_signals",
+    "insufficient_independent_evidence",
+    "insufficient_direct_title_or_snippet_support",
+    "page_text_support_required_for_two_sources",
+    "weak_single_lens_evidence",
+    "weak_source_only",
+    "single_untrusted_page_text_source",
+    "weak_commercial_source_not_counted",
+  ]);
+  const hasLensEvidence =
+    vote?.agentKey === "visual_search" &&
+    (vote?.hasEvidence || Number(trace.page_text_support_count || 0) > 0);
+
+  if (hasLensEvidence && weakEvidenceReasons.has(reason)) {
+    return lang === "VI"
+      ? "Tìm thấy bằng chứng gần đúng nhưng nguồn chưa đủ mạnh để tính phiếu."
+      : "Found near-matching evidence, but the source was not strong enough to count as a vote.";
+  }
+
+  if (vote?.hasEvidence) {
+    return lang === "VI"
+      ? "Không đủ chắc để tính phiếu"
+      : "Not confident enough to count";
+  }
+
+  return lang === "VI"
+    ? "Không có kết quả hợp lệ để tính phiếu"
+    : "No valid result to count";
+};
+
+const normalizeAgentVote = (
+  agentItem,
+  finalCanonical,
+  consensusValidVotes = [],
+  fallbackAgentKey = null,
+) => {
   const payload = getAgentPayload(agentItem);
   const isErr = isTechnicalError(payload);
-  const denom = getAgentDenomination(payload);
+  const agentDenomination = getAgentDenomination(payload);
   const country = getAgentCountry(payload);
-  const currency = payload?.currency || payload?.currency_code || inferMoneyCurrency(denom);
+
   const rawStatus = String(payload?.status || "").toLowerCase();
   const isDisabled = rawStatus === "disabled";
-  const hasResult = Boolean(denom && denom !== "N/A" && !denom.toLowerCase().includes("không"));
   const hasEvidence = Array.isArray(payload?.evidence) && payload?.evidence.length > 0;
+  const agentKey = getAgentConsensusKey(agentItem, fallbackAgentKey);
+  const backendValidVote = findBackendValidVote(consensusValidVotes, agentKey);
+  const backendVoteKey = Array.isArray(backendValidVote?.vote_key)
+    ? backendValidVote.vote_key
+    : [];
+  const backendCurrency =
+    backendValidVote?.currency_code ||
+    backendValidVote?.currency ||
+    backendVoteKey[1] ||
+    null;
+  const backendAmount = backendValidVote?.amount ?? backendVoteKey[2];
+  const backendDenomination =
+    backendValidVote?.raw_denomination ||
+    backendValidVote?.denomination ||
+    backendValidVote?.menh_gia ||
+    (backendAmount !== null && backendAmount !== undefined
+      ? `${backendAmount} ${backendCurrency || ""}`.trim()
+      : null);
+  const denom =
+    agentDenomination !== "N/A" ? agentDenomination : backendDenomination || "N/A";
+
+  const rawCurrency =
+    payload?.ma_tien_te || payload?.currency_code || payload?.currency || null;
+  const agentCurrency = inferMoneyCurrency(denom, rawCurrency || backendCurrency);
+  const displayCurrency = agentCurrency || finalCanonical?.currency;
+  const hasResult = Boolean(
+    denom && denom !== "N/A" && !denom.toLowerCase().includes("không"),
+  );
 
   const agentCanonical = buildMoneyCanonical({
     denomination: denom,
-    currency,
+    currency: agentCurrency,
     country,
   });
 
-  const matchedFinal = isSameMoneyVote(agentCanonical, finalCanonical);
+  const fallbackMatchesFinal = isSameMoneyVote(agentCanonical, finalCanonical);
+  const backendVoteCanonical = getBackendValidVoteCanonical(backendValidVote);
+  const backendVoteMatchesFinal = isSameMoneyVote(backendVoteCanonical, finalCanonical);
+  const nonVoting = isNonVotingAgent(payload) || !hasResult;
 
-  let voteStatus = "Technical error / Not counted";
-  if (isDisabled) {
-    voteStatus = "Disabled";
-  } else if (!isErr && !hasResult) {
-    if (hasEvidence) {
-      voteStatus = "Evidence only";
-    } else {
-      voteStatus = "No data";
-    }
-  } else if (!isErr) {
-    if (matchedFinal) {
-      voteStatus = "Matched";
-    } else {
-      voteStatus = "Different";
-    }
-  }
+  const voteStatus = resolveAgentVoteStatus({
+    nonVoting,
+    rawStatus,
+    backendVoteMatchesFinal,
+    fallbackMatchesFinal,
+  });
 
   return {
     isError: isErr,
     isDisabled,
+    isNonVoting: nonVoting,
     hasResult,
+    hasEvidence,
+    agentKey,
+    countedByBackend: Boolean(backendValidVote),
     voteStatus,
     denom: formatDenomination(denom),
     country: formatCountry(getAgentCountry(payload)),
-    currency: formatCurrency(payload?.currency || payload?.currency_code),
+    currency: formatCurrency(displayCurrency),
     reasoning: stripMarkdownSymbols(getAgentReasoning(payload)),
     confidence: formatConfidence(payload?.confidence || payload?.do_tin_cay),
     payload: payload
@@ -917,6 +1063,29 @@ const getBackendVndValue = (conversionResult) => {
   return numberValue;
 };
 
+const isCurrencyRatesStale = (ratesData) => {
+  const source = String(ratesData?.source || "").toLowerCase();
+  const provider = String(ratesData?.provider || "").toLowerCase();
+  return Boolean(ratesData?.is_stale ?? ratesData?.isStale) ||
+    source.includes("seed") ||
+    provider.includes("seed");
+};
+
+const getRateTimestamp = (payload) =>
+  payload?.last_updated || payload?.lastUpdated || null;
+
+const formatRateTimestamp = (value, lang) => {
+  if (!value) return "";
+  try {
+    return new Intl.DateTimeFormat(lang === "VI" ? "vi-VN" : "en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(value));
+  } catch {
+    return "";
+  }
+};
+
 const formatTimelinePattern = (pattern, lang) => {
   const normalized = String(pattern || "").toLowerCase();
   const labels = {
@@ -934,9 +1103,6 @@ const formatTimelinePattern = (pattern, lang) => {
 
 const getCropImageUrl = (object) => {
   if (!object) return null;
-  if (object.crop_base64) {
-    return `data:image/jpeg;base64,${object.crop_base64}`;
-  }
   return (
     object.crop_image_url ||
     object.cropped_image_url ||
@@ -1049,10 +1215,12 @@ const normalizeBackendResult = (rawResult, session) => {
     const currency =
       detectedObjects.length > 1
         ? "Multiple"
-        : firstFinal.currency ||
+        : firstFinal.ma_tien_te ||
+          firstFinal.currency ||
           firstFinal.currency_code ||
           firstSummary.currency ||
-          inferCurrencyFromDenomination(denomination, "VND");
+          inferCurrencyFromDenomination(denomination, null) ||
+          "Không xác định";
 
     return {
       id: rawResult.id || rawResult._id || rawResult.result_id,
@@ -1105,12 +1273,16 @@ const normalizeBackendResult = (rawResult, session) => {
         total_objects: final.total_objects ?? detectedObjects.length,
         object_status_summary: final.object_status_summary ?? null,
         warning: final.warning || null,
+        consensus_pattern: final.consensus_pattern || null,
+        consensus_reason: final.consensus_reason || null,
         referee_view:
           final.quan_diem_trong_tai ||
           (isActuallyMulti
             ? `Detected ${detectedObjects.length} banknotes. Each object was analyzed separately.`
             : "Detected 1 banknote and analyzed it with the available AI agents."),
         valid_votes: final.valid_votes || [],
+        suggested_result_from_valid_agent:
+          final.suggested_result_from_valid_agent || null,
         debate_log:
           final.debate_log ||
           final.quan_diem_trong_tai ||
@@ -1278,12 +1450,16 @@ const normalizeBackendResult = (rawResult, session) => {
       method: final.method || "majority_vote",
       matched_agents: Number(matchedAgents || 0),
       status,
+      consensus_pattern: final.consensus_pattern || null,
+      consensus_reason: final.consensus_reason || null,
       referee_view:
         final.quan_diem_trong_tai ||
         final.referee_view ||
         final.reasoning ||
         description,
       valid_votes: final.valid_votes || [],
+      suggested_result_from_valid_agent:
+        final.suggested_result_from_valid_agent || null,
       debate_log:
         final.debate_log ||
         final.quan_diem_trong_tai ||
@@ -1372,13 +1548,35 @@ export default function Result() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { currentScanSession } = useRecognitionStore();
+  const {
+    currentScanSession,
+    activeTask,
+    setScanSession,
+    resetScanSession,
+  } = useRecognitionStore();
   const { ratesData, fetchRates } = useCurrencyStore();
   const { lang } = useLanguageStore();
 
   const [showRawLog, setShowRawLog] = useState(false);
+  const [currentRateOverrideKey, setCurrentRateOverrideKey] = useState(null);
   const [activeTab, setActiveTab] = useState(0);
   const [imagePreview, setImagePreview] = useState(null);
+
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState(null);
+  const [restoredResult, setRestoredResult] = useState(null);
+  const hasRestoredRef = useRef(false);
+  const lastRestoreKeyRef = useRef(null);
+
+  const handleScanAnother = () => {
+    const nonce = String(Date.now());
+    setImagePreview(null);
+    resetScanSession(nonce);
+    navigate("/recognize", {
+      replace: true,
+      state: { resetScan: true, nonce },
+    });
+  };
 
   const dict = {
     EN: {
@@ -1399,8 +1597,7 @@ export default function Result() {
       referee: "Referee Conclusion",
       lblDenomination: "Denomination",
       lblOrigin: "Origin",
-      exchangeTitle: "Instant Currency Exchange",
-      exchangeDesc: "Live conversion rates for the analyzed banknote value.",
+      exchangeDesc: "Currency conversion for the analyzed banknote value.",
       fullConverter: "Full Converter",
       aggDecision: "Aggregator Decision",
       aggDesc:
@@ -1429,15 +1626,24 @@ export default function Result() {
       showLess: "Show less",
       readFull: "Read full reasoning",
       tokenUsageTitle: "Token Usage",
-      tokenUsageDesc: "Actual tokens charged for this recognition result.",
-      tokensCharged: "Tokens charged",
+      tokenUsageDesc: "App token charge and AI usage statistics for this recognition result.",
+      tokensCharged: "App tokens charged",
       balanceBefore: "Balance before",
       balanceAfter: "Balance after",
-      aiTokens: "AI tokens",
-      billableTokens: "Billable AI tokens",
+      aiTokens: "Raw AI usage",
+      billableTokens: "Billable AI usage",
       billingMode: "Billing mode",
       inputOutputTokens: "Input / Output",
+      fixedBillingMode: "Fixed per scan",
+      dynamicBillingMode: "Dynamic by AI usage",
+      skippedBillingMode: "Skipped",
+      fixedBillingDesc: "Fixed billing mode: this scan costs a fixed number of app tokens. AI token usage is shown for internal cost tracking only.",
+      dynamicBillingDesc: "Dynamic billing mode: app tokens are calculated from billable AI token usage.",
+      skippedBillingDesc: "No app tokens charged for this result.",
+      billableUsageDesc: "Raw AI tokens plus 10% overhead.",
       lblConfidence: "Confidence",
+      lblProvider: "Provider",
+      lblFormatter: "Formatter",
       lblVisualSearch: "Google Lens",
       lensEvidence: "Google Lens Evidence",
       lblCropEvidence: "Crop Evidence",
@@ -1453,6 +1659,12 @@ export default function Result() {
       rateAvailable: "Conversion rate available",
       rateUnavailable: "VND conversion rate is currently unavailable",
       openConverter: "Open converter",
+      rateAtRecognition: "Rate at recognition time",
+      currentCachedRate: "Current cached rate",
+      staleRate: "Stale rate",
+      rateUpdated: "Updated",
+      recalculateCurrentRate: "Recalculate using current rate",
+      showingCurrentRate: "Showing current cached rate",
       viewImage: "View image",
       technicalDetails: "Technical details",
       analysisEvidence: "Analysis evidence",
@@ -1485,8 +1697,7 @@ export default function Result() {
       referee: "Kết Luận Trọng Tài",
       lblDenomination: "Mệnh Giá",
       lblOrigin: "Nguồn Gốc",
-      exchangeTitle: "Quy Đổi Tỷ Giá Nhanh",
-      exchangeDesc: "Tỷ giá chuyển đổi trực tiếp dựa trên mệnh giá vừa quét.",
+      exchangeDesc: "Giá trị quy đổi dựa trên mệnh giá vừa quét.",
       fullConverter: "Chuyển Đổi Chi Tiết",
       aggDecision: "Quyết Định Tổng Hợp",
       aggDesc:
@@ -1515,15 +1726,24 @@ export default function Result() {
       showLess: "Thu gọn",
       readFull: "Xem toàn bộ lập luận",
       tokenUsageTitle: "Mức sử dụng token",
-      tokenUsageDesc: "Số token thực tế đã trừ cho lần nhận diện này.",
-      tokensCharged: "Token đã trừ",
+      tokenUsageDesc: "Token app đã trừ và thống kê mức sử dụng AI của lần nhận diện này.",
+      tokensCharged: "Token app đã trừ",
       balanceBefore: "Số dư trước",
       balanceAfter: "Số dư sau",
-      aiTokens: "AI token",
-      billableTokens: "AI token tính phí",
+      aiTokens: "Mức sử dụng AI gốc",
+      billableTokens: "Mức sử dụng AI sau overhead",
       billingMode: "Chế độ tính phí",
       inputOutputTokens: "Đầu vào / Đầu ra",
+      fixedBillingMode: "Cố định theo lượt quét",
+      dynamicBillingMode: "Động theo mức sử dụng AI",
+      skippedBillingMode: "Không tính phí",
+      fixedBillingDesc: "Chế độ tính phí cố định: lượt nhận diện này trừ số token app cố định. AI tokens chỉ dùng để theo dõi chi phí hệ thống.",
+      dynamicBillingDesc: "Chế độ tính phí động: token app được tính từ mức sử dụng AI sau overhead.",
+      skippedBillingDesc: "Kết quả này không bị trừ token app.",
+      billableUsageDesc: "AI tokens gốc cộng thêm 10% overhead.",
       lblConfidence: "Độ tin cậy",
+      lblProvider: "Provider",
+      lblFormatter: "Formatter",
       lblVisualSearch: "Google Lens",
       lensEvidence: "Bằng chứng Google Lens",
       lblCropEvidence: "Kiểm tra vùng ảnh",
@@ -1539,6 +1759,12 @@ export default function Result() {
       rateAvailable: "Đã có tỷ giá quy đổi",
       rateUnavailable: "Hiện chưa có tỷ giá quy đổi sang VND",
       openConverter: "Mở công cụ quy đổi",
+      rateAtRecognition: "Tỷ giá tại thời điểm nhận diện",
+      currentCachedRate: "Tỷ giá cache hiện tại",
+      staleRate: "Tỷ giá cũ",
+      rateUpdated: "Cập nhật",
+      recalculateCurrentRate: "Tính lại bằng tỷ giá hiện tại",
+      showingCurrentRate: "Đang hiển thị tỷ giá cache hiện tại",
       viewImage: "Xem ảnh",
       technicalDetails: "Chi tiết kỹ thuật",
       analysisEvidence: "Bằng chứng phân tích",
@@ -1563,7 +1789,12 @@ export default function Result() {
     }
   }, [ratesData, fetchRates]);
 
+  const searchParams = new URLSearchParams(location.search);
+  const queryTaskId = searchParams.get("taskId") || searchParams.get("task_id");
+  const queryResultId = searchParams.get("resultId") || searchParams.get("result_id");
+
   const rawFromRoute =
+    restoredResult ||
     location.state?.scanResult ||
     location.state?.result ||
     location.state?.scanSession?.result ||
@@ -1572,6 +1803,91 @@ export default function Result() {
   const sessionFromRoute = location.state?.scanSession || null;
   const session = sessionFromRoute || currentScanSession || null;
   const rawResult = rawFromRoute || session?.result || null;
+  const targetTaskId = location.state?.taskId || session?.taskId || queryTaskId || activeTask?.taskId;
+  const targetResultId =
+    location.state?.resultId ||
+    session?.result?.id ||
+    session?.result?._id ||
+    session?.result?.result_id ||
+    queryResultId;
+  const restoreKey = buildRecognitionRestoreKey(targetTaskId, targetResultId);
+
+  useEffect(() => {
+    const shouldRestore = shouldRefetchRecognitionResult({
+      rawResult,
+      taskId: targetTaskId,
+      resultId: targetResultId,
+      isRestoring,
+      restoreError,
+      hasRestored: hasRestoredRef.current,
+      lastRestoreKey: lastRestoreKeyRef.current,
+    });
+    if (!shouldRestore) return;
+
+    const restoreData = async () => {
+      if (!targetTaskId && !targetResultId) {
+        if (!rawResult) {
+          hasRestoredRef.current = true;
+          lastRestoreKeyRef.current = null;
+        }
+        return;
+      }
+
+      hasRestoredRef.current = true;
+      lastRestoreKeyRef.current = restoreKey;
+      setIsRestoring(true);
+      setRestoreError(null);
+
+      try {
+        let fetchedData = null;
+        let resolvedTaskId = targetTaskId;
+
+        if (targetTaskId) {
+          try {
+            const res = await getRecognitionTaskStatus(targetTaskId);
+            fetchedData = res?.data ?? res;
+
+            const status = String(fetchedData?.status || "").toLowerCase();
+            const TERMINAL = new Set(["done", "completed", "complete", "success", "succeeded", "needs_review", "needs review", "completed_partial", "completed_with_limit", "no_banknote_detected", "needs_better_image", "failed", "failure", "error", "cancelled", "canceled", "timeout", "agent_error", "technical_error"]);
+
+            if (!TERMINAL.has(status) && status !== "not_found" && status !== "stale") {
+               navigate(`/processing?taskId=${targetTaskId}`, { replace: true });
+               return;
+            }
+          } catch (e) {
+            console.warn("Restore by taskId failed", e);
+          }
+        }
+
+        if (!fetchedData && targetResultId) {
+          try {
+            const res = await getRecognitionResult(targetResultId);
+            fetchedData = res?.data ?? res;
+            resolvedTaskId = fetchedData?.task_id || targetResultId;
+          } catch (e) {
+            console.warn("Restore by resultId failed", e);
+          }
+        }
+
+        if (fetchedData) {
+          const payload = {
+             ...fetchedData,
+             input_image_url: fetchedData.input_image_url || fetchedData.image_url || fetchedData.uploaded_image_url || null,
+          };
+          setRestoredResult(payload);
+          setScanSession(payload.input_image_url, payload, resolvedTaskId);
+        } else {
+          setRestoreError("not_found");
+        }
+      } catch {
+        setRestoreError("error");
+      } finally {
+        setIsRestoring(false);
+      }
+    };
+
+    restoreData();
+  }, [rawResult, targetTaskId, targetResultId, restoreKey, navigate, setScanSession, isRestoring, restoreError]);
 
   const resultsArray = useMemo(() => {
     if (!rawResult) return [];
@@ -1620,7 +1936,6 @@ export default function Result() {
   const finalConfidence = formatConfidence(
     firstDefined(finalData.confidence, currentItem?.confidence),
   );
-  const primaryCropImage = getCropImageUrl(primaryObject);
   const resultNotice = getResultNotice(
     currentItem?.status,
     currentItem?.error_message,
@@ -1642,6 +1957,8 @@ export default function Result() {
     (!isBlobUrl(session?.previewUrl) ? session?.previewUrl : null) ||
     (!isBlobUrl(location.state?.previewUrl) ? location.state?.previewUrl : null) ||
     null;
+  const primaryCropImage = getCropImageUrl(primaryObject);
+  const primaryCropPreview = getCropPreviewSource(primaryObject, previewImage);
 
   const matchedAgents = Number(consensus?.matched_agents || 0);
   const consensusSummary =
@@ -1668,21 +1985,36 @@ export default function Result() {
     ? buildMultiObjectDebateLog(currentItem.detected_objects, lang || "EN")
     : stripMarkdownSymbols(consensus?.debate_log || "No debate log available.");
 
+  const currentRateResultKey = [
+    activeTab,
+    currentItem?.id || "",
+    currentItem?.task_id || "",
+    currentItem?.result_id || "",
+    finalCurrency,
+    finalDenomination,
+  ].join("|");
+  const useCurrentRateForResult = currentRateOverrideKey === currentRateResultKey;
+
   const exchangeResults = useMemo(() => {
     const rates = ratesData?.rates || {};
     const amountNumber = parseAmountFromDenomination(finalDenomination);
     const backendVndValue = getBackendVndValue(currentItem?.conversion_result);
+    const rateIsStale = isCurrencyRatesStale(ratesData);
 
     if (amountNumber <= 0 || !finalCurrency || finalCurrency === "N/A") {
       return null;
     }
 
-    if (backendVndValue !== null) {
+    if (backendVndValue !== null && !useCurrentRateForResult) {
       return [
         {
           code: "VND",
-          name: lang === "VI" ? "Giá trị quy đổi từ backend" : "Backend conversion",
+          name: lang === "VI" ? "Tỷ giá tại thời điểm nhận diện" : "Rate at recognition time",
           value: backendVndValue,
+          rateType: "snapshot",
+          provider: currentItem?.conversion_result?.provider,
+          source: currentItem?.conversion_result?.source,
+          lastUpdated: getRateTimestamp(currentItem?.conversion_result),
         },
       ];
     }
@@ -1695,6 +2027,7 @@ export default function Result() {
           code: "VND",
           name: lang === "VI" ? "Giá trị nhận diện" : "Recognized value",
           value: amountNumber,
+          rateType: "native",
         },
       ];
     }
@@ -1707,6 +2040,7 @@ export default function Result() {
           code: "VND",
           name: lang === "VI" ? "Chưa có tỷ giá quy đổi" : "Conversion rate unavailable",
           value: null,
+          rateType: "unavailable",
         },
       ];
     }
@@ -1714,11 +2048,17 @@ export default function Result() {
     return [
       {
         code: "VND",
-        name: "Việt Nam Đồng",
+        name: rateIsStale
+          ? (lang === "VI" ? "Tỷ giá cũ" : "Stale rate")
+          : (lang === "VI" ? "Tỷ giá cache hiện tại" : "Current cached rate"),
         value: amountNumber * rateToVnd,
+        rateType: rateIsStale ? "stale" : "current",
+        provider: ratesData?.provider,
+        source: ratesData?.source,
+        lastUpdated: getRateTimestamp(ratesData),
       },
     ];
-  }, [currentItem?.conversion_result, finalDenomination, finalCurrency, lang, ratesData]);
+  }, [currentItem?.conversion_result, finalDenomination, finalCurrency, lang, ratesData, useCurrentRateForResult]);
   const originalAmount = parseAmountFromDenomination(finalDenomination);
   const originalValueText = originalAmount
     ? `${originalAmount.toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} ${finalCurrency}`
@@ -1735,6 +2075,20 @@ export default function Result() {
     Boolean(vndExchangeItem) &&
     vndExchangeItem.value !== null &&
     vndExchangeItem.value !== undefined;
+  const normalizedFinalCurrency = String(finalCurrency || "").toUpperCase();
+  const currentRateToVnd = Number(ratesData?.rates?.[normalizedFinalCurrency] || 0);
+  const canRecalculateWithCurrentRate =
+    getBackendVndValue(currentItem?.conversion_result) !== null &&
+    originalAmount > 0 &&
+    normalizedFinalCurrency &&
+    normalizedFinalCurrency !== "VND" &&
+    currentRateToVnd > 0;
+  const rateTimestampText = formatRateTimestamp(vndExchangeItem?.lastUpdated, lang);
+  const rateMetaText = [
+    vndExchangeItem?.name,
+    vndExchangeItem?.provider ? `${t.lblProvider}: ${vndExchangeItem.provider}` : "",
+    rateTimestampText ? `${t.rateUpdated}: ${rateTimestampText}` : "",
+  ].filter(Boolean).join(" · ");
 
   const handleCopyJSON = async () => {
     try {
@@ -1763,6 +2117,23 @@ export default function Result() {
     URL.revokeObjectURL(objectUrl);
   };
 
+  if (isRestoring) {
+    return (
+      <div className="max-w-3xl mx-auto font-sans py-12">
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 text-center shadow-sm flex flex-col items-center justify-center py-20">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-indigo-50 dark:bg-indigo-900/20 text-indigo-500 mb-4">
+            <svg className="w-6 h-6 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </div>
+          <p className="font-bold text-slate-500 dark:text-slate-400">
+            {lang === "VI" ? "Đang khôi phục kết quả..." : "Restoring result..."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentItem) {
     return (
       <div className="max-w-3xl mx-auto font-sans py-12">
@@ -1780,7 +2151,7 @@ export default function Result() {
           </p>
 
           <button
-            onClick={() => navigate("/recognize")}
+            onClick={handleScanAnother}
             className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 transition shadow-md shadow-indigo-500/20"
           >
             {t.backWorkspace}
@@ -1791,7 +2162,7 @@ export default function Result() {
   }
 
   if (isNoBanknoteResult(currentItem)) {
-    return <NoBanknoteResult item={currentItem} t={t} lang={lang} navigate={navigate} previewImage={previewImage} rejectedObjects={rejectedObjects} />;
+    return <NoBanknoteResult item={currentItem} t={t} lang={lang} onScanAnother={handleScanAnother} previewImage={previewImage} rejectedObjects={rejectedObjects} />;
   }
 
   if (isInvalidConclusionResult(currentItem)) {
@@ -1801,7 +2172,7 @@ export default function Result() {
         previewImage={previewImage}
         t={t}
         lang={lang}
-        navigate={navigate}
+        onScanAnother={handleScanAnother}
         showRawLog={showRawLog}
         setShowRawLog={setShowRawLog}
         handleCopyJSON={handleCopyJSON}
@@ -1884,7 +2255,7 @@ export default function Result() {
                   {t.viewHistory}
                 </button>
                 <button
-                  onClick={() => navigate("/recognize")}
+                  onClick={handleScanAnother}
                   className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3.5 py-2 text-sm font-black text-white transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:bg-cyan-400 dark:text-slate-950 dark:hover:bg-cyan-300"
                 >
                   <RotateCcw className="h-4 w-4" />
@@ -1981,11 +2352,15 @@ export default function Result() {
                     </span>
                   )}
                 </div>
-                <ImagePreviewButton
-                  src={primaryCropImage}
+                <CropPreviewButton
+                  preview={primaryCropPreview}
                   alt={t.cropPreview}
-                  emptyText={t.cropUnavailable}
-                  onPreview={() => primaryCropImage && setImagePreview({ src: primaryCropImage, alt: t.cropPreview })}
+                  emptyText={
+                    primaryObject?.bbox
+                      ? t.cropUnavailable
+                      : lang === "VI" ? "Không có vùng crop" : "No crop region"
+                  }
+                  onPreview={() => primaryCropPreview && setImagePreview({ cropPreview: primaryCropPreview, alt: t.cropPreview })}
                   label={t.viewImage}
                   heightClass="h-36 sm:h-44"
                 />
@@ -2047,6 +2422,11 @@ export default function Result() {
                     <div className="rounded-lg border border-emerald-300 bg-white p-4 dark:border-emerald-400/30 dark:bg-slate-950/50">
                       <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">{t.approximateValue}</p>
                       <p className="mt-1 break-words text-2xl font-black text-emerald-800 dark:text-emerald-200">{vndValueText}</p>
+                      {rateMetaText && (
+                        <p className="mt-2 text-xs font-semibold text-emerald-700/80 dark:text-emerald-100/70">
+                          {rateMetaText}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -2054,13 +2434,25 @@ export default function Result() {
                     <p className={`text-xs font-semibold ${hasVndRate ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}`}>
                       {hasVndRate ? t.rateAvailable : t.rateUnavailable}
                     </p>
-                    <Link
-                      to="/exchange"
-                      className="inline-flex items-center gap-1.5 text-sm font-black text-emerald-800 hover:underline dark:text-emerald-200"
-                    >
-                      {t.openConverter}
-                      <ExternalLink className="h-4 w-4" />
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {canRecalculateWithCurrentRate && (
+                        <button
+                          type="button"
+                          onClick={() => setCurrentRateOverrideKey(currentRateResultKey)}
+                          disabled={useCurrentRateForResult}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-black text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-default disabled:opacity-70 dark:border-emerald-400/30 dark:text-emerald-100 dark:hover:bg-emerald-400/10"
+                        >
+                          {useCurrentRateForResult ? t.showingCurrentRate : t.recalculateCurrentRate}
+                        </button>
+                      )}
+                      <Link
+                        to="/exchange"
+                        className="inline-flex items-center gap-1.5 text-sm font-black text-emerald-800 hover:underline dark:text-emerald-200"
+                      >
+                        {t.openConverter}
+                        <ExternalLink className="h-4 w-4" />
+                      </Link>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -2068,38 +2460,8 @@ export default function Result() {
           </div>
         </div>
 
-        {isValidRecognizedMoneyResult(currentItem) && !isMulti && exchangeResults && exchangeResults.length > 0 && (
-          <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-black text-slate-900 dark:text-slate-100">{t.exchangeTitle}</h2>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t.exchangeDesc}</p>
-              </div>
-              <Link to="/exchange" className="inline-flex items-center gap-1.5 text-sm font-bold text-indigo-600 hover:underline dark:text-indigo-400">
-                {t.fullConverter}
-                <ExternalLink className="h-4 w-4" />
-              </Link>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {exchangeResults.map((item) => (
-                <div key={`${item.code}-${item.name}`} className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
-                  <p className="text-xs font-black uppercase text-slate-400">{item.code}</p>
-                  <p className="mt-1 text-lg font-black text-slate-900 dark:text-slate-100">
-                    {item.value === null
-                      ? "—"
-                      : new Intl.NumberFormat(lang === "VI" ? "vi-VN" : "en-US", {
-                          maximumFractionDigits: item.code === "VND" ? 0 : 2,
-                        }).format(item.value)}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.name}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
         {isMulti ? (
-          <MultiObjectResults currentItem={currentItem} t={t} lang={lang} />
+          <MultiObjectResults currentItem={currentItem} t={t} lang={lang} ratesData={ratesData} />
         ) : (
           <PerObjectResult
             objectNo={1}
@@ -2112,7 +2474,13 @@ export default function Result() {
             confidence={finalConfidence}
             status={normalizeStatusLabel(currentItem?.status, lang)}
             image={primaryCropImage || previewImage}
+            cropPreview={primaryCropPreview}
             agentResults={singleAgentResults}
+            consensusValidVotes={
+              currentItem?.consensus?.valid_votes ||
+              primaryObject?.final_result?.valid_votes ||
+              []
+            }
             refereeView={stripMarkdownSymbols(consensusText)}
             lensPayload={getAgentDataByName(singleAgentResults, ["lens", "visual", "agent_3"])}
             lensSources={normalizeLensSources(getAgentDataByName(singleAgentResults, ["lens", "visual", "agent_3"]))}
@@ -2134,30 +2502,50 @@ export default function Result() {
 
         <TokenUsageCard currentItem={currentItem} t={t} />
 
-        <section className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900 shadow-sm">
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <button
             onClick={() => setShowRawLog(!showRawLog)}
-            className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+            className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 dark:hover:bg-slate-800"
           >
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-slate-400">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 <Zap className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <h2 className="font-black text-white">{t.advDebug || "Advanced Debug"}</h2>
-                <p className="mt-0.5 text-sm text-slate-400">
+                <h2 className="font-black text-slate-900 dark:text-white">{t.advDebug || "Advanced Debug"}</h2>
+                <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                   {lang === "VI" ? "Nhật ký đồng thuận và JSON dành cho kiểm tra kỹ thuật" : "Consensus log and raw JSON for technical review"}
                 </p>
               </div>
             </div>
-            {showRawLog ? <ChevronUp className="h-5 w-5 shrink-0 text-slate-400" /> : <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />}
+            {showRawLog ? <ChevronUp className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" /> : <ChevronDown className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" />}
           </button>
 
           {showRawLog && (
-            <div className="space-y-5 border-t border-slate-800 p-5">
+            <div className="space-y-5 border-t border-slate-200 p-5 dark:border-slate-800">
+              {(currentItem?.final_result?.resize_debug || currentItem?.final_result?.models_used) && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {currentItem?.final_result?.resize_debug && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                      <p className="mb-2 text-xs font-black uppercase text-slate-500">Resize Debug</p>
+                      <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap break-words text-xs text-sky-700 dark:text-sky-300">
+                        {JSON.stringify(currentItem.final_result.resize_debug, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  {currentItem?.final_result?.models_used && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                      <p className="mb-2 text-xs font-black uppercase text-slate-500">Models Used</p>
+                      <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap break-words text-xs text-fuchsia-700 dark:text-fuchsia-300">
+                        {JSON.stringify(currentItem.final_result.models_used, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
               <div>
                 <p className="mb-2 text-xs font-black uppercase text-slate-500">{t.fullLogTitle}</p>
-                <div className="max-h-[420px] overflow-auto rounded-lg bg-slate-950 p-4 text-sm text-emerald-300">
+                <div className="max-h-[420px] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-emerald-700 dark:border-slate-800 dark:bg-slate-950 dark:text-emerald-300">
                   <ReactMarkdown>{safeDebateLog}</ReactMarkdown>
                 </div>
               </div>
@@ -2165,7 +2553,7 @@ export default function Result() {
                 <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs font-black uppercase text-slate-500">{t.jsonTitle}</p>
                   <div className="flex gap-2">
-                    <button onClick={handleCopyJSON} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 transition hover:bg-slate-800">
+                    <button onClick={handleCopyJSON} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
                       <Copy className="h-3.5 w-3.5" />
                       {t.copy}
                     </button>
@@ -2175,7 +2563,7 @@ export default function Result() {
                     </button>
                   </div>
                 </div>
-                <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-4 text-xs text-emerald-300">
+                <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs text-emerald-700 dark:border-slate-800 dark:bg-slate-950 dark:text-emerald-300">
                   {JSON.stringify(currentItem, null, 2)}
                 </pre>
               </div>
@@ -2252,7 +2640,7 @@ export default function Result() {
               {t.btnViewHistory}
             </button>
             <button
-              onClick={() => navigate("/recognize")}
+              onClick={handleScanAnother}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-500"
             >
               <RotateCcw className="h-4 w-4" />
@@ -2278,12 +2666,21 @@ export default function Result() {
           >
             <X className="h-5 w-5" />
           </button>
-          <img
-            src={imagePreview.src}
-            alt={imagePreview.alt}
-            className="max-h-[88vh] max-w-[94vw] object-contain"
-            onClick={(event) => event.stopPropagation()}
-          />
+          {imagePreview.cropPreview ? (
+            <div
+              className="h-[80vh] max-h-[88vh] w-[94vw] max-w-5xl overflow-hidden rounded-lg bg-slate-950"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <CropPreviewContent preview={imagePreview.cropPreview} alt={imagePreview.alt} />
+            </div>
+          ) : (
+            <img
+              src={imagePreview.src}
+              alt={imagePreview.alt}
+              className="max-h-[88vh] max-w-[94vw] object-contain"
+              onClick={(event) => event.stopPropagation()}
+            />
+          )}
         </div>
       )}
     </div>
@@ -2358,6 +2755,91 @@ function ImagePreviewButton({
   );
 }
 
+function CropPreviewContent({ preview, alt = "Crop" }) {
+  const [naturalSize, setNaturalSize] = React.useState(null);
+  const [failed, setFailed] = React.useState(false);
+
+  if (!preview || failed) return null;
+
+  if (preview.kind === "image") {
+    return <img src={preview.src} alt={alt} className="h-full w-full object-contain" />;
+  }
+
+  if (preview.kind !== "bbox" || !preview.imageUrl || !preview.bbox) return null;
+
+  const { x1, y1, width, height } = preview.bbox;
+  const naturalWidth = naturalSize?.width || 0;
+  const naturalHeight = naturalSize?.height || 0;
+  const canPosition = naturalWidth > 0 && naturalHeight > 0 && width > 0 && height > 0;
+
+  const positionedStyle = canPosition
+    ? {
+        width: `${(naturalWidth / width) * 100}%`,
+        height: `${(naturalHeight / height) * 100}%`,
+        left: `-${(x1 / width) * 100}%`,
+        top: `-${(y1 / height) * 100}%`,
+      }
+    : undefined;
+
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-slate-100 dark:bg-slate-950">
+      <img
+        src={preview.imageUrl}
+        alt={alt}
+        onLoad={(event) => {
+          setNaturalSize({
+            width: event.currentTarget.naturalWidth,
+            height: event.currentTarget.naturalHeight,
+          });
+        }}
+        onError={() => setFailed(true)}
+        className={
+          canPosition
+            ? "absolute max-w-none select-none"
+            : "h-full w-full object-cover"
+        }
+        style={positionedStyle}
+        draggable={false}
+      />
+    </div>
+  );
+}
+
+function CropPreviewButton({
+  preview,
+  alt,
+  emptyText,
+  onPreview,
+  label,
+  heightClass,
+}) {
+  if (!preview) {
+    return (
+      <div className={`flex ${heightClass} items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 text-center text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-800/40`}>
+        <div>
+          <ImageIcon className="mx-auto h-8 w-8 opacity-40" />
+          <p className="mt-2">{emptyText}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onPreview}
+      className={`group relative flex w-full ${heightClass} items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950`}
+      aria-label={label}
+    >
+      <CropPreviewContent preview={preview} alt={alt} />
+      <span className="absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-lg bg-slate-950/75 px-2.5 py-1.5 text-xs font-bold text-white opacity-0 backdrop-blur transition group-hover:opacity-100 group-focus:opacity-100">
+        <Maximize2 className="h-3.5 w-3.5" />
+        {label}
+      </span>
+    </button>
+  );
+}
+
 function InfoRow({ label, value }) {
   return (
     <div className="flex justify-between gap-4 border-b border-slate-100 dark:border-slate-700/50 pb-2">
@@ -2406,7 +2888,9 @@ function PerObjectResult({
   confidence,
   status,
   image,
+  cropPreview,
   agentResults,
+  consensusValidVotes = [],
   refereeView,
   lensPayload,
   lensSources,
@@ -2458,8 +2942,13 @@ function PerObjectResult({
     country: country,
   });
 
-  const getVoteData = (agentItem, agentName) => {
-    const norm = normalizeAgentVote(agentItem, finalCanonical);
+  const getVoteData = (agentItem, agentName, agentKey) => {
+    const norm = normalizeAgentVote(
+      agentItem,
+      finalCanonical,
+      consensusValidVotes,
+      agentKey,
+    );
     return { ...norm, name: getAgentDisplayName(agentItem?.agent || agentItem?.agent_name || agentName) };
   };
 
@@ -2481,9 +2970,9 @@ function PerObjectResult({
     : [];
 
   const votes = [
-    getVoteData({ agent: "AG1 OpenAI/GPT Vision", data: ag1 }, "AG1"),
-    getVoteData({ agent: "AG2 Gemini/LLM", data: ag2 }, "AG2"),
-    getVoteData({ agent: "AG3 Google Lens/Visual Search", data: ag3 }, "AG3")
+    getVoteData({ agent: "AG1 OpenAI/GPT Vision", data: ag1 }, "AG1", "ml_dl"),
+    getVoteData({ agent: "AG2 Gemini/LLM", data: ag2 }, "AG2", "llm_api"),
+    getVoteData({ agent: "AG3 Google Lens/Visual Search", data: ag3 }, "AG3", "visual_search")
   ];
 
   return (
@@ -2491,14 +2980,18 @@ function PerObjectResult({
       {/* HEADER */}
       <div className="flex flex-col justify-between gap-4 border-b border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-800/50 md:flex-row md:items-center">
         <div className="flex items-center gap-4">
-          {!isSingleObject && image && (
+          {!isSingleObject && (cropPreview || image) && (
             <button
               type="button"
               onClick={() => setObjectImagePreview(true)}
               className="group relative h-20 w-28 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950"
               aria-label={lang === "VI" ? "Xem ảnh crop" : "View crop image"}
             >
-              <img src={image} alt="Crop" className="h-full w-full object-cover" />
+              {cropPreview ? (
+                <CropPreviewContent preview={cropPreview} alt="Crop" />
+              ) : (
+                <img src={image} alt="Crop" className="h-full w-full object-cover" />
+              )}
               <span className="absolute inset-0 flex items-center justify-center bg-slate-950/45 text-white opacity-0 transition group-hover:opacity-100 group-focus:opacity-100">
                 <Maximize2 className="h-4 w-4" />
               </span>
@@ -2539,7 +3032,9 @@ function PerObjectResult({
           <DetailItem label={t.lblCurrency} value={currency} />
           <DetailItem label={t.lblMaterial} value={material} />
           <DetailItem label={t.lblConfidence} value={confidence} />
-          <DetailItem label={t.vndEquivalent || "VND Equivalent"} value={getVndText()} />
+          {!isSingleObject && (
+            <DetailItem label={t.vndEquivalent || "VND Equivalent"} value={getVndText()} />
+          )}
         </div>
       </div>
 
@@ -2733,14 +3228,15 @@ function PerObjectResult({
             <ul className="mb-3 list-inside list-disc space-y-1.5 text-sm text-slate-700 dark:text-slate-300">
               {votes.map((vote, i) => {
                  let text = `${vote.name} ${lang === "VI" ? "chọn" : "selected"} `;
-                 if (vote.isError) {
-                   text += lang === "VI" ? "lỗi kỹ thuật (không tính)" : "technical error (not counted)";
-                 } else if (vote.isDisabled || vote.voteStatus === "No data") {
-                   text += lang === "VI" ? "không có dữ liệu" : "no data";
-                 } else {
-                   const matchedLabel = vote.voteStatus === "Agreed" || vote.voteStatus === "Matched" ? (lang === "VI" ? "khớp" : "matched") : (lang === "VI" ? "khác" : "differed");
-                   text += `${vote.denom} (${matchedLabel})`;
-                 }
+                 const selectedValue = vote.hasResult
+                   ? vote.denom
+                   : lang === "VI" ? "Không xác định" : "Unknown";
+                 const voteLabel = vote.voteStatus === "matched"
+                   ? lang === "VI" ? "đồng thuận" : "agreed"
+                   : vote.voteStatus === "different"
+                     ? lang === "VI" ? "khác biệt" : "differed"
+                     : lang === "VI" ? "không tính phiếu" : "not counted";
+                 text += `${selectedValue} (${voteLabel})`;
                  return <li key={i}>{text}</li>;
               })}
             </ul>
@@ -2825,7 +3321,7 @@ function PerObjectResult({
           <p className="text-sm text-slate-500 italic">{lang === "VI" ? "Không có dữ liệu tiến trình." : "No timeline data available."}</p>
         )}
       </CollapsibleSection>
-      {objectImagePreview && image && (
+      {objectImagePreview && (cropPreview || image) && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm"
           role="dialog"
@@ -2840,12 +3336,24 @@ function PerObjectResult({
           >
             <X className="h-5 w-5" />
           </button>
+          {cropPreview ? (
+            <div
+              className="h-[80vh] max-h-[88vh] w-[94vw] max-w-5xl overflow-hidden rounded-lg bg-slate-950"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <CropPreviewContent
+                preview={cropPreview}
+                alt={lang === "VI" ? `Ảnh crop tờ tiền ${objectNo}` : `Banknote crop ${objectNo}`}
+              />
+            </div>
+          ) : (
           <img
             src={image}
             alt={lang === "VI" ? `Ảnh crop tờ tiền ${objectNo}` : `Banknote crop ${objectNo}`}
             className="max-h-[88vh] max-w-[94vw] object-contain"
             onClick={(event) => event.stopPropagation()}
           />
+          )}
         </div>
       )}
     </section>
@@ -2879,36 +3387,30 @@ function CollapsibleSection({ title, isOpen, toggle, children }) {
 
 function AgentVoteCard({ vote, t, lang }) {
   const [isExpanded, setIsExpanded] = React.useState(false);
-  const { voteStatus, denom, country, currency, reasoning, confidence, isError, isDisabled, hasResult, name } = vote;
-  const isMatched = voteStatus === "Matched";
-  const isNoData = voteStatus === "No data";
-  const isEvidenceOnly = voteStatus === "Evidence only";
+  const { voteStatus, denom, country, currency, reasoning, confidence, isError, isDisabled, isNonVoting, hasResult, hasEvidence, name } = vote;
+  const isMatched = voteStatus === "matched";
+  const isDifferent = voteStatus === "different";
+  const isNotCounted = isNonVoting || voteStatus === "not_counted";
 
-  const statusColor = isError
-    ? "border-rose-200 bg-rose-50 dark:border-rose-500/20 dark:bg-rose-500/10"
-    : isDisabled || isNoData || isEvidenceOnly
-      ? "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50"
-      : isMatched
-        ? "border-emerald-200 bg-emerald-50 dark:border-emerald-500/20 dark:bg-emerald-500/10"
-        : "border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/10";
-  const textColor = isError
-    ? "text-rose-700 dark:text-rose-300"
-    : isDisabled || isNoData || isEvidenceOnly
-      ? "text-slate-600 dark:text-slate-300"
-      : isMatched
-        ? "text-emerald-700 dark:text-emerald-300"
-        : "text-amber-700 dark:text-amber-300";
-  const displayStatus = isError
-    ? t.techError || "Technical error"
-    : isDisabled
-      ? lang === "VI" ? "Đã tắt" : "Disabled"
-      : isNoData
-        ? lang === "VI" ? "Không có dữ liệu" : "No data"
-        : isEvidenceOnly
-          ? lang === "VI" ? "Một phần" : "Partial"
-          : isMatched
-            ? t.matched || "Matched"
-            : t.different || "Different";
+  const statusColor = isMatched
+    ? "border-emerald-200 bg-emerald-50 dark:border-emerald-500/20 dark:bg-emerald-500/10"
+    : isDifferent
+      ? "border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/10"
+      : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50";
+  const textColor = isMatched
+    ? "text-emerald-700 dark:text-emerald-300"
+    : isDifferent
+      ? "text-amber-700 dark:text-amber-300"
+      : "text-slate-600 dark:text-slate-300";
+  const displayStatus = isMatched
+    ? t.matched || (lang === "VI" ? "Khớp" : "Matched")
+    : isDifferent
+      ? t.different || (lang === "VI" ? "Khác biệt" : "Different")
+      : lang === "VI" ? "Không tính phiếu" : "Not counted";
+
+  const showAg3Trace =
+    vote?.agentKey === "visual_search" ||
+    /ag3|lens|visual search/i.test(String(name || ""));
 
   return (
     <article className={`flex h-full min-h-[260px] flex-col rounded-2xl border p-4 shadow-sm ${statusColor}`}>
@@ -2918,11 +3420,36 @@ function AgentVoteCard({ vote, t, lang }) {
           {displayStatus}
         </span>
       </div>
+      {showAg3Trace && (
+        <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg border border-current/10 bg-white/55 p-2 text-[10px] font-bold uppercase leading-tight text-slate-500 dark:bg-slate-950/20 dark:text-slate-400">
+          <div>
+            <span className="block">{t.lblProvider || "Provider"}</span>
+            <span className={`mt-1 block text-xs normal-case ${textColor}`}>{getAg3ProviderLabel(vote?.payload)}</span>
+          </div>
+          <div>
+            <span className="block">{t.lblFormatter || "Formatter"}</span>
+            <span className={`mt-1 block text-xs normal-case ${textColor}`}>{getAg3FormatterLabel(vote?.payload)}</span>
+          </div>
+        </div>
+      )}
       <div className="mb-4 space-y-1">
-        {isEvidenceOnly ? (
+        {isNotCounted && !hasResult ? (
+          <>
           <p className={`text-sm font-semibold ${textColor}`}>
-            {lang === "VI" ? "Không đủ chắc để tính phiếu" : "Not confident enough to count"}
+            {hasEvidence
+              ? lang === "VI" ? "Không đủ chắc để tính phiếu" : "Not confident enough to count"
+              : lang === "VI" ? "Không có kết quả hợp lệ để tính phiếu" : "No valid result to count"}
           </p>
+          {getNonVotingAgentMessage(vote, lang) !== (
+            hasEvidence
+              ? lang === "VI" ? "Không đủ chắc để tính phiếu" : "Not confident enough to count"
+              : lang === "VI" ? "Không có kết quả hợp lệ để tính phiếu" : "No valid result to count"
+          ) && (
+            <p className="mt-2 text-xs font-semibold leading-5 text-slate-500 dark:text-slate-400">
+              {getNonVotingAgentMessage(vote, lang)}
+            </p>
+          )}
+          </>
         ) : (
           <>
             <p className={`text-xl font-black ${textColor}`}>{hasResult && !isError ? denom : "—"}</p>
@@ -2958,11 +3485,9 @@ function AgentVoteCard({ vote, t, lang }) {
   );
 }
 
-function MultiObjectResults({ currentItem, t, lang }) {
+function MultiObjectResults({ currentItem, t, lang, ratesData }) {
   const objects = Array.isArray(currentItem?.detected_objects) ? currentItem.detected_objects : [];
   if (!objects.length) return null;
-
-  const { ratesData } = useCurrencyStore();
 
   return (
     <section>
@@ -2989,6 +3514,15 @@ function MultiObjectResults({ currentItem, t, lang }) {
             finalData.final_denomination ||
             finalData.menh_gia ||
             finalData.denomination;
+          const originalImageUrl =
+            currentItem?.input_image_url ||
+            currentItem?.image_url ||
+            currentItem?.uploaded_image_url ||
+            currentItem?.raw_backend?.input_image_url ||
+            currentItem?.raw_backend?.image_url ||
+            currentItem?.raw_backend?.uploaded_image_url ||
+            null;
+          const objectCropPreview = getCropPreviewSource(item, originalImageUrl);
           return (
             <PerObjectResult 
               key={index}
@@ -3006,8 +3540,10 @@ function MultiObjectResults({ currentItem, t, lang }) {
               matchedAgents={Number(finalData.matched_agents || finalData.so_luong_dong_thuan || 0)}
               confidence={formatConfidence(firstDefined(finalData.confidence, finalData.do_tin_cay))}
               status={normalizeStatusLabel(finalData.status || "Completed", lang)}
-              image={item?.crop_base64 ? `data:image/jpeg;base64,${item.crop_base64}` : currentItem?.image_url}
+              image={getCropImageUrl(item) || originalImageUrl}
+              cropPreview={objectCropPreview}
               agentResults={agentResults}
+              consensusValidVotes={finalData.valid_votes || item?.consensus?.valid_votes || []}
               refereeView={stripMarkdownSymbols(finalData.quan_diem_trong_tai || finalData.referee_view || finalData.reasoning)}
               lensPayload={lensPayload}
               lensSources={normalizeLensSources(lensPayload)}
@@ -3077,6 +3613,37 @@ function TokenUsageCard({ currentItem, t }) {
     currentItem?.billing_mode ??
     usage?.billing_mode;
 
+  const normalizedBillingMode = String(billingMode || "").trim().toLowerCase();
+  const hasChargeValue = systemTokensCharged !== undefined && systemTokensCharged !== null;
+  const explicitBillingSkipped = Boolean(
+    raw?.billing_skipped ??
+      currentItem?.billing_skipped ??
+      usage?.billing_skipped ??
+      raw?.final_result?.billing_skipped,
+  );
+  const billingSkipped =
+    explicitBillingSkipped ||
+    normalizedBillingMode === "skipped" ||
+    normalizedBillingMode.startsWith("not_billable") ||
+    (hasChargeValue && Number(systemTokensCharged) === 0);
+  const billingModeLabel = billingSkipped
+    ? t.skippedBillingMode
+    : normalizedBillingMode === "dynamic"
+      ? t.dynamicBillingMode
+      : normalizedBillingMode === "fixed"
+        ? t.fixedBillingMode
+        : billingMode ?? "N/A";
+  const billingDescription = billingSkipped
+    ? t.skippedBillingDesc
+    : normalizedBillingMode === "dynamic"
+      ? t.dynamicBillingDesc
+      : normalizedBillingMode === "fixed"
+        ? t.fixedBillingDesc
+        : t.tokenUsageDesc;
+  const chargedSummary = billingSkipped
+    ? t.skippedBillingDesc
+    : `${systemTokensCharged ?? "N/A"} ${String(t.tokensCharged).toLowerCase()}`;
+
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <button 
@@ -3092,7 +3659,7 @@ function TokenUsageCard({ currentItem, t }) {
               {t.tokenUsageTitle}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {systemTokensCharged ?? "N/A"} {String(t.tokensCharged).toLowerCase()}
+              {chargedSummary}
             </p>
           </div>
         </div>
@@ -3101,7 +3668,13 @@ function TokenUsageCard({ currentItem, t }) {
 
       {isOpen && (
         <div className="border-t border-slate-200 p-5 dark:border-slate-800">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+            <TokenMetric
+              icon={<Coins className="w-4 h-4" />}
+              label={t.tokensCharged}
+              value={systemTokensCharged ?? "N/A"}
+            />
+
             <TokenMetric
               icon={<Wallet className="w-4 h-4" />}
               label={t.balanceBefore}
@@ -3129,8 +3702,16 @@ function TokenUsageCard({ currentItem, t }) {
             <TokenMetric
               icon={<Coins className="w-4 h-4" />}
               label={t.billingMode}
-              value={billingMode ?? "N/A"}
+              value={billingModeLabel}
             />
+          </div>
+
+          <div className={`mt-4 rounded-lg border px-4 py-3 text-sm leading-6 ${
+            billingSkipped
+              ? "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300"
+              : "border-cyan-200 bg-cyan-50 text-cyan-900 dark:border-cyan-900/60 dark:bg-cyan-950/30 dark:text-cyan-200"
+          }`}>
+            {billingDescription}
           </div>
 
           {Number(billableAiTokens || 0) > 0 && (
@@ -3139,6 +3720,7 @@ function TokenUsageCard({ currentItem, t }) {
               <span className="font-bold text-slate-700 dark:text-slate-200">
                 {billableAiTokens}
               </span>
+              <span className="ml-2">{t.billableUsageDesc}</span>
             </p>
           )}
         </div>
@@ -3277,6 +3859,9 @@ function AgentCard({ agentKey, title, method, data, finalCanonical, t, agentType
   const confNum = confidence !== undefined && confidence !== null
     ? (Number(confidence) <= 1 ? Number(confidence) * 100 : Number(confidence))
     : null;
+  const showAg3Trace =
+    agentType === "lens" ||
+    /ag3|lens|visual search/i.test(`${agentKey || ""} ${title || ""}`);
 
   return (
     <div className={`flex flex-col bg-white dark:bg-slate-900 rounded-2xl border shadow-sm overflow-hidden hover:shadow-md transition-all ${
@@ -3306,6 +3891,12 @@ function AgentCard({ agentKey, title, method, data, finalCanonical, t, agentType
         <InfoRow label={t.lblDenomination} value={agentDenomination} />
         <InfoRow label={t.lblCountry} value={getAgentCountry(data)} />
         <InfoRow label={t.lblMaterial} value={data?.chat_lieu || data?.material} />
+        {showAg3Trace && (
+          <>
+            <InfoRow label={t.lblProvider || "Provider"} value={getAg3ProviderLabel(data)} />
+            <InfoRow label={t.lblFormatter || "Formatter"} value={getAg3FormatterLabel(data)} />
+          </>
+        )}
 
         {confNum !== null && (
           <div className="pt-1">
@@ -3425,7 +4016,7 @@ function InvalidConclusionResult({
   previewImage,
   t,
   lang,
-  navigate,
+  onScanAnother,
   showRawLog,
   setShowRawLog,
   handleCopyJSON,
@@ -3433,7 +4024,7 @@ function InvalidConclusionResult({
 }) {
   const labels = lang === "VI" ? {
     title: "Chưa thể kết luận",
-    message: "Các AI chưa trả được kết quả hợp lệ hoặc hệ thống gặp lỗi kỹ thuật. Vui lòng thử lại với ảnh rõ hơn, đủ sáng và có tiền giấy nằm trọn trong khung hình.",
+    message: "Không đủ đồng thuận do tác tử kỹ thuật bị lỗi hoặc kết quả mâu thuẫn. Kết quả gợi ý bên dưới chỉ nên dùng để tham khảo.",
     originalImage: "Ảnh gốc",
     errorStatus: "Trạng thái",
     errorDetail: "Chi tiết lỗi",
@@ -3445,7 +4036,7 @@ function InvalidConclusionResult({
     scanAnother: "Quét Tờ Tiền Khác"
   } : {
     title: "No reliable conclusion",
-    message: "The AI agents did not return a valid result or a technical error occurred. Please try again with a clearer image showing a full banknote.",
+    message: "There is not enough consensus because a technical agent failed or the results conflict. Any suggested result below should be treated as a reference only.",
     originalImage: "Original image",
     errorStatus: "Status",
     errorDetail: "Error details",
@@ -3462,7 +4053,19 @@ function InvalidConclusionResult({
     lang
   );
 
-  const errorMsg = currentItem?.error_message || currentItem?.raw_backend?.error_message || currentItem?.consensus?.referee_view || currentItem?.consensus?.quan_diem_trong_tai;
+  const suggestedResult = getSuggestedResultFromItem(currentItem);
+  const suggestedResultText = formatSuggestedResultText(suggestedResult, lang);
+  const rawErrorMsg =
+    currentItem?.error_message ||
+    currentItem?.raw_backend?.error_message ||
+    currentItem?.consensus?.referee_view ||
+    currentItem?.consensus?.quan_diem_trong_tai;
+  const errorMsg = normalizeInvalidConclusionDetail(
+    rawErrorMsg,
+    currentItem,
+    suggestedResult,
+    lang,
+  );
 
   return (
     <div className="page-inner py-6">
@@ -3479,6 +4082,11 @@ function InvalidConclusionResult({
               <p className="mt-3 text-sm leading-6 text-slate-300 sm:text-base">
                 {labels.message}
               </p>
+              {suggestedResultText && (
+                <div className="mt-4 rounded-lg border border-sky-700 bg-sky-950/60 p-4 text-sm text-sky-100">
+                  <p>{suggestedResultText}</p>
+                </div>
+              )}
               {errorMsg && (
                 <div className="mt-4 p-4 rounded-lg bg-rose-950 border border-rose-800 text-rose-200 text-sm">
                   <p className="font-bold mb-1">{labels.errorDetail}:</p>
@@ -3488,14 +4096,14 @@ function InvalidConclusionResult({
             </div>
             <div className="flex flex-col gap-3 shrink-0">
               <button
-                onClick={() => navigate("/recognize")}
+                onClick={onScanAnother}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 py-3 font-black text-white transition hover:bg-rose-500"
               >
                 <RotateCcw className="h-4 w-4" />
                 {labels.scanAnother}
               </button>
               <button
-                onClick={() => navigate("/workspace")}
+                onClick={onScanAnother}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-800 border border-slate-700 px-5 py-3 font-black text-white transition hover:bg-slate-700 hover:border-slate-600"
               >
                 {labels.backWorkspace}
@@ -3521,29 +4129,29 @@ function InvalidConclusionResult({
           )}
         </section>
 
-        <section className="overflow-hidden rounded-lg border border-slate-800 bg-slate-900 shadow-sm">
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <button
             onClick={() => setShowRawLog(!showRawLog)}
-            className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+            className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 dark:hover:bg-slate-800"
           >
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-slate-400">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 <Zap className="h-5 w-5" />
               </div>
               <div className="min-w-0">
-                <h2 className="font-black text-white">{labels.advDebug}</h2>
+                <h2 className="font-black text-slate-900 dark:text-white">{labels.advDebug}</h2>
               </div>
             </div>
-            {showRawLog ? <ChevronUp className="h-5 w-5 shrink-0 text-slate-400" /> : <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />}
+            {showRawLog ? <ChevronUp className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" /> : <ChevronDown className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" />}
           </button>
 
           {showRawLog && (
-            <div className="space-y-5 border-t border-slate-800 p-5">
+            <div className="space-y-5 border-t border-slate-200 p-5 dark:border-slate-800">
               <div>
                 <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-xs font-black uppercase text-slate-500">{labels.jsonTitle}</p>
                   <div className="flex gap-2">
-                    <button onClick={handleCopyJSON} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 transition hover:bg-slate-800">
+                    <button onClick={handleCopyJSON} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
                       <Copy className="h-3.5 w-3.5" />
                       {labels.copy}
                     </button>
@@ -3553,7 +4161,7 @@ function InvalidConclusionResult({
                     </button>
                   </div>
                 </div>
-                <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-4 text-xs text-emerald-300">
+                <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs text-emerald-700 dark:border-slate-800 dark:bg-slate-950 dark:text-emerald-300">
                   {JSON.stringify(currentItem, null, 2)}
                 </pre>
               </div>
@@ -3571,7 +4179,7 @@ function NoBanknoteResult({
   previewImage,
   t,
   lang,
-  navigate,
+  onScanAnother,
 }) {
   const dynamicReason = inferNoBanknoteReason(rejectedObjects);
   const subtitle = lang === "VI" ? dynamicReason.viMessage : dynamicReason.enMessage;
@@ -3624,7 +4232,7 @@ function NoBanknoteResult({
               </p>
             </div>
             <button
-              onClick={() => navigate("/workspace")}
+              onClick={onScanAnother}
               className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-800 border border-slate-700 px-5 py-3 font-black text-white transition hover:bg-slate-700 hover:border-slate-600"
             >
               <RotateCcw className="h-4 w-4" />
