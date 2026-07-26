@@ -204,7 +204,8 @@ class RecognitionController:
             user=user,
             image_bytes=image_bytes,
             task=None,
-            debug_mode=True
+            debug_mode=True,
+            experiment_mode=True
         )
 
         return debug_result

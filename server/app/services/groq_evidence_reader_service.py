@@ -30,6 +30,7 @@ except ImportError as exc:
     GROQ_IMPORT_ERROR = str(exc)
 
 from app.core.config import settings
+from app.utils.currency_normalizer import normalize_currency_identity
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -540,31 +541,68 @@ def reconcile_ag3_evidence(
     groq_conflicts = groq_result.get("conflict_count", 0)
     groq_domains = list(groq_result.get("independent_supporting_domains") or [])
 
-    def _identities_match(a: Optional[Dict], b_country: str, b_currency: str, b_denom: str) -> bool:
+    def _identity_comparison(
+        a: Optional[Dict],
+        b_country: str,
+        b_currency: str,
+        b_denom: str,
+    ) -> Dict[str, Any]:
         if not a:
-            return False
-        a_country = str(a.get("country") or "").strip().lower()
-        a_currency = str(a.get("currency_code") or "").strip().upper()
-        a_denom = str(a.get("denomination") or "").strip()
-        # Normalize denomination for comparison (just extract the number)
-        import re
-        a_num = re.sub(r"[^\d]", "", a_denom)
-        b_num = re.sub(r"[^\d]", "", b_denom)
-        return (
-            a_country == b_country.lower()
-            and a_currency == b_currency.upper()
-            and (a_denom == b_denom or (a_num and b_num and a_num == b_num))
+            return {
+                "match": False,
+                "conflict_fields": ["incomplete_identity"],
+                "deterministic_key": None,
+                "groq_key": None,
+            }
+        det_identity = normalize_currency_identity(
+            a.get("country"),
+            a.get("currency_code") or a.get("currency"),
+            a.get("denomination") or a.get("amount"),
         )
+        groq_identity_norm = normalize_currency_identity(
+            b_country,
+            b_currency,
+            b_denom,
+        )
+        det_key = det_identity.get("vote_key")
+        groq_key = groq_identity_norm.get("vote_key")
+        if not det_key or not groq_key:
+            return {
+                "match": False,
+                "conflict_fields": ["incomplete_identity"],
+                "deterministic_key": list(det_key) if det_key else None,
+                "groq_key": list(groq_key) if groq_key else None,
+            }
+        conflict_fields = [
+            name
+            for index, name in enumerate(("country", "currency", "denomination"))
+            if det_key[index] != groq_key[index]
+        ]
+        return {
+            "match": not conflict_fields,
+            "conflict_fields": conflict_fields,
+            "deterministic_key": list(det_key),
+            "groq_key": list(groq_key),
+        }
 
     # CASE 1: Both agree, strong evidence
     if det_identity and groq_has_identity and groq_status == "completed":
-        if _identities_match(det_identity, groq_country, groq_currency, groq_denom):
+        comparison = _identity_comparison(
+            det_identity,
+            groq_country,
+            groq_currency,
+            groq_denom,
+        )
+        if comparison["match"]:
             return {
                 "reconciled_identity": det_identity,
                 "agreement_level": "strong",
                 "supporting_domains": groq_domains,
                 "conflicting_domains": [],
                 "reason": "deterministic_and_groq_agree_completed",
+                "canonical_identity_match": True,
+                "deterministic_canonical_key": comparison["deterministic_key"],
+                "groq_canonical_key": comparison["groq_key"],
                 "eligible_for_validation": True,
                 "groq_failed": False,
                 "groq_skipped": False,
@@ -605,7 +643,13 @@ def reconcile_ag3_evidence(
 
     # CASE 4: Both have different identities — conflict
     if det_identity and groq_has_identity:
-        if not _identities_match(det_identity, groq_country, groq_currency, groq_denom):
+        comparison = _identity_comparison(
+            det_identity,
+            groq_country,
+            groq_currency,
+            groq_denom,
+        )
+        if not comparison["match"]:
             conflicting_domains = [
                 str(i.get("domain") or "").strip().lower()
                 for i in evidence_items
@@ -617,6 +661,10 @@ def reconcile_ag3_evidence(
                 "supporting_domains": [],
                 "conflicting_domains": list(set(conflicting_domains))[:5],
                 "reason": "deterministic_groq_identity_conflict",
+                "canonical_identity_match": False,
+                "conflict_fields": comparison["conflict_fields"],
+                "deterministic_canonical_key": comparison["deterministic_key"],
+                "groq_canonical_key": comparison["groq_key"],
                 "eligible_for_validation": False,
                 "groq_failed": False,
                 "groq_skipped": False,

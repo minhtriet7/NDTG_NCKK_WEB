@@ -91,10 +91,10 @@ class AdminController:
     @staticmethod
     async def test_ag3(user, options: dict, image_file = None):
         from app.services.ag3_test_service import run_ag3_test
-        image_bytes = None
+        image_bytes = b""
         if image_file:
             image_bytes = await image_file.read()
-        return await run_ag3_test(options, image_bytes)
+        return await run_ag3_test(options=options, image_bytes=image_bytes)
 
     # ============================================================
     # USERS
@@ -431,6 +431,24 @@ class AdminController:
             }
             for log in logs
         ]
+
+    @staticmethod
+    async def get_currency_country_mappings(
+        search: str = "",
+        status: str = "all",
+    ):
+        return await _maybe_await(
+            CurrencyService.get_admin_country_mappings(
+                search=search,
+                status=status,
+            )
+        )
+
+    @staticmethod
+    async def patch_currency_country_mapping(country_code: str, data: dict):
+        return await _maybe_await(
+            CurrencyService.patch_country_mapping(country_code, data)
+        )
 
     # ============================================================
     # AGENTS

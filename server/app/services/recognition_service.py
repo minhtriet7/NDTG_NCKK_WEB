@@ -1,11 +1,14 @@
 import asyncio
+import base64
 import hashlib
 import os
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import inspect
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from beanie import PydanticObjectId
 from fastapi import HTTPException, status
@@ -14,6 +17,7 @@ from app.models.user_model import User
 from app.models.recognition_model import RecognitionRequest
 from app.models.recognition_task_model import RecognitionTask
 from app.services.token_billing_service import TokenBillingService
+from app.core.config import settings
 from app.core.logger import get_logger
 
 logger = get_logger(__name__)
@@ -42,9 +46,17 @@ except ModuleNotFoundError:
 from app.utils.cloudinary_handler import upload_image_to_cloudinary
 from app.agents.agent_1_openai import run_agent1_openai
 from app.agents.agent_2_llm import run_agent2_llm
-from app.agents.agent_3_selector import run_agent3_lens
+from app.agents.agent_3_selector import (
+    build_agent3_candidate_timeout_result,
+    resolve_agent3_candidate_verification_policy,
+    run_agent3_candidate_verification,
+    run_agent3_lens,
+)
 from app.services.admin_service import AdminService
-from app.agents.agent_aggregator import run_aggregator
+from app.agents.agent_aggregator import (
+    run_aggregator,
+    should_early_stop_fixed_provider_config_single_valid_vote,
+)
 
 # Fallback constant khi SystemConfig chưa có trong DB.
 # Phải khớp với config_model.py SystemConfig.max_retry_count default.
@@ -83,6 +95,37 @@ def build_disabled_agent_result(agent_name: str, reason: str) -> str:
             "van_ban_nhin_thay": [],
             "dac_diem_chinh": [],
             "status": "Disabled",
+        }
+    ], ensure_ascii=False)
+
+
+def build_agent3_selenium_policy_disabled_result() -> str:
+    return json.dumps([
+        {
+            "quoc_gia": "Khong xac dinh",
+            "ma_tien_te": "Khong xac dinh",
+            "menh_gia": "Khong xac dinh",
+            "mat_tien": "Khong xac dinh",
+            "nam_phat_hanh": "Khong xac dinh",
+            "chat_lieu": "Khong xac dinh",
+            "mo_ta": "Selenium disabled by AG3 SerpAPI-only policy.",
+            "quan_diem": "Selenium disabled by AG3 SerpAPI-only policy.",
+            "phuong_phap": "Agent 3 Lens v2",
+            "do_tin_cay": 0.0,
+            "van_ban_nhin_thay": [],
+            "dac_diem_chinh": [],
+            "status": "Disabled",
+            "provider": "selenium",
+            "not_counted_in_consensus": True,
+            "provider_trace": {
+                "primary_provider": "serpapi",
+                "selected_provider": None,
+                "fallback_attempted": False,
+                "fallback_reason": "serpapi_only_mode",
+                "serpapi_only_mode": True,
+                "selenium_enabled": False,
+                "debug_compare_blocked": True,
+            },
         }
     ], ensure_ascii=False)
 
@@ -130,6 +173,71 @@ def parse_agent_json(raw_value: Any, fallback_message: str) -> Dict[str, Any]:
         }
 
 
+SENSITIVE_PUBLIC_KEYS = {
+    "crop_bytes",
+    "image_bytes",
+    "raw_image_bytes",
+    "raw_image_base64",
+    "image_base64",
+    "base64_image",
+    "serpapi_key_loaded",
+    "serpapi_key_len",
+    "serpapi_key_last4",
+    "api_key",
+    "apikey",
+    "access_token",
+    "refresh_token",
+    "authorization",
+    "raw_provider_exception",
+    "provider_exception",
+    "traceback",
+    "stacktrace",
+}
+
+SENSITIVE_QUERY_KEYS = {
+    "api_key",
+    "apikey",
+    "key",
+    "token",
+    "access_token",
+    "auth",
+    "authorization",
+    "signature",
+    "sig",
+    "client_secret",
+}
+
+
+def _sanitize_public_url(value: str) -> str:
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return value
+    if not parsed.scheme or not parsed.netloc or not parsed.query:
+        return value
+
+    redacted = False
+    cleaned_pairs = []
+    for key, item in parse_qsl(parsed.query, keep_blank_values=True):
+        if key.casefold() in SENSITIVE_QUERY_KEYS:
+            cleaned_pairs.append((key, "REDACTED"))
+            redacted = True
+        else:
+            cleaned_pairs.append((key, item))
+    if not redacted:
+        return value
+    return urlunparse(parsed._replace(query=urlencode(cleaned_pairs, doseq=True)))
+
+
+def _looks_like_inline_base64(value: str) -> bool:
+    text = value.strip()
+    if text.startswith("data:image/"):
+        return True
+    if len(text) < 2048 or any(char.isspace() for char in text):
+        return False
+    return bool(re.fullmatch(r"[A-Za-z0-9+/=]+", text))
+
+
 def sanitize_for_storage(value: Any, keep_crop_base64: bool = True) -> Any:
     """
     Return JSON-safe data without circular references.
@@ -140,12 +248,29 @@ def sanitize_for_storage(value: Any, keep_crop_base64: bool = True) -> Any:
     if isinstance(value, dict):
         output: Dict[str, Any] = {}
         for key, item in value.items():
-            if key == "crop_bytes":
+            normalized_key = str(key).strip().casefold()
+            if normalized_key in SENSITIVE_PUBLIC_KEYS:
                 continue
-            if key == "crop_base64" and not keep_crop_base64:
+            if "base64" in normalized_key and (
+                normalized_key != "crop_base64" or not keep_crop_base64
+            ):
                 continue
-            if key == "raw_text" and isinstance(item, str):
+            if normalized_key in {"exception", "raw_exception"}:
+                continue
+            if (
+                isinstance(item, str)
+                and (
+                    normalized_key in {"url", "link"}
+                    or normalized_key.endswith("_url")
+                    or normalized_key.endswith("url")
+                )
+            ):
+                output[key] = _sanitize_public_url(item)
+                continue
+            if normalized_key == "raw_text" and isinstance(item, str):
                 output[key] = item[:3000]
+                continue
+            if isinstance(item, str) and _looks_like_inline_base64(item):
                 continue
             output[key] = sanitize_for_storage(item, keep_crop_base64=keep_crop_base64)
         return output
@@ -172,7 +297,6 @@ def build_public_detected_object(object_result: Dict[str, Any]) -> Dict[str, Any
         {
             "object_index": object_result.get("object_index"),
             "bbox": object_result.get("bbox"),
-            "crop_base64": object_result.get("crop_base64"),
             "crop_confidence": object_result.get("crop_confidence"),
             "crop_width": object_result.get("crop_width"),
             "crop_height": object_result.get("crop_height"),
@@ -197,7 +321,7 @@ def build_public_detected_object(object_result: Dict[str, Any]) -> Dict[str, Any
             "box_selection_trace": object_result.get("box_selection_trace"),
             "rejected_boxes": object_result.get("rejected_boxes") or [],
         },
-        keep_crop_base64=True,
+        keep_crop_base64=False,
     )
 
 
@@ -269,7 +393,7 @@ def _object_has_raw_agent_evidence(object_result: dict) -> bool:
     """Check if the object has any raw evidence from ANY agent or valid votes."""
     agent_results = object_result.get("agent_results") or []
     for agent_res in agent_results:
-        raw_res = agent_res.get("result") or {}
+        raw_res = agent_res.get("data") or agent_res.get("result") or {}
         if _agent_has_raw_evidence(raw_res):
             return True
             
@@ -292,14 +416,17 @@ def _has_crop_quality_evidence(object_result: dict) -> bool:
         crop_confidence = 0.0
     
     if w and h and w > 50 and h > 50:
-        if source == "yolo" or crop_confidence > 0.5:
+        if source in {"yolo", "yolo_crop"} or str(source).startswith("yolo") or crop_confidence > 0.5:
             return True
             
     return False
 
 
 def serialize_result(record: RecognitionRequest) -> Dict[str, Any]:
-    final_result = getattr(record, "final_result", None) or {}
+    final_result = sanitize_for_storage(
+        getattr(record, "final_result", None) or {},
+        keep_crop_base64=False,
+    )
     detected_objects = final_result.get("detected_objects") or []
     rejected_objects = final_result.get("rejected_objects") or []
     first_object = detected_objects[0] if detected_objects else {}
@@ -316,7 +443,10 @@ def serialize_result(record: RecognitionRequest) -> Dict[str, Any]:
         "image_url": uploaded_image_url,
         "status": getattr(record, "status", None),
         "final_result": final_result,
-        "agent_results": getattr(record, "agent_results", []) or [],
+        "agent_results": sanitize_for_storage(
+            getattr(record, "agent_results", []) or [],
+            keep_crop_base64=False,
+        ),
         "detected_count": final_result.get(
             "detected_count",
             len(detected_objects),
@@ -433,6 +563,200 @@ async def run_agent_with_timeout(agent_coro, timeout_sec: int, fallback_message:
             "quoc_gia": "Không xác định",
             "quan_diem": f"{fallback_message} execution failed: {str(e)[:100]}"
         }], ensure_ascii=False)
+
+
+
+import io
+from PIL import Image
+
+def _resize_image_bytes_for_api(
+    image_bytes: bytes,
+    max_side: int,
+    jpeg_quality: int,
+    no_upscale: bool = True,
+    agent_label: str = "unknown",
+) -> tuple[bytes, dict]:
+    """
+    Resize image theo cạnh dài (long-side), giữ nguyên aspect ratio.
+    - Không ép vuông 512x512.
+    - Không upscale nếu no_upscale=True và ảnh nhỏ hơn target.
+    - Ghi trace: original/resized dims, upscaled, aspect_preserved, resize_policy.
+    """
+    metadata = {
+        "resize_enabled": True,
+        "resize_applied": False,
+        "resize_max_side": max_side,
+        "resize_policy": f"long_side_max_{max_side}_quality_{jpeg_quality}",
+        "agent_label": agent_label,
+        "original_width": None,
+        "original_height": None,
+        "resized_width": None,
+        "resized_height": None,
+        "original_size": None,
+        "resized_size": None,
+        "original_bytes": len(image_bytes),
+        "resized_bytes": len(image_bytes),
+        "resize_ratio": None,
+        "aspect_ratio_original": None,
+        "aspect_ratio_resized": None,
+        "aspect_ratio_delta": None,
+        "upscaled": False,
+        "aspect_preserved": True,
+        "no_upscale": no_upscale,
+        "resize_error": None,
+    }
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        orig_w, orig_h = img.size
+        metadata["original_width"] = orig_w
+        metadata["original_height"] = orig_h
+        metadata["original_size"] = f"{orig_w}x{orig_h}"
+        metadata["resized_size"] = f"{orig_w}x{orig_h}"
+
+        orig_aspect = max(orig_w / float(orig_h), orig_h / float(orig_w)) if min(orig_w, orig_h) > 0 else 0
+        metadata["aspect_ratio_original"] = round(orig_aspect, 4)
+
+        long_side = max(orig_w, orig_h)
+
+        # No-upscale guard: if image is smaller than target, keep as-is
+        if no_upscale and long_side <= max_side:
+            metadata["resized_width"] = orig_w
+            metadata["resized_height"] = orig_h
+            metadata["upscaled"] = False
+            metadata["resize_applied"] = False
+            logger.debug(
+                "[VisionResize/%s] no_upscale=True: %dx%d <= max_side=%d, skip resize.",
+                agent_label, orig_w, orig_h, max_side,
+            )
+            return image_bytes, metadata
+
+        # Standard downscale path
+        if long_side <= max_side:
+            metadata["resized_width"] = orig_w
+            metadata["resized_height"] = orig_h
+            return image_bytes, metadata
+
+        scale = float(max_side) / float(long_side)
+        new_w = max(1, round(orig_w * scale))
+        new_h = max(1, round(orig_h * scale))
+
+        metadata["resize_applied"] = True
+        metadata["resized_width"] = new_w
+        metadata["resized_height"] = new_h
+        metadata["resized_size"] = f"{new_w}x{new_h}"
+        metadata["upscaled"] = False  # only downscale happens here
+
+        new_aspect = max(new_w / float(new_h), new_h / float(new_w)) if min(new_w, new_h) > 0 else 0
+        metadata["aspect_ratio_resized"] = round(new_aspect, 4)
+        metadata["aspect_ratio_delta"] = round(abs(orig_aspect - new_aspect), 6)
+        metadata["aspect_preserved"] = metadata["aspect_ratio_delta"] < 0.01
+        metadata["resize_ratio"] = round(scale, 6)
+
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+
+        resized_img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        out_bytes = io.BytesIO()
+        resized_img.save(out_bytes, format="JPEG", quality=jpeg_quality)
+        result_bytes = out_bytes.getvalue()
+        metadata["resized_bytes"] = len(result_bytes)
+
+        logger.info(
+            "[VisionResize/%s] %dx%d -> %dx%d (scale=%.3f quality=%d bytes %d->%d aspect_preserved=%s)",
+            agent_label, orig_w, orig_h, new_w, new_h,
+            scale, jpeg_quality, len(image_bytes), len(result_bytes),
+            metadata["aspect_preserved"],
+        )
+        return result_bytes, metadata
+    except Exception as e:
+        import traceback
+        metadata["resize_error"] = str(e)
+        logger.warning("[VisionResize/%s] resize failed: %s", agent_label, e)
+        return image_bytes, metadata
+
+def _resolve_resize_policy(experiment_mode: bool) -> dict:
+    """
+    Tính toán resize policy cho mỗi lần gọi pipeline.
+
+    - User flow  (experiment_mode=False): đọc USER_RECOGNITION_RESIZE_ENABLED.
+    - Experiment (experiment_mode=True):  đọc EXPERIMENT_RESIZE_ENABLED, hoặc
+      follow user policy nếu EXPERIMENT_RESIZE_FOLLOWS_USER=True.
+    - Legacy fallback: nếu VISION_RESIZE_ENABLED=True thì kích hoạt user policy
+      (backward-compat với .env cũ) NHƯNG không dùng VISION_RESIZE_MAX_SIDE.
+
+    Returns dict:
+      enabled      – bool, có resize không
+      scope        – 'user' | 'experiment' | 'disabled'
+      max_side_ag1 – int (AG1/AG2 max long side)
+      max_side_ag3 – int (AG3 max long side)
+      jpeg_q_ag1   – int
+      jpeg_q_ag3   – int
+      no_upscale   – bool
+      resize_policy_source – str (tên setting đã kích hoạt)
+    """
+    s = settings
+    no_upscale = bool(getattr(s, "AGENT_IMAGE_NO_UPSCALE", True))
+    max_side_ag1 = int(getattr(s, "AGENT_IMAGE_MAX_LONG_SIDE", 1280))
+    max_side_ag3 = int(getattr(s, "AGENT3_IMAGE_MAX_LONG_SIDE", 1600))
+    jpeg_q_ag1   = int(getattr(s, "AGENT_IMAGE_JPEG_QUALITY", 85))
+    jpeg_q_ag3   = int(getattr(s, "AGENT3_IMAGE_JPEG_QUALITY", 88))
+
+    _base = {
+        "max_side_ag1": max_side_ag1,
+        "max_side_ag3": max_side_ag3,
+        "jpeg_q_ag1":   jpeg_q_ag1,
+        "jpeg_q_ag3":   jpeg_q_ag3,
+        "no_upscale":   no_upscale,
+    }
+
+    if not experiment_mode:
+        # --- User production flow ---
+        user_enabled = bool(getattr(s, "USER_RECOGNITION_RESIZE_ENABLED", False))
+        # Legacy alias: nếu VISION_RESIZE_ENABLED=true (từ .env cũ) thì bật user resize
+        if not user_enabled:
+            user_enabled = bool(getattr(s, "VISION_RESIZE_ENABLED", False)) and bool(
+                getattr(s, "VISION_RESIZE_APPLY_PRODUCTION", True)
+            )
+            policy_source = "VISION_RESIZE_ENABLED(legacy_alias)" if user_enabled else "USER_RECOGNITION_RESIZE_ENABLED"
+        else:
+            policy_source = "USER_RECOGNITION_RESIZE_ENABLED"
+
+        return {
+            **_base,
+            "enabled": user_enabled,
+            "scope": "user" if user_enabled else "disabled",
+            "resize_policy_source": policy_source,
+        }
+    else:
+        # --- Experiment flow ---
+        # Nếu EXPERIMENT_RESIZE_FOLLOWS_USER=True, dùng cùng setting với user flow
+        follows_user = bool(getattr(s, "EXPERIMENT_RESIZE_FOLLOWS_USER", True))
+        if follows_user:
+            # Mirror user policy
+            user_enabled = bool(getattr(s, "USER_RECOGNITION_RESIZE_ENABLED", False))
+            if not user_enabled:
+                user_enabled = bool(getattr(s, "VISION_RESIZE_ENABLED", False)) and bool(
+                    getattr(s, "VISION_RESIZE_APPLY_EXPERIMENT", True)
+                )
+            exp_enabled = user_enabled
+            policy_source = "EXPERIMENT_RESIZE_FOLLOWS_USER=True(mirrors_user)"
+        else:
+            # Override riêng cho experiment
+            exp_enabled = bool(getattr(s, "EXPERIMENT_RESIZE_ENABLED", False))
+            policy_source = "EXPERIMENT_RESIZE_ENABLED"
+
+        return {
+            **_base,
+            "enabled": exp_enabled,
+            "scope": "experiment" if exp_enabled else "disabled",
+            "resize_policy_source": policy_source,
+        }
+
+
+# --- Backward-compat shim (dùng trong code cũ còn gọi _should_apply_vision_resize) ---
+def _should_apply_vision_resize(experiment_mode: bool) -> bool:
+    """Shim backward-compat: trả về bool. Dùng _resolve_resize_policy() cho logic đầy đủ."""
+    return _resolve_resize_policy(experiment_mode)["enabled"]
 
 
 class RecognitionService:
@@ -581,18 +905,33 @@ class RecognitionService:
         image_bytes: bytes,
         task: Optional[RecognitionTask] = None,
         debug_mode: bool = False,
+        experiment_mode: bool = False,
     ) -> Dict[str, Any]:
         _task_id_log = task.id if task else "None"
         logger.info("[Recognition] Start scan task_id=%s", _task_id_log)
 
         started_at = now_utc()
+        experiment_model_trace = {
+            "ag1_model": (
+                settings.OPENAI_EXPERIMENT_MODEL
+                if experiment_mode
+                else "gpt-4o"
+            ),
+            "ag2_model": (
+                settings.GEMINI_EXPERIMENT_MODEL
+                if experiment_mode
+                else "gemini-2.5-flash"
+            ),
+            "ag3_provider": "not_run",
+            "ag4_model": "rule_based",
+        }
 
         if len(image_bytes) > 5 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="Image size exceeds 5MB.")
 
         # Check tối thiểu trước khi chạy AI.
         # Billing thật sẽ được trừ sau khi có kết quả, theo config admin.
-        if int(getattr(user, "token_balance", 0) or 0) < 1:
+        if not experiment_mode and int(getattr(user, "token_balance", 0) or 0) < 1:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail="Tài khoản không đủ Token. Vui lòng nạp thêm.",
@@ -604,10 +943,11 @@ class RecognitionService:
             logger.info("[RecognitionTask] input image missing before pipeline; saving now task_id=%s", task.id)
             await RecognitionService.save_task_input_image(task, image_bytes)
 
-        image_url = await RecognitionService.upload_input_image_with_timeout(
-            image_bytes=image_bytes,
-            task=task,
-        )
+        if not experiment_mode:
+            image_url = await RecognitionService.upload_input_image_with_timeout(
+                image_bytes=image_bytes,
+                task=task,
+            )
 
         if task and not task.input_image_path and not image_url:
             raise RuntimeError("Input image could not be saved or uploaded.")
@@ -748,33 +1088,66 @@ class RecognitionService:
         # Nếu detector không trả crop eligible, lưu kết quả terminal ngay.
         # Nhánh này nằm trước Agent/Aggregator và trước token billing.
         if not detected_objects:
-            logger.info(
-                "[AG0_GATE] eligible_count=0 -> no_banknote_detected, skip all agents. rejected=%s failure_reason=%s task_id=%s",
-                len(rejected_objects),
-                crop_failure_reason,
-                _task_id_log,
-            )
-            logger.info("[AG0_GATE] skip original-image fallback")
-            logger.info("[AG0_GATE] no AI billing")
-            final_result = {
-                "status": "no_banknote_detected",
-                "detected_count": 0,
-                "detected_objects": [],
-                "rejected_objects": sanitize_for_storage(
-                    rejected_objects,
-                    keep_crop_base64=False,
-                ),
-                "message": (
-                    "Không phát hiện vùng tiền giấy hợp lệ sau bước AG0. "
-                    "Không chạy các AI Agent và không trừ token AI."
-                ),
-                "require_rerun": False,
-                "final_denomination": None,
-                "agent_calls_skipped": True,
-                "aggregator_skipped": True,
-                "billing_skipped": True,
-                "crop_failure_reason": crop_failure_reason,
-            }
+            if experiment_mode and getattr(settings, "EXPERIMENT_AG0_NO_HARD_STOP", False):
+                logger.warning("[AG0_GATE] ag0_no_banknote_detected_but_experiment_continued")
+                detected_objects = [{
+                    "object_index": 1,
+                    "crop_bytes": image_bytes,
+                    "confidence": 0.0,
+                    "bbox": None,
+                    "fallback": True,
+                    "agent_eligible": True,
+                    "ag0_crop_used": False,
+                    "fallback_reason": "ag0_no_detect_original_fallback",
+                    "image_used_by_ag1": "original",
+                    "image_used_by_ag2": "original",
+                    "image_used_by_ag3": "original",
+                }]
+            else:
+                logger.info(
+                    "[AG0_GATE] eligible_count=0 -> no_banknote_detected, skip all agents. rejected=%s failure_reason=%s task_id=%s",
+                    len(rejected_objects),
+                    crop_failure_reason,
+                    _task_id_log,
+                )
+                logger.info("[AG0_GATE] skip original-image fallback")
+                logger.info("[AG0_GATE] no AI billing")
+                final_result = {
+                    "status": "no_banknote_detected",
+                    "detected_count": 0,
+                    "detected_objects": [],
+                    "rejected_objects": sanitize_for_storage(
+                        rejected_objects,
+                        keep_crop_base64=False,
+                    ),
+                    "message": (
+                        "Không phát hiện vùng tiền giấy hợp lệ sau bước AG0. "
+                        "Không chạy các AI Agent và không trừ token AI."
+                    ),
+                    "require_rerun": False,
+                    "final_denomination": None,
+                    "agent_calls_skipped": True,
+                    "aggregator_skipped": True,
+                    "billing_skipped": True,
+                    "crop_failure_reason": crop_failure_reason,
+                }
+            if experiment_mode:
+                return {
+                    "input_info": {
+                        "file_size_bytes": len(image_bytes),
+                        "started_at": started_at.isoformat(),
+                        "processing_time_ms": int(
+                            (now_utc() - started_at).total_seconds() * 1000
+                        ),
+                    },
+                    "pipeline_final_status": "no_banknote_detected",
+                    "final_result": final_result,
+                    "agent_results": [],
+                    "model_trace": experiment_model_trace,
+                    "experiment_mode": True,
+                    "billing_skipped": True,
+                    "persistence_skipped": True,
+                }
             record = RecognitionRequest(
                 user_id=str(user.id),
                 uploaded_image_url=image_url or "https://via.placeholder.com/400",
@@ -838,6 +1211,12 @@ class RecognitionService:
         detected_results: List[Dict[str, Any]] = []
         object_summaries: List[Dict[str, Any]] = []
         debug_output_objects = []
+        agent1_model_trace: Optional[Dict[str, Any]] = (
+            {} if experiment_mode else None
+        )
+        agent2_model_trace: Optional[Dict[str, Any]] = (
+            {} if experiment_mode else None
+        )
 
         total_objects = len(detected_objects)
 
@@ -864,6 +1243,20 @@ class RecognitionService:
                 return 0
             x1, y1, x2, y2 = bbox
             return max(0, x2 - x1) * max(0, y2 - y1)
+
+        def _assess_crop_quality(obj: Dict[str, Any]) -> bool:
+            if not obj.get("crop_bytes"):
+                return False
+            w = obj.get("width")
+            h = obj.get("height")
+            if not w or not h:
+                return True
+            if w < 60 or h < 60:
+                return False
+            aspect = max(w/float(h), h/float(w))
+            if aspect > 5.0 or aspect < 1.05:
+                return False
+            return True
 
         eligible_objects = list(detected_objects)
         processed_objects = list(eligible_objects)
@@ -924,6 +1317,33 @@ class RecognitionService:
                     or crop_checker.get("reason", ""),
                 )
                 continue
+
+            agent1_image_bytes = crop_bytes
+            agent2_image_bytes = crop_bytes
+            agent3_image_bytes = crop_bytes
+
+            if not _crop_is_fallback and experiment_mode and getattr(settings, "EXPERIMENT_AGENT_IMAGE_FALLBACK_ORIGINAL", False):
+                if not _assess_crop_quality(object_item):
+                    agent1_image_bytes = image_bytes
+                    agent2_image_bytes = image_bytes
+                    agent3_image_bytes = image_bytes
+                    object_item["fallback_reason"] = "crop_quality_poor_original_fallback"
+                    object_item["image_used_by_ag1"] = "fallback_original"
+                    object_item["image_used_by_ag2"] = "fallback_original"
+                    object_item["image_used_by_ag3"] = "fallback_original"
+                    object_item["ag0_crop_used"] = True
+                    logger.warning("[AG0/Gate] crop_quality_poor -> fallback to original image for all agents.")
+                else:
+                    object_item["image_used_by_ag1"] = "crop"
+                    object_item["image_used_by_ag2"] = "crop"
+                    object_item["image_used_by_ag3"] = "crop"
+                    object_item["ag0_crop_used"] = True
+            elif not _crop_is_fallback:
+                object_item["image_used_by_ag1"] = "crop"
+                object_item["image_used_by_ag2"] = "crop"
+                object_item["image_used_by_ag3"] = "crop"
+                object_item["ag0_crop_used"] = True
+
             if _ag0_action:
                 logger.info(
                     "[AG0] processing object_index=%s ag0_action=%s",
@@ -946,6 +1366,77 @@ class RecognitionService:
                     min(75, progress_base),
                 )
 
+
+            # --- START VISION RESIZE ---
+            # Policy: resize theo cạnh dài, giữ aspect ratio, KHÔNG ép vuông, KHÔNG upscale ảnh nhỏ.
+            # Scope: USER flow → USER_RECOGNITION_RESIZE_ENABLED
+            #        EXPERIMENT flow → EXPERIMENT_RESIZE_ENABLED hoặc follow user (EXPERIMENT_RESIZE_FOLLOWS_USER)
+            # KHÔNG BAO GIỜ dùng VISION_RESIZE_MAX_SIDE (512) — luôn dùng AGENT_IMAGE_MAX_LONG_SIDE.
+            ag1_resize_meta = {}
+            ag2_resize_meta = {}
+            ag3_resize_meta = {}
+
+            resize_policy = _resolve_resize_policy(experiment_mode)
+            should_resize  = resize_policy["enabled"]
+            resize_scope   = resize_policy["scope"]
+
+            if should_resize:
+                ag1_ag2_max_side = resize_policy["max_side_ag1"]
+                ag1_ag2_jpeg_q   = resize_policy["jpeg_q_ag1"]
+                ag3_max_side     = resize_policy["max_side_ag3"]
+                ag3_jpeg_q       = resize_policy["jpeg_q_ag3"]
+                no_upscale       = resize_policy["no_upscale"]
+
+                if getattr(settings, "VISION_RESIZE_APPLY_TO_AG1", True):
+                    agent1_image_bytes, ag1_resize_meta = _resize_image_bytes_for_api(
+                        agent1_image_bytes, ag1_ag2_max_side, ag1_ag2_jpeg_q,
+                        no_upscale=no_upscale, agent_label=f"ag1_{resize_scope}",
+                    )
+                if getattr(settings, "VISION_RESIZE_APPLY_TO_AG2", True):
+                    agent2_image_bytes, ag2_resize_meta = _resize_image_bytes_for_api(
+                        agent2_image_bytes, ag1_ag2_max_side, ag1_ag2_jpeg_q,
+                        no_upscale=no_upscale, agent_label=f"ag2_{resize_scope}",
+                    )
+                if getattr(settings, "VISION_RESIZE_APPLY_TO_AG3", True):
+                    agent3_image_bytes, ag3_resize_meta = _resize_image_bytes_for_api(
+                        agent3_image_bytes, ag3_max_side, ag3_jpeg_q,
+                        no_upscale=no_upscale, agent_label=f"ag3_{resize_scope}",
+                    )
+            else:
+                no_upscale = resize_policy["no_upscale"]
+
+            if not isinstance(object_item.get("debug_info"), dict):
+                object_item["debug_info"] = {}
+
+            object_item["debug_info"].update({
+                # --- Scope & source (key fields để audit) ---
+                "resize_scope": resize_scope,                    # 'user' | 'experiment' | 'disabled'
+                "resize_policy_source": resize_policy.get("resize_policy_source", "unknown"),
+                "vision_resize_applied_mode": should_resize,
+                # --- Per-agent max side (thực tế dùng, không phải legacy 512) ---
+                "agent_image_max_long_side": resize_policy["max_side_ag1"],
+                "agent_image_jpeg_quality":  resize_policy["jpeg_q_ag1"],
+                "agent3_image_max_long_side": resize_policy["max_side_ag3"],
+                "agent3_image_jpeg_quality":  resize_policy["jpeg_q_ag3"],
+                # --- Policy flags ---
+                "agent_image_no_upscale": no_upscale,
+                "vision_resize_keep_aspect_ratio": True,         # luôn True — không ép vuông
+                "vision_resize_no_square_for_banknote": True,
+                # --- Config snapshot (để debug) ---
+                "user_recognition_resize_enabled": getattr(settings, "USER_RECOGNITION_RESIZE_ENABLED", False),
+                "experiment_resize_enabled": getattr(settings, "EXPERIMENT_RESIZE_ENABLED", False),
+                "experiment_resize_follows_user": getattr(settings, "EXPERIMENT_RESIZE_FOLLOWS_USER", True),
+                # --- Legacy compat (đọc để hiển thị, không dùng cho resize) ---
+                "vision_resize_enabled_legacy": getattr(settings, "VISION_RESIZE_ENABLED", False),
+                "vision_resize_max_side_legacy": getattr(settings, "VISION_RESIZE_MAX_SIDE", 1280),
+                "vision_resize_jpeg_quality": getattr(settings, "VISION_RESIZE_JPEG_QUALITY", 85),
+            })
+
+            for pfx, meta in [("ag1", ag1_resize_meta), ("ag2", ag2_resize_meta), ("ag3", ag3_resize_meta)]:
+                for k, v in meta.items():
+                    object_item["debug_info"][f"{pfx}_{k}"] = v
+            # --- END VISION RESIZE ---
+
             context_for_llm = (
                 f"You are analyzing banknote object #{object_index} cropped from the original image. "
                 "Only identify the banknote inside this crop. "
@@ -956,13 +1447,27 @@ class RecognitionService:
             object_agent_results: List[Dict[str, Any]] = []
             
             # --- Capture debug ---
+            _crop_b64 = None
+            if debug_mode and crop_bytes:
+                try:
+                    _crop_b64 = base64.b64encode(crop_bytes).decode("utf-8")
+                except Exception:
+                    _crop_b64 = None
             current_debug_object = {
                 "object_index": object_index,
-                "crop_image_base64": object_item.get("crop_base64") or "original_image",
+                "crop_image_base64": _crop_b64,
                 "aggregator_log": {"attempts": []}
             }
             consensus_trace = []
             run_max_attempts = 1
+
+            ag4_conflict_rerun_state = {
+                "triggered": False,
+                "original_pattern": None,
+                "image_source": None,
+                "attempts": 0,
+                "max_attempts": int(getattr(settings, "AG4_CONFLICT_RERUN_MAX_ATTEMPTS", 2))
+            }
 
             for attempt_idx in range(MAX_CONFLICT_ATTEMPTS):
                 attempt_no = attempt_idx + 1
@@ -973,22 +1478,47 @@ class RecognitionService:
                 lens_debug_log = {} if debug_mode else None
                 lens_v1_debug = {} if debug_mode else None
                 lens_v2_debug = {} if debug_mode else None
+                agent1_kwargs = {"debug_log": llm_debug_log}
+                agent2_kwargs = {"debug_log": llm_debug_log}
+                if experiment_mode:
+                    agent1_kwargs.update(
+                        {
+                            "model_name": settings.OPENAI_EXPERIMENT_MODEL,
+                            "fallback_model": settings.OPENAI_EXPERIMENT_FALLBACK_MODEL,
+                            "image_detail": settings.EXPERIMENT_IMAGE_DETAIL,
+                            "max_output_tokens": settings.EXPERIMENT_MAX_OUTPUT_TOKENS,
+                            "temperature": settings.EXPERIMENT_TEMPERATURE,
+                            "model_trace": agent1_model_trace,
+                        }
+                    )
+                    agent2_kwargs.update(
+                        {
+                            "model_names": [settings.GEMINI_EXPERIMENT_MODEL],
+                            "temperature": settings.EXPERIMENT_TEMPERATURE,
+                            "max_output_tokens": settings.EXPERIMENT_MAX_OUTPUT_TOKENS,
+                            "model_trace": agent2_model_trace,
+                        }
+                    )
 
                 agent_tasks = [
                     run_agent_with_timeout(
-                        run_agent1_openai(crop_bytes, debug_log=llm_debug_log),
+                        run_agent1_openai(agent1_image_bytes, **agent1_kwargs),
                         agent_timeout_seconds,
                         "Agent 1 OpenAI"
                     ) if enable_agent_1
                     else build_disabled_agent_result("Agent 1 OpenAI", "Agent 1 bị tắt theo cấu hình admin."),
                     run_agent_with_timeout(
-                        run_agent2_llm(crop_bytes, context_for_llm, debug_log=llm_debug_log),
+                        run_agent2_llm(
+                            agent2_image_bytes,
+                            context_for_llm,
+                            **agent2_kwargs,
+                        ),
                         agent_timeout_seconds,
                         "Agent 2 LLM"
                     ) if enable_agent_2
                     else build_disabled_agent_result("Agent 2 LLM", "Agent 2 bị tắt theo cấu hình admin."),
                     run_agent_with_timeout(
-                        run_agent3_lens(crop_bytes, context_for_llm, debug_log=lens_debug_log),
+                        run_agent3_lens(agent3_image_bytes, context_for_llm, debug_log=lens_debug_log, experiment_mode=experiment_mode),
                         35, # Hard timeout 35s cho Agent 3
                         "Agent 3 Lens"
                     ) if enable_agent_3
@@ -997,21 +1527,34 @@ class RecognitionService:
                 
                 if debug_mode and enable_agent_3:
                     from app.agents.agent_3_lens import run_agent3_lens as run_agent3_lens_v1
-                    from app.agents.agent_3_lens_v2 import run_agent3_lens_v2
                     agent_tasks.append(
                         run_agent_with_timeout(
-                            run_agent3_lens_v1(crop_bytes, context_for_llm, debug_log=lens_v1_debug),
+                            run_agent3_lens_v1(agent3_image_bytes, context_for_llm, debug_log=lens_v1_debug),
                             35,
                             "Agent 3 Lens v1"
                         )
                     )
-                    agent_tasks.append(
-                        run_agent_with_timeout(
-                            run_agent3_lens_v2(crop_bytes, context_for_llm, debug_log=lens_v2_debug),
-                            35,
-                            "Agent 3 Lens v2"
+                    if bool(getattr(settings, "AGENT3_SERPAPI_ONLY_MODE", True)):
+                        logger.info(
+                            "[Agent3/Debug] Selenium v2 compare skipped by AG3 SerpAPI-only policy."
                         )
-                    )
+                        agent_tasks.append(
+                            run_agent_with_timeout(
+                                build_agent3_selenium_policy_disabled_result(),
+                                1,
+                                "Agent 3 Lens v2"
+                            )
+                        )
+                    else:
+                        from app.agents.agent_3_lens_v2 import run_agent3_lens_v2
+
+                        agent_tasks.append(
+                            run_agent_with_timeout(
+                                run_agent3_lens_v2(agent3_image_bytes, context_for_llm, debug_log=lens_v2_debug),
+                                35,
+                                "Agent 3 Lens v2"
+                            )
+                        )
 
                 try:
                     results = await asyncio.gather(*agent_tasks, return_exceptions=True)
@@ -1026,6 +1569,55 @@ class RecognitionService:
                 agent1_data = parse_agent_json(raw_1, "Agent 1 failed.")
                 agent2_data = parse_agent_json(raw_2, "Agent 2 failed.")
                 agent3_data = parse_agent_json(raw_3, "Agent 3 failed.")
+                if enable_agent_3:
+                    candidate_policy = resolve_agent3_candidate_verification_policy(
+                        agent1_data,
+                        agent2_data,
+                    )
+                    candidate_mode = candidate_policy["mode"]
+                    candidate_timeout = float(candidate_policy["timeout_seconds"])
+                    try:
+                        candidate_coro = run_agent3_candidate_verification(
+                            agent1_data,
+                            agent2_data,
+                            agent3_data,
+                            mode=candidate_mode,
+                            timeout_seconds=candidate_timeout,
+                        )
+                        if candidate_timeout > 0:
+                            agent3_data = await asyncio.wait_for(
+                                candidate_coro,
+                                timeout=candidate_timeout,
+                            )
+                        else:
+                            agent3_data = await candidate_coro
+                    except asyncio.TimeoutError:
+                        agent3_data = build_agent3_candidate_timeout_result(
+                            agent1_data,
+                            agent2_data,
+                            agent3_data,
+                            mode=candidate_mode,
+                            timeout_seconds=candidate_timeout,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "[Agent3CandidateVerification] skipped after error: %s",
+                            exc,
+                        )
+                if experiment_mode:
+                    experiment_model_trace["ag1_model"] = (
+                        (agent1_model_trace or {}).get("model")
+                        or settings.OPENAI_EXPERIMENT_MODEL
+                    )
+                    experiment_model_trace["ag2_model"] = (
+                        (agent2_model_trace or {}).get("model")
+                        or settings.GEMINI_EXPERIMENT_MODEL
+                    )
+                    experiment_model_trace["ag3_provider"] = (
+                        agent3_data.get("provider")
+                        or agent3_data.get("phuong_phap")
+                        or "unknown"
+                    )
 
                 _st1 = _agent_status(agent1_data)
                 _st2 = _agent_status(agent2_data)
@@ -1075,8 +1667,53 @@ class RecognitionService:
                 if enable_aggregator:
                     final_consensus = await run_aggregator(r1, r2, r3)
                     pattern = final_consensus.get("consensus_pattern", "unknown")
-                    
-                    if pattern in ["1-1-1", "conflict", "1-valid-only"]:
+                    early_stop_fixed_config = should_early_stop_fixed_provider_config_single_valid_vote(
+                        final_consensus,
+                        {
+                            "ml_dl": agent1_data,
+                            "llm_api": agent2_data,
+                        "visual_search": agent3_data,
+                    },
+                )
+
+                    is_ag4_rerun_enabled = getattr(settings, "AG4_CONFLICT_RERUN_ENABLED", False) and (
+                        (experiment_mode and getattr(settings, "AG4_CONFLICT_RERUN_APPLY_EXPERIMENT", False)) or
+                        (not experiment_mode and getattr(settings, "AG4_CONFLICT_RERUN_APPLY_PRODUCTION", False))
+                    )
+
+                    if early_stop_fixed_config:
+                        current_max_attempts = 1
+                    elif pattern == getattr(settings, "AG4_CONFLICT_RERUN_ONLY_ON_PATTERN", "1-1-1"):
+                        # Check if all 3 agents have valid votes
+                        valid_votes = final_consensus.get("valid_votes", [])
+
+                        # In case aggregator didn't populate valid_votes, manually extract them
+                        if not valid_votes:
+                            from app.agents.agent_aggregator import normalize_agent_vote
+                            for r_raw, agent_key in [(r1, "ml_dl"), (r2, "llm_api"), (r3, "visual_search")]:
+                                try:
+                                    parsed = json.loads(r_raw)
+                                    if isinstance(parsed, list) and parsed:
+                                        parsed = parsed[0]
+                                    if isinstance(parsed, dict) and parsed.get("status", "").lower() not in ["failed", "partial", "error", "not_found", "disabled", "needs_better_image"]:
+                                        norm_vote = normalize_agent_vote(parsed)
+                                        if norm_vote.get("vote_key"):
+                                            valid_votes.append(norm_vote)
+                                except Exception:
+                                    pass
+
+                        # Ensure 3 valid votes and they are all different
+                        vote_keys = set(tuple(v.get("vote_key")) for v in valid_votes if v.get("vote_key"))
+                        is_valid_1_1_1 = (len(valid_votes) == 3 and len(vote_keys) == 3)
+
+                        if is_ag4_rerun_enabled and is_valid_1_1_1:
+                            current_max_attempts = 1 + int(getattr(settings, "AG4_CONFLICT_RERUN_MAX_ATTEMPTS", 2))
+                            if attempt_no == 1:
+                                ag4_conflict_rerun_state["triggered"] = True
+                                ag4_conflict_rerun_state["original_pattern"] = pattern
+                        else:
+                            current_max_attempts = 1
+                    elif pattern in ["1-1-1", "1-1", "conflict", "1-valid-only"]:
                         current_max_attempts = MAX_CONFLICT_ATTEMPTS
                     elif pattern == "transient_error":
                         current_max_attempts = MAX_TRANSIENT_FAILURE_ATTEMPTS
@@ -1094,17 +1731,37 @@ class RecognitionService:
                     if attempt_idx == 0:
                         run_max_attempts = current_max_attempts
                     final_consensus["max_attempts"] = run_max_attempts
+                    if early_stop_fixed_config:
+                        final_consensus["fixed_provider_config_early_stop"] = True
+                        final_consensus["early_stop_reason"] = "fixed_provider_config_single_valid_vote"
                     
                     if pattern not in ["2/3", "3/3"] and attempt_no < current_max_attempts:
                         require_rerun = True
                     else:
                         require_rerun = False
-                        if pattern in ["1-1-1", "conflict", "1-valid-only"]:
+                        if pattern in ["1-1-1", "1-1", "conflict", "1-valid-only"]:
                             final_consensus["status"] = "consensus_failed"
-                            final_consensus["quan_diem_trong_tai"] = "Không đạt đồng thuận sau 3 lần thử. Cần ảnh rõ hơn hoặc kiểm tra thủ công."
+                            if final_consensus.get("consensus_reason") == "technical_or_conflicting_evidence":
+                                review_message = (
+                                    "Không đủ đồng thuận do tác tử kỹ thuật bị lỗi hoặc bằng chứng mâu thuẫn. "
+                                    "Vui lòng kiểm tra thủ công hoặc thử lại."
+                                )
+                            elif current_max_attempts <= 1:
+                                review_message = (
+                                    "Không đạt đồng thuận trong lần chạy hiện tại. "
+                                    "Vui lòng kiểm tra thủ công hoặc thử lại."
+                                )
+                            else:
+                                review_message = (
+                                    f"Không đạt đồng thuận sau {attempt_no} lần thử do kết quả giữa các tác tử chưa thống nhất. "
+                                    "Vui lòng kiểm tra thủ công hoặc thử lại."
+                                )
+                            final_consensus["quan_diem_trong_tai"] = review_message
+                            final_consensus["referee_view"] = review_message
                         elif pattern == "transient_error":
                             final_consensus["status"] = "agent_error"
                             final_consensus["quan_diem_trong_tai"] = "Các agent không trả được kết quả hợp lệ do lỗi kỹ thuật sau 2 lần thử."
+                            final_consensus["referee_view"] = final_consensus["quan_diem_trong_tai"]
                         
                     final_consensus["require_rerun"] = require_rerun
 
@@ -1188,8 +1845,34 @@ class RecognitionService:
                     summary_r1 = json.dumps(_get_agent_summary(r1, "OpenAI"), ensure_ascii=False)
                     summary_r2 = json.dumps(_get_agent_summary(r2, "LLM"), ensure_ascii=False)
                     summary_r3 = json.dumps(_get_agent_summary(r3, "Visual Search"), ensure_ascii=False)
-                    
-                    context_for_llm = f"""Previous attempt produced conflicting results.
+
+                    if ag4_conflict_rerun_state["triggered"]:
+                        ag4_conflict_rerun_state["attempts"] += 1
+
+                    if ag4_conflict_rerun_state["triggered"] and getattr(settings, "AG4_CONFLICT_RERUN_USE_ORIGINAL_IMAGE", False):
+                        logger.info("[AG4 Rerun] Using original image for rerun (object %s)", object_index)
+                        agent1_image_bytes = image_bytes if image_bytes else agent1_image_bytes
+                        agent2_image_bytes = image_bytes if image_bytes else agent2_image_bytes
+                        agent3_image_bytes = image_bytes if image_bytes else agent3_image_bytes
+                        ag4_conflict_rerun_state["image_source"] = "original" if image_bytes else "fallback_crop"
+
+                        context_for_llm = f"""Previous agents disagreed. Re-analyze the original image independently. Do not copy previous results. Do not use filename or metadata. Only use visible evidence.
+
+Agent 1 OpenAI result:
+{summary_r1}
+
+Agent 2 LLM result:
+{summary_r2}
+
+Agent 3 Visual Search result:
+{summary_r3}
+
+Aggregator conclusion:
+{final_consensus.get('quan_diem_trong_tai')}
+
+Please re-check the image carefully. Focus on visible text, denomination numbers, country name, portrait/building, color and material. Return the same JSON schema only."""
+                    else:
+                        context_for_llm = f"""Previous agents disagreed. Re-analyze the image independently. Do not copy previous results. Do not use filename or metadata. Return strict JSON. Only use visible evidence.
 
 Agent 1 OpenAI result:
 {summary_r1}
@@ -1204,18 +1887,41 @@ Aggregator conclusion:
 {final_consensus.get('quan_diem_trong_tai')}
 
 Please re-check the same crop carefully. Focus on visible text, denomination numbers, country name, portrait/building, color and material. Return the same JSON schema only."""
+
                     await asyncio.sleep(1)
                     continue
 
                 break
 
+            if ag4_conflict_rerun_state["triggered"]:
+                final_consensus["ag4_conflict_rerun_triggered"] = ag4_conflict_rerun_state["triggered"]
+                final_consensus["ag4_conflict_rerun_attempts"] = ag4_conflict_rerun_state["attempts"]
+                final_consensus["ag4_conflict_rerun_max_attempts"] = ag4_conflict_rerun_state["max_attempts"]
+                final_consensus["ag4_conflict_rerun_original_pattern"] = ag4_conflict_rerun_state["original_pattern"]
+                final_consensus["ag4_conflict_rerun_image_source"] = ag4_conflict_rerun_state["image_source"]
+                final_pattern = final_consensus.get("consensus_pattern")
+                final_consensus["ag4_conflict_rerun_final_pattern"] = final_pattern
+
+                if final_pattern in ["2/3", "3/3"]:
+                    final_consensus["ag4_conflict_rerun_resolved"] = True
+                    final_consensus["resolved_by"] = "ag4_conflict_rerun"
+                else:
+                    final_consensus["ag4_conflict_rerun_resolved"] = False
+                    final_consensus["issue_type"] = "conflict_not_resolved_after_rerun"
+                    final_consensus["issue_message"] = "AG4 remained Conflict after maximum rerun attempts."
+
+
             all_agent_results.extend(object_agent_results)
 
+            # F-3 FIX: Không bao giờ gán "Needs review" vào field denomination.
+            # Chuỗi đó bị frontend lọc là invalid (Result.jsx:118 "needs review" →
+            # isValidRecognizedMoneyResult=false → isInvalidConclusionResult=true).
+            # Dùng None để denomination thật sự trống thay vì fake text.
             denomination = (
                 final_consensus.get("final_denomination")
                 or final_consensus.get("menh_gia")
                 or final_consensus.get("denomination")
-                or "Needs review"
+                or None  # was "Needs review" — removed: causes false InvalidConclusion in frontend
             )
 
             country = (
@@ -1239,7 +1945,12 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
                     "Không tìm được vùng tiền rõ ràng bằng crop heuristic, đang phân tích ảnh gốc."
                     if _crop_is_fallback else None
                 ),
-                "crop_base64": object_item.get("crop_base64"),
+                # Debug mode: convert crop_bytes -> base64 for UI thumbnail
+                "crop_base64": (
+                    base64.b64encode(crop_bytes).decode("utf-8")
+                    if debug_mode and crop_bytes
+                    else object_item.get("crop_base64")
+                ),
                 "crop_confidence": object_item.get("confidence"),
                 "crop_width": object_item.get("width"),
                 "crop_height": object_item.get("height"),
@@ -1271,7 +1982,6 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
                 "box_selection_trace": object_item.get("box_selection_trace"),
                 "rejected_boxes": object_item.get("rejected_boxes") or [],
             }
-
             detected_results.append(object_result)
 
             object_summaries.append(object_result["summary"])
@@ -1676,18 +2386,174 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
                 status_value = "completed_with_limit"
                 final_consensus["status"] = status_value
 
-        final_consensus = sanitize_for_storage(final_consensus, keep_crop_base64=True)
+        final_consensus = sanitize_for_storage(final_consensus, keep_crop_base64=False)
 
         logger.info(
             "[Recognition] final status=%s require_rerun=%s detected_count=%s",
             status_value, final_consensus.get("require_rerun"), len(detected_results)
         )
 
+        # --- BỔ SUNG TRÍCH XUẤT RESIZE VÀ MODEL DEBUGS ---
+        resize_debug = {}
+        models_used = {
+            "ag1_model": getattr(settings, "OPENAI_EXPERIMENT_MODEL", "gpt-4o"),
+            "ag2_model": getattr(settings, "GEMINI_EXPERIMENT_MODEL", "gemini-1.5-flash"),
+            "ag3_provider": "unknown",
+            "ag4_model": "rule_based"
+        }
+
+        if detected_results:
+            first_obj = detected_results[0]
+            if isinstance(first_obj.get("debug_info"), dict):
+                first_di = first_obj["debug_info"]
+                resize_debug = {
+                    "resize_scope": first_di.get("resize_scope"),
+                    "resize_policy_source": first_di.get("resize_policy_source"),
+                    "vision_resize_applied_mode": first_di.get("vision_resize_applied_mode"),
+                    "agent_image_max_long_side": first_di.get("agent_image_max_long_side"),
+                    "agent_image_jpeg_quality": first_di.get("agent_image_jpeg_quality"),
+                    "agent3_image_max_long_side": first_di.get("agent3_image_max_long_side"),
+                    "agent3_image_jpeg_quality": first_di.get("agent3_image_jpeg_quality"),
+                    "agent_image_no_upscale": first_di.get("agent_image_no_upscale"),
+                    "ag1_before_width": first_di.get("ag1_before_width"),
+                    "ag1_before_height": first_di.get("ag1_before_height"),
+                    "ag1_after_width": first_di.get("ag1_after_width"),
+                    "ag1_after_height": first_di.get("ag1_after_height"),
+                    "ag1_resize_applied": first_di.get("ag1_resize_applied"),
+                }
+                # Remove None values
+                resize_debug = {k: v for k, v in resize_debug.items() if v is not None}
+
+            if "agent_results" in first_obj:
+                ag_results = first_obj["agent_results"]
+
+                # OpenAI
+                ag1_res = next((a["data"] for a in ag_results if a.get("agent") == "OpenAI" and isinstance(a.get("data"), dict)), {})
+                if ag1_res.get("model"): models_used["ag1_model"] = ag1_res["model"]
+
+                # Gemini
+                ag2_res = next((a["data"] for a in ag_results if a.get("agent") == "LLM" and isinstance(a.get("data"), dict)), {})
+                if ag2_res.get("model"): models_used["ag2_model"] = ag2_res["model"]
+
+                # Lens/Agent3
+                ag3_res = next(
+                    (
+                        a["data"]
+                        for a in ag_results
+                        if isinstance(a.get("data"), dict)
+                        and (
+                            "lens" in str(a.get("agent") or "").strip().lower()
+                            or "visual search" in str(a.get("agent") or "").strip().lower()
+                            or "agent 3" in str(a.get("agent") or "").strip().lower()
+                            or "agent3" in str(a.get("agent") or "").strip().lower()
+                        )
+                    ),
+                    {},
+                )
+                pt = ag3_res.get("provider_trace") or {}
+                models_used["ag3_provider"] = (
+                    pt.get("selected_provider")
+                    or ag3_res.get("provider")
+                    or pt.get("primary_provider")
+                    or ag3_res.get("phuong_phap")
+                    or "unknown"
+                )
+
+                # Extract safe AG3 trace fields (NO secrets)
+                if pt.get("primary_provider"): models_used["ag3_primary_provider"] = pt.get("primary_provider")
+                if pt.get("fallback_provider"): models_used["ag3_fallback_provider"] = pt.get("fallback_provider")
+                if pt.get("selected_provider"): models_used["ag3_selected_provider"] = pt.get("selected_provider")
+                if "fallback_attempted" in pt: models_used["ag3_fallback_attempted"] = pt.get("fallback_attempted")
+                if pt.get("fallback_reason"): models_used["ag3_fallback_reason"] = pt.get("fallback_reason")
+                if "ag3_groq_formatter_used" in ag3_res: models_used["ag3_groq_formatter_used"] = ag3_res.get("ag3_groq_formatter_used")
+                if ag3_res.get("ag3_groq_model_used"): models_used["ag3_groq_model_used"] = ag3_res.get("ag3_groq_model_used")
+
+        final_consensus["resize_debug"] = resize_debug
+        final_consensus["models_used"] = models_used
+
+        if experiment_mode:
+            # Overwrite experiment trace to ensure we have the safe, detailed versions
+            experiment_model_trace["resize_debug"] = resize_debug
+            experiment_model_trace["models_used"] = models_used
+            experiment_model_trace["ag1_model"] = models_used["ag1_model"]
+            experiment_model_trace["ag2_model"] = models_used["ag2_model"]
+            experiment_model_trace["ag3_provider"] = models_used["ag3_provider"]
+
+            return {
+                "input_info": {
+                    "file_size_bytes": len(image_bytes),
+                    "started_at": started_at.isoformat(),
+                    "processing_time_ms": int(
+                        (now_utc() - started_at).total_seconds() * 1000
+                    ),
+                },
+                "pipeline_final_status": status_value,
+                "final_result": sanitize_for_storage(
+                    final_consensus,
+                    keep_crop_base64=False,
+                ),
+                "agent_results": sanitize_for_storage(
+                    all_agent_results,
+                    keep_crop_base64=False,
+                ),
+                "model_trace": experiment_model_trace,
+                "experiment_mode": True,
+                "billing_skipped": True,
+                "persistence_skipped": True,
+            }
+
         agent_usages = await RecognitionService.build_agent_usages(
             agent_results=all_agent_results,
             final_consensus=final_consensus,
             context_for_llm="Multi-object banknote recognition pipeline",
         )
+
+        chargeable_statuses = {"completed", "completed_partial", "completed_with_limit"}
+        normalized_status_for_billing = str(status_value or "").strip().lower().replace(" ", "_")
+        billing_skip_reason = None
+
+        if debug_mode:
+            billing_skip_reason = "debug_mode"
+        elif normalized_status_for_billing not in chargeable_statuses:
+            billing_skip_reason = "non_chargeable_status"
+        elif not _any_has_valid_votes:
+            billing_skip_reason = "zero_evidence"
+
+        should_charge_billing = billing_skip_reason is None
+
+        def _safe_token_int(value: Any) -> int:
+            try:
+                return int(value or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        def _build_skipped_billing_result(reason: str) -> Dict[str, Any]:
+            total_input_tokens = sum(
+                _safe_token_int(item.get("input_tokens", 0)) for item in agent_usages
+            )
+            total_output_tokens = sum(
+                _safe_token_int(item.get("output_tokens", 0)) for item in agent_usages
+            )
+            balance = _safe_token_int(getattr(user, "token_balance", 0))
+            return {
+                "charged": False,
+                "billing_skipped": True,
+                "billing_skip_reason": reason,
+                "system_tokens_charged": 0,
+                "tokens_charged": 0,
+                "balance_before": balance,
+                "balance_after": balance,
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "total_ai_tokens": total_input_tokens + total_output_tokens,
+                "billable_ai_tokens": 0,
+                "billing_mode": "skipped",
+                "usage_logs": [],
+            }
+
+        if not should_charge_billing:
+            final_consensus["billing_skipped"] = True
+            final_consensus["billing_skip_reason"] = billing_skip_reason
 
         record = RecognitionRequest(
             user_id=str(user.id),
@@ -1707,12 +2573,17 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
             await RecognitionService.update_task(task, "saving_result", 95)
 
         try:
-            billing_result = await TokenBillingService.charge_user_for_scan(
-                user=user,
-                recognition_id=str(record.id),
-                agent_usages=agent_usages,
-                reason="Banknote recognition completed",
-            )
+            if should_charge_billing:
+                billing_result = await TokenBillingService.charge_user_for_scan(
+                    user=user,
+                    recognition_id=str(record.id),
+                    agent_usages=agent_usages,
+                    reason="Banknote recognition completed",
+                )
+            else:
+                billing_result = _build_skipped_billing_result(
+                    billing_skip_reason or "non_chargeable_status"
+                )
 
             record.token_usage = billing_result
             record.system_tokens_charged = int(

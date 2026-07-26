@@ -23,6 +23,9 @@ class ConvertResponse(BaseModel):
     source: Optional[str] = None
     is_stale: bool = False
     last_updated: Optional[datetime] = None
+    rate: Optional[float] = None
+    inverse_rate: Optional[float] = None
+    rates_version: Optional[str] = None
 
     message: str = "Success"
 
@@ -55,6 +58,7 @@ class CurrencyRatesPublicResponse(BaseModel):
     source: Optional[str] = None
     is_stale: bool = False
     last_updated: Optional[datetime] = None
+    rates_version: Optional[str] = None
 
     rates: Dict[str, float]
     items: List[CurrencyRateResponse]
@@ -98,7 +102,30 @@ class CurrencyRateSyncLogResponse(BaseModel):
     message: str
 
     fetched_count: int = 0
+    updated_currencies: List[str] = Field(default_factory=list)
+    missing_currencies: List[str] = Field(default_factory=list)
 
     started_at: datetime
     finished_at: datetime
     error_detail: Optional[str] = None
+
+
+class CountryCurrencyMapResponse(BaseModel):
+    country_code: str
+    country_name_en: str
+    country_name_vi: str
+    normalized_name_en: Optional[str] = None
+    normalized_name_vi: Optional[str] = None
+    aliases: List[str] = Field(default_factory=list)
+    primary_currency: str
+    supported_currencies: List[str] = Field(default_factory=list)
+    active: bool = True
+    currency_name_en: Optional[str] = None
+    currency_name_vi: Optional[str] = None
+    rate_to_vnd: float = 0
+    source: Optional[str] = None
+    provider: Optional[str] = None
+    last_updated: Optional[datetime] = None
+    is_stale: bool = False
+    manual_override: bool = False
+    rates_version: Optional[str] = None

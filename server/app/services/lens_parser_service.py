@@ -167,11 +167,16 @@ def extract_lens_evidence_from_driver(
     except Exception:
         anchors = []
 
+    external_links_count = 0
+    print(f"[LensParser] Using selector 'a[href]'. Found {len(anchors)} total anchors.")
+
     for index, anchor in enumerate(anchors):
         href = _unwrap_google_url(_get_attr(anchor, "href"))
 
         if not _is_external_url(href):
             continue
+
+        external_links_count += 1
 
         anchor_text = _element_text(driver, anchor)
         snippet = _parent_text(driver, anchor, depth=4)
@@ -185,6 +190,10 @@ def extract_lens_evidence_from_driver(
         snippet = _clean_spaces(snippet)
 
         if not title and not snippet:
+            continue
+
+        # Avoid treating error pages like 404 or Google error as evidence
+        if "google error" in title.lower() or "404. that" in title.lower():
             continue
 
         bucket = _classify_bucket(title, snippet, href)
@@ -201,33 +210,19 @@ def extract_lens_evidence_from_driver(
             }
         )
 
+    print(f"[LensParser] Found {external_links_count} external links.")
+
     items = _dedupe(raw_items)
 
     exact = [item for item in items if item["bucket"] == "exact_match"][:max_exact_matches]
     visual = [item for item in items if item["bucket"] == "visual_match"][:max_visual_matches]
     text = [item for item in items if item["bucket"] == "text_result"][:max_text_results]
 
+    print(f"[LensParser] exact_matches: {len(exact)}, visual_matches: {len(visual)}, text_results: {len(text)}")
+
     output = exact + visual + text
 
     if output:
         return output
-
-    # Fallback: lấy text body nếu không có link external.
-    try:
-        body_text = _clean_spaces(driver.execute_script("return document.body.innerText || document.body.textContent;") or "")
-    except Exception:
-        body_text = ""
-
-    if body_text:
-        return [
-            {
-                "bucket": "page_text",
-                "title": "Google Lens page text",
-                "snippet": body_text[:1200],
-                "url": "",
-                "source": "lens.google.com",
-                "position": 1,
-            }
-        ]
 
     return []

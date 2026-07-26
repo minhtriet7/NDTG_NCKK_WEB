@@ -1,3 +1,4 @@
+import logging
 import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -6,6 +7,9 @@ from fastapi import HTTPException
 
 from app.models.user_model import User
 from app.models.token_usage_model import TokenUsage
+
+
+logger = logging.getLogger(__name__)
 
 try:
     from app.models.config_model import SystemConfig
@@ -34,6 +38,15 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def get_document_collection(document_class):
+    getter = getattr(document_class, "get_pymongo_collection", None)
+    if getter is None:
+        getter = getattr(document_class, "get_motor_collection", None)
+    if getter is None:
+        raise RuntimeError(f"No async collection accessor for {document_class.__name__}.")
+    return getter()
 
 
 class TokenBillingService:
@@ -192,6 +205,31 @@ class TokenBillingService:
     ) -> Dict[str, Any]:
         config = await TokenBillingService.get_config()
 
+        if recognition_id:
+            existing_usage = await TokenUsage.find_one(
+                {
+                    "recognition_id": str(recognition_id),
+                    "usage_type": "scan",
+                    "status": "charged",
+                    "system_tokens_charged": {"$gt": 0},
+                }
+            )
+            if existing_usage:
+                return {
+                    "charged": True,
+                    "idempotent_replay": True,
+                    "system_tokens_charged": existing_usage.system_tokens_charged,
+                    "balance_before": existing_usage.balance_before,
+                    "balance_after": existing_usage.balance_after,
+                    "input_tokens": existing_usage.input_tokens,
+                    "output_tokens": existing_usage.output_tokens,
+                    "total_ai_tokens": existing_usage.total_ai_tokens,
+                    "billable_ai_tokens": existing_usage.billable_ai_tokens,
+                    "tax_rate": existing_usage.tax_rate,
+                    "billing_mode": existing_usage.billing_mode,
+                    "usage_logs": [str(existing_usage.id)],
+                }
+
         token_billing_enabled = bool(
             getattr(config, "token_billing_enabled", True)
         )
@@ -210,7 +248,15 @@ class TokenBillingService:
 
         agent_usages = agent_usages or []
 
-        billing_mode = getattr(config, "token_billing_mode", "fixed")
+        configured_billing_mode = getattr(config, "token_billing_mode", "fixed")
+        dynamic_enabled = bool(
+            getattr(config, "dynamic_ai_token_billing_enabled", False)
+        )
+        billing_mode = (
+            "dynamic"
+            if configured_billing_mode == "dynamic" and dynamic_enabled
+            else "fixed"
+        )
         token_cost_per_scan = safe_int(
             force_fixed_cost
             if force_fixed_cost is not None
@@ -218,9 +264,7 @@ class TokenBillingService:
             1,
         )
 
-        if billing_mode == "dynamic" and bool(
-            getattr(config, "dynamic_ai_token_billing_enabled", False)
-        ):
+        if billing_mode == "dynamic":
             total_input_tokens = sum(
                 safe_int(item.get("input_tokens", 0)) for item in agent_usages
             )
@@ -267,19 +311,38 @@ class TokenBillingService:
                 ),
             )
 
-        user.token_balance = balance_before - system_tokens_charged
+        user_collection = get_document_collection(User)
+        debit_result = await user_collection.update_one(
+            {
+                "_id": user.id,
+                "token_balance": {"$gte": system_tokens_charged},
+            },
+            {
+                "$inc": {"token_balance": -system_tokens_charged},
+                "$set": {"updated_at": now_utc()},
+            },
+        )
+        if int(getattr(debit_result, "matched_count", 0) or 0) != 1:
+            refreshed_user = await User.get(user.id)
+            available_balance = safe_int(
+                getattr(refreshed_user, "token_balance", 0),
+                0,
+            )
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"Insufficient tokens. Required {system_tokens_charged}, "
+                    f"available {available_balance}."
+                ),
+            )
 
-        if hasattr(user, "updated_at"):
-            user.updated_at = now_utc()
-
-        await user.save()
-
-        balance_after = safe_int(getattr(user, "token_balance", 0), 0)
+        refreshed_user = await User.get(user.id)
+        balance_after = safe_int(getattr(refreshed_user, "token_balance", 0), 0)
+        user.token_balance = balance_after
 
         usage_logs = []
 
-        if save_logs:
-            main_usage = TokenUsage(
+        main_usage = TokenUsage(
                 user_id=str(user.id),
                 recognition_id=recognition_id,
                 usage_type="scan",
@@ -301,11 +364,31 @@ class TokenBillingService:
                 reason=reason,
                 metadata={
                     "agent_usages": agent_usages,
+                    "configured_billing_mode": configured_billing_mode,
                 },
             )
+        try:
             await main_usage.insert()
             usage_logs.append(main_usage)
+        except Exception:
+            # Best-effort compensation when the durable billing ledger cannot
+            # be written. A database transaction/index is still required for
+            # strict multi-process exactly-once guarantees.
+            await user_collection.update_one(
+                {"_id": user.id},
+                {
+                    "$inc": {"token_balance": system_tokens_charged},
+                    "$set": {"updated_at": now_utc()},
+                },
+            )
+            compensated_user = await User.get(user.id)
+            user.token_balance = safe_int(
+                getattr(compensated_user, "token_balance", balance_before),
+                balance_before,
+            )
+            raise
 
+        if save_logs:
             for item in agent_usages:
                 agent_usage = TokenUsage(
                     user_id=str(user.id),
@@ -336,8 +419,14 @@ class TokenBillingService:
                     reason="Agent token usage log",
                     metadata=item.get("metadata", {}),
                 )
-                await agent_usage.insert()
-                usage_logs.append(agent_usage)
+                try:
+                    await agent_usage.insert()
+                    usage_logs.append(agent_usage)
+                except Exception as exc:
+                    logger.warning(
+                        "Agent usage log failed after main billing ledger was saved: %s",
+                        exc,
+                    )
 
         return {
             "charged": True,

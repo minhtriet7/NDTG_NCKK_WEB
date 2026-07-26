@@ -1,7 +1,7 @@
 from beanie import Document
 from pydantic import Field
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 
 class ExchangeRate(Document):
@@ -62,6 +62,8 @@ class CurrencyRateSyncLog(Document):
     message: str
 
     fetched_count: int = 0
+    updated_currencies: List[str] = Field(default_factory=list)
+    missing_currencies: List[str] = Field(default_factory=list)
 
     started_at: datetime
     finished_at: datetime
@@ -69,3 +71,21 @@ class CurrencyRateSyncLog(Document):
 
     class Settings:
         name = "currency_sync_logs"
+
+
+class CountryCurrencyMap(Document):
+    country_code: str
+    country_name_en: str
+    country_name_vi: str
+    normalized_name_en: Optional[str] = None
+    normalized_name_vi: Optional[str] = None
+    aliases: List[str] = Field(default_factory=list)
+    primary_currency: str
+    supported_currencies: List[str] = Field(default_factory=list)
+    active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    class Settings:
+        name = "country_currency_mappings"
+        indexes = ["country_code", "primary_currency", "active"]

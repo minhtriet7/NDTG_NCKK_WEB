@@ -126,10 +126,10 @@ class SystemSettingsSchema(BaseModel):
     # ============================================================
     # PAYMENT GATEWAY SETTINGS
     # ============================================================
-    payment_gateway_default: str = "sepay"
-    enabled_payment_gateways: List[str] = Field(default_factory=lambda: ["sepay"])
+    payment_gateway_default: str = "bank_transfer"
+    enabled_payment_gateways: List[str] = Field(default_factory=lambda: ["bank_transfer"])
 
-    sepay_enabled: bool = True
+    sepay_enabled: bool = False
     vnpay_enabled: bool = False
     mock_payment_enabled: bool = False
 

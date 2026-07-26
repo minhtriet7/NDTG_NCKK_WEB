@@ -50,6 +50,12 @@ FALLBACK_MODELS = [
     "gemini-2.5-flash-lite",
 ]
 
+UNVERIFIED_ENV_ADMIN_GEMINI_MODELS = frozenset({
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
+})
+AG2_UNVERIFIED_MODEL_CHAIN_WARNING = "env_admin_chain_contains_unverified_models"
+
 MAX_ATTEMPTS_PER_MODEL = 2
 
 
@@ -117,6 +123,7 @@ INVALID_VALUES = {
 }
 
 
+
 # =========================
 # JSON Template
 # Giữ format tiếng Việt để tương thích với Agent 1, Agent 3, Aggregator
@@ -126,13 +133,13 @@ JSON_TEMPLATE = """
 [
   {
     "quoc_gia": "Tên quốc gia, ví dụ: Việt Nam, Hoa Kỳ",
-    "ma_tien_te": "Mã tiền tệ, ví dụ: VND, USD, EUR",
-    "menh_gia": "Số + mã tiền tệ, ví dụ: 500000 VND, 1 USD",
+    "ma_tien_te": "Mã tiền tệ 3 chữ cái, ví dụ: VND, USD, EUR",
+    "menh_gia": "CHỈ ghi SỐ THUẦN của mệnh giá, ví dụ: 500, 1000, 50000. TUYỆT ĐỐI KHÔNG ghi thêm chữ.",
     "mat_tien": "Mặt trước / Mặt sau / Không xác định",
     "nam_phat_hanh": "Năm phát hành nếu nhìn thấy, nếu không thì ghi Không xác định",
     "chat_lieu": "Polymer / Cotton / Giấy / Không xác định",
     "mo_ta": "Mô tả ngắn gọn đặc điểm chính của tờ tiền",
-    "quan_diem": "Lý giải vì sao chọn kết quả này, dựa trên chữ, số, chân dung, biểu tượng, màu sắc hoặc hoa văn nhìn thấy",
+    "quan_diem": "Lý giải vì sao chọn kết quả này, dựa trên chữ, số, chân dung, biểu tượng, màu sắc",
     "phuong_phap": "LLM Gemini",
     "do_tin_cay": 0.0,
     "van_ban_nhin_thay": [],
@@ -237,7 +244,22 @@ def _extract_json_substring(text: str) -> str:
     return text
 
 
-def clean_json(text: str) -> str:
+def _extract_first_json_value(text: str) -> str:
+    """Extract the first decodable JSON object/array from model prose."""
+    cleaned = _strip_markdown_json(text)
+    decoder = json.JSONDecoder()
+    for index, char in enumerate(cleaned):
+        if char not in "[{":
+            continue
+        try:
+            _, end = decoder.raw_decode(cleaned[index:])
+            return cleaned[index:index + end]
+        except json.JSONDecodeError:
+            continue
+    return cleaned
+
+
+def clean_json(text: str, *, robust: bool = False) -> str:
     """
     Hàm này được Agent 3 import, nên vẫn giữ tên cũ.
     Mục tiêu:
@@ -255,7 +277,11 @@ def clean_json(text: str) -> str:
             "nam_phat_hanh": "Lỗi",
             "chat_lieu": "Lỗi",
             "mo_ta": "AI trả về rỗng",
-            "quan_diem": "Không nhận được nội dung phản hồi từ mô hình.",
+            "quan_diem": (
+                "parse_error: Không nhận được nội dung phản hồi từ mô hình."
+                if robust
+                else "Không nhận được nội dung phản hồi từ mô hình."
+            ),
             "phuong_phap": "LLM Gemini",
             "do_tin_cay": 0.0,
             "van_ban_nhin_thay": [],
@@ -263,10 +289,17 @@ def clean_json(text: str) -> str:
             "status": "Failed"
         }], ensure_ascii=False)
 
-    candidate = _extract_json_substring(text)
+    candidate = (
+        _extract_first_json_value(text)
+        if robust
+        else _extract_json_substring(text)
+    )
 
     try:
         parsed = json.loads(candidate)
+
+        if robust and isinstance(parsed, dict) and "results" in parsed:
+            parsed = parsed.get("results")
 
         if isinstance(parsed, dict):
             parsed = [parsed]
@@ -285,7 +318,11 @@ def clean_json(text: str) -> str:
             "nam_phat_hanh": "Lỗi",
             "chat_lieu": "Lỗi",
             "mo_ta": "AI trả về sai định dạng JSON",
-            "quan_diem": f"Nội dung thô không parse được thành JSON hợp lệ: {text[:300]}",
+            "quan_diem": (
+                f"parse_error: Nội dung thô không parse được thành JSON hợp lệ: {text[:300]}"
+                if robust
+                else f"Nội dung thô không parse được thành JSON hợp lệ: {text[:300]}"
+            ),
             "phuong_phap": "LLM Gemini",
             "do_tin_cay": 0.0,
             "van_ban_nhin_thay": [],
@@ -294,11 +331,23 @@ def clean_json(text: str) -> str:
         }], ensure_ascii=False)
 
 
-def _parse_json_list(json_text: str) -> Tuple[Optional[List[Dict[str, Any]]], str]:
+def _parse_json_list(
+    json_text: str,
+    *,
+    robust: bool = False,
+) -> Tuple[Optional[List[Dict[str, Any]]], str]:
     try:
-        data = json.loads(json_text)
+        candidate = (
+            _extract_first_json_value(json_text)
+            if robust
+            else json_text
+        )
+        data = json.loads(candidate)
     except Exception as e:
         return None, f"Không parse được JSON: {e}"
+
+    if robust and isinstance(data, dict) and "results" in data:
+        data = data.get("results")
 
     if isinstance(data, dict):
         data = [data]
@@ -316,11 +365,32 @@ def _parse_json_list(json_text: str) -> Tuple[Optional[List[Dict[str, Any]]], st
 
 
 def _extract_currency_from_denomination(denomination: Any) -> Optional[str]:
-    text = _normalize_upper_ascii(denomination)
+    text = _normalize_text(denomination)
+    upper = text.upper()
 
-    match = re.search(r"\b(VND|THB|LAK|KHR|MMK|MYR|SGD|IDR|PHP|BND|USD|EUR|JPY|CNY|KRW)\b", text)
+    match = re.search(
+        r"(?:\d[\d.,\s]*\s+)([A-Z]{3})\b|\b([A-Z]{3})(?=\s+\d)",
+        upper,
+    )
     if match:
-        return match.group(1)
+        code = match.group(1) or match.group(2)
+        if code not in {"AND", "THE", "ONE", "NEW", "OLD", "UNC", "GEM"}:
+            return code
+
+    safe_aliases = (
+        (r"\b(?:vnđ|vnd)\b|₫", "VND"),
+        (r"\b(?:baht|thb)\b|฿", "THB"),
+        (r"\b(?:kip|lak)\b|₭", "LAK"),
+        (r"\b(?:riel|khr)\b|៛", "KHR"),
+        (r"\b(?:kyat|mmk)\b", "MMK"),
+        (r"\b(?:ringgit|myr)\b", "MYR"),
+        (r"\b(?:rupiah|idr)\b", "IDR"),
+        (r"\b(?:peso|php)\b", "PHP"),
+        (r"\b(?:us\s+dollars?|u\.s\.\s+dollars?|usd)\b|\$", "USD"),
+    )
+    for pattern, code in safe_aliases:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            return code
 
     return None
 
@@ -331,7 +401,94 @@ def _normalize_upper_ascii(value: Any) -> str:
     return str(value).strip().upper()
 
 
-def _normalize_denomination(value: Any, country: Any = None) -> str:
+def _normalize_explicit_currency(value: Any) -> Optional[str]:
+    """Normalize an explicit currency field without inferring from country."""
+    if _is_invalid_value(value):
+        return None
+
+    text = _normalize_text(value)
+    if text.lower() in {"vnđ", "₫", "đ", "đồng", "dong"}:
+        return "VND"
+
+    normalized = text.upper()
+    if re.fullmatch(r"[A-Z]{3}", normalized):
+        return normalized
+
+    return None
+
+
+_ENGLISH_NUMBER_VALUES = {
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy": 70,
+    "eighty": 80,
+    "ninety": 90,
+}
+
+
+def _extract_denomination_amount(value: Any) -> Optional[int]:
+    text = _normalize_text(value)
+    numeric_match = re.search(
+        r"(?<!\d)(\d{1,3}(?:[.,\s]\d{3})+|\d+)(?!\d)",
+        text,
+    )
+    if numeric_match:
+        token = re.sub(r"[.,\s]", "", numeric_match.group(1))
+        try:
+            amount = int(token)
+            return amount if amount > 0 else None
+        except ValueError:
+            return None
+
+    words = re.findall(r"[a-z]+", text.casefold())
+    total = 0
+    current = 0
+    found = False
+    for word in words:
+        if word in _ENGLISH_NUMBER_VALUES:
+            current += _ENGLISH_NUMBER_VALUES[word]
+            found = True
+        elif word == "hundred":
+            current = max(1, current) * 100
+            found = True
+        elif word == "thousand":
+            total += max(1, current) * 1000
+            current = 0
+            found = True
+        elif found:
+            break
+    amount = total + current
+    return amount if found and amount > 0 else None
+
+
+def _normalize_denomination(
+    value: Any,
+    country: Any = None,
+    explicit_currency: Optional[str] = None,
+) -> str:
     """
     Chuẩn hóa mệnh giá:
     - "500.000 VNĐ" -> "500000 VND"
@@ -346,55 +503,22 @@ def _normalize_denomination(value: Any, country: Any = None) -> str:
     if _is_invalid_value(text):
         return "Không xác định"
 
-    lower = text.lower()
-
-    replacements = {
-        "vnđ": "vnd",
-        "đồng": "vnd",
-        "dong": "vnd",
-        "đ": "vnd",
-        "baht": "thb",
-        "riel": "khr",
-        "kip": "lak",
-        "kyat": "mmk",
-        "ringgit": "myr",
-        "rupiah": "idr",
-        "peso": "php",
-        "dollar": "usd",
-        "đô la": "usd",
-    }
-
-    for k, v in replacements.items():
-        lower = lower.replace(k, v)
-
-    number_match = re.search(r"[\d,.]+", lower)
-    if not number_match:
+    amount = _extract_denomination_amount(text)
+    if amount is None:
         return text
 
-    number_raw = number_match.group(0)
-    number_clean = number_raw.replace(".", "").replace(",", "")
-
-    try:
-        number_int = int(number_clean)
-    except Exception:
-        return text
-
-    currency_match = re.search(
-        r"\b(vnd|thb|lak|khr|mmk|myr|sgd|idr|php|bnd|usd|eur|jpy|cny|krw)\b",
-        lower
-    )
-
-    if currency_match:
-        return f"{number_int} {currency_match.group(1).upper()}"
+    currency = explicit_currency or _extract_currency_from_denomination(text)
+    if currency:
+        return f"{amount} {currency}"
 
     # Nếu không thấy currency, suy luận từ quốc gia nếu có
     country_text = _normalize_text(country)
     expected_currency = SEA_CURRENCY_MAP.get(country_text)
 
     if expected_currency:
-        return f"{number_int} {expected_currency}"
+        return f"{amount} {expected_currency}"
 
-    return str(number_int)
+    return str(amount)
 
 
 def _canonical_country(country: Any) -> str:
@@ -467,6 +591,15 @@ def _expected_currency_for_country(country: Any) -> Optional[str]:
     return SEA_CURRENCY_MAP.get(canonical)
 
 
+def _is_safe_country_name(country: Any) -> bool:
+    text = _normalize_text(country)
+    if _is_invalid_value(text) or not (2 <= len(text) <= 80):
+        return False
+    if not any(char.isalpha() for char in text):
+        return False
+    return not any(char in text for char in "{}[]<>\\")
+
+
 def _ensure_default_fields(item: Dict[str, Any]) -> Dict[str, Any]:
     for field, default_value in OPTIONAL_FIELDS_WITH_DEFAULTS.items():
         if field not in item:
@@ -491,7 +624,11 @@ def _ensure_default_fields(item: Dict[str, Any]) -> Dict[str, Any]:
     return item
 
 
-def validate_agent2_result(json_text: str) -> Tuple[bool, str, Optional[str]]:
+def validate_agent2_result(
+    json_text: str,
+    *,
+    robust: bool = False,
+) -> Tuple[bool, str, Optional[str]]:
     """
     Validate sâu kết quả Agent 2.
     Trả về:
@@ -499,7 +636,7 @@ def validate_agent2_result(json_text: str) -> Tuple[bool, str, Optional[str]]:
     - message: lý do
     - normalized_json_text: JSON đã chuẩn hóa nếu valid
     """
-    data, message = _parse_json_list(json_text)
+    data, message = _parse_json_list(json_text, robust=robust)
     if data is None:
         return False, message, None
 
@@ -523,36 +660,45 @@ def validate_agent2_result(json_text: str) -> Tuple[bool, str, Optional[str]]:
     country = _canonical_country(item.get("quoc_gia"))
     item["quoc_gia"] = country
 
-    if _is_invalid_value(country):
+    if not _is_safe_country_name(country):
         return False, "Không xác định được quốc gia", None
 
-    # Kiểm tra quốc gia có trong danh sách hỗ trợ không
     expected_currency = _expected_currency_for_country(country)
-    if expected_currency is None and country != "Khác":
-        return False, f"Quốc gia chưa được hỗ trợ: {country}", None
 
-    # Chuẩn hóa mệnh giá
-    item["menh_gia"] = _normalize_denomination(item.get("menh_gia"), country=country)
-
-    if _is_invalid_value(item["menh_gia"]) or item["menh_gia"] == "Không xác định":
+    raw_denomination = item.get("menh_gia")
+    if _is_invalid_value(raw_denomination):
         return False, "Không xác định được mệnh giá", None
 
-    # Kiểm tra currency trong mệnh giá
-    currency_in_denom = _extract_currency_from_denomination(item["menh_gia"])
+    raw_explicit_currency = item.get("ma_tien_te")
+    explicit_currency = _normalize_explicit_currency(raw_explicit_currency)
+    explicit_currency_is_unknown = _is_invalid_value(raw_explicit_currency)
 
-    if currency_in_denom is None:
-        # Nếu mệnh giá chỉ có số, thêm currency từ quốc gia
-        number_match = re.search(r"\d+", item["menh_gia"])
-        if number_match and expected_currency:
-            item["menh_gia"] = f"{number_match.group(0)} {expected_currency}"
-        else:
-            return False, "Mệnh giá không có số hợp lệ", None
-    else:
-        if expected_currency and currency_in_denom != expected_currency:
-            return False, (
-                f"Mâu thuẫn quốc gia và tiền tệ: {country} phải là "
-                f"{expected_currency}, nhưng model trả {currency_in_denom}"
-            ), None
+    if not explicit_currency_is_unknown and explicit_currency is None:
+        return False, f"Mã tiền tệ không hợp lệ trong ma_tien_te: {raw_explicit_currency}", None
+
+    amount = _extract_denomination_amount(raw_denomination)
+    if amount is None:
+        return False, "amount_parse_error: Mệnh giá không có số hợp lệ", None
+
+    currency_in_raw_denom = _extract_currency_from_denomination(raw_denomination)
+    if explicit_currency and currency_in_raw_denom and explicit_currency != currency_in_raw_denom:
+        return False, (
+            "Mâu thuẫn ma_tien_te và menh_gia: "
+            f"ma_tien_te={explicit_currency}, menh_gia={currency_in_raw_denom}"
+        ), None
+
+    resolved_currency = explicit_currency or currency_in_raw_denom or expected_currency
+    if resolved_currency is None:
+        return False, "currency_missing_or_ambiguous", None
+
+    if expected_currency and resolved_currency != expected_currency:
+        return False, (
+            f"Mâu thuẫn quốc gia và tiền tệ: {country} phải là "
+            f"{expected_currency}, nhưng model trả {resolved_currency}"
+        ), None
+
+    item["menh_gia"] = f"{amount}"
+    item["ma_tien_te"] = resolved_currency
 
     # Chuẩn hóa mặt tiền
     side = _normalize_lower(item.get("mat_tien"))
@@ -604,41 +750,16 @@ Bạn là Chuyên gia Giám định Tiền giấy.
 
 Nhiệm vụ của bạn là phân tích ảnh tiền giấy được cung cấp và nhận diện chính xác thông tin của tờ tiền.
 
-Phạm vi nhận diện ưu tiên bao gồm các quốc gia Đông Nam Á và ngoại tệ phổ biến:
-- Việt Nam: VND
-- Thái Lan: THB
-- Lào: LAK
-- Campuchia: KHR
-- Myanmar: MMK
-- Malaysia: MYR
-- Singapore: SGD
-- Indonesia: IDR
-- Philippines: PHP
-- Brunei: BND
-- Timor-Leste: USD
-- Hoa Kỳ: USD
-- Châu Âu: EUR
-- Nhật Bản: JPY
-- Trung Quốc: CNY
-- Hàn Quốc: KRW
-
-Bạn cần phân tích:
-1. Quốc gia phát hành.
-2. Mệnh giá và đơn vị tiền tệ.
-3. Mặt trước hoặc mặt sau của tờ tiền.
-4. Năm phát hành nếu có nhìn thấy trên ảnh.
-5. Chất liệu nếu có thể suy luận: Polymer, Cotton, Giấy hoặc Không xác định.
-6. Văn bản nhìn thấy trên ảnh.
-7. Đặc điểm chính: màu sắc, chân dung, công trình, quốc huy, hoa văn, số mệnh giá.
-8. Lý do chọn kết quả.
-
 Quy tắc bắt buộc:
-- Nếu tờ tiền nằm ngoài danh sách hỗ trợ, bắt buộc trả về quoc_gia là "Khác" và ghi rõ quốc gia thật vào mo_ta. Không tự ý gán ghép sai.
-- Chỉ trả về JSON hợp lệ, không viết giải thích bên ngoài JSON.
-- Không dùng markdown.
-- Không bịa thông tin nếu ảnh không đủ rõ.
-- Nếu không chắc chắn, ghi "Không xác định".
-- Field "menh_gia" phải có dạng: "Số + mã tiền tệ", ví dụ "500000 VND", "100 THB", "1 USD".
+- CHỈ dựa vào nội dung hình ảnh. TUYỆT ĐỐI KHÔNG dùng filename, metadata, thư mục, hay thứ tự ảnh để đoán.
+- TUYỆT ĐỐI trả JSON strict. KHÔNG dùng markdown. KHÔNG thêm chữ giải thích bên ngoài JSON.
+- Cố gắng điền đủ 3 trường: quoc_gia, ma_tien_te, menh_gia.
+- Mệnh giá (menh_gia) PHẢI LÀ SỐ THUẦN (ví dụ: 500, 1000, 50000).
+- NẾU THẤY RÕ số mệnh giá, TUYỆT ĐỐI KHÔNG BỎ TRỐNG menh_gia.
+- NẾU THẤY số mệnh giá nhưng chưa chắc quốc gia/tiền tệ, VẪN ĐIỀN menh_gia và giảm độ tin cậy.
+- NẾU THẤY script, chân dung, biểu tượng, công trình rõ ràng, ĐƯỢC PHÉP suy luận quốc gia/tiền tệ với độ tin cậy phù hợp.
+- NẾU KHÔNG ĐỦ bằng chứng, status có thể là "Uncertain", nhưng KHÔNG ĐƯỢC bỏ trống menh_gia nếu có số nhìn rõ.
+- TUYỆT ĐỐI KHÔNG bịa chữ không nhìn thấy, không dịch chữ nếu không đọc rõ, không đoán theo ảnh khác.
 - Field "do_tin_cay" là số từ 0.0 đến 1.0.
 - Field "phuong_phap" ghi: "LLM Gemini - {model_name or 'Gemini'}".
 
@@ -659,8 +780,19 @@ Nếu thông tin vòng trước mâu thuẫn với ảnh, hãy ưu tiên ảnh.
     return prompt.strip()
 
 
-def _build_error_response(error_message: str, status: str = "Failed") -> str:
-    return json.dumps([{
+def _build_error_response(
+    error_message: str,
+    status: str = "Failed",
+    error_type: str = "technical_error",
+    technical_error: bool = False,
+    attempted_models: Optional[List[Dict[str, Any]]] = None,
+    fallback_used: bool = False,
+    model_chain_used: Optional[List[str]] = None,
+    model_chain_source: Optional[str] = None,
+    model_chain_source_detail: Optional[str] = None,
+    model_chain_warning: Optional[str] = None,
+) -> str:
+    payload = {
         "quoc_gia": "Không xác định",
         "ma_tien_te": "Không xác định",
         "menh_gia": "Không xác định",
@@ -673,14 +805,32 @@ def _build_error_response(error_message: str, status: str = "Failed") -> str:
         "do_tin_cay": 0.0,
         "van_ban_nhin_thay": [],
         "dac_diem_chinh": [],
-        "status": status
-    }], ensure_ascii=False)
+        "status": status,
+        "error_type": error_type,
+    }
+    if technical_error:
+        payload["technical_error"] = True
+    if attempted_models is not None:
+        payload["ag2_model_attempts"] = attempted_models
+    if model_chain_used is not None:
+        payload["ag2_model_chain_used"] = model_chain_used
+    if model_chain_source is not None:
+        payload["ag2_model_chain_source"] = model_chain_source
+    if model_chain_source_detail is not None:
+        payload["ag2_model_chain_source_detail"] = model_chain_source_detail
+    if model_chain_warning is not None:
+        payload["ag2_model_chain_warning"] = model_chain_warning
+    payload["fallback_used"] = fallback_used
+    payload["ag2_final_model"] = None
+    return json.dumps([payload], ensure_ascii=False)
 
 
 async def _call_gemini_once(
     model_name: str,
     prompt: str,
     image: Image.Image,
+    temperature: float = 0.1,
+    max_output_tokens: Optional[int] = None,
 ) -> str:
     """
     Gọi Gemini một lần.
@@ -694,7 +844,8 @@ async def _call_gemini_once(
             contents=[prompt, image],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                temperature=0.1,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
             ),
         )
         return response.text or ""
@@ -712,7 +863,112 @@ async def _call_gemini_once(
 # Main Agent Function
 # ============================================================
 
-async def run_agent2_llm(image_bytes: bytes, context: str = "", debug_log: Optional[Dict] = None) -> str:
+def _settings_field_source(*field_names: str) -> str:
+    fields_set = (
+        getattr(settings, "model_fields_set", None)
+        or getattr(settings, "__fields_set__", set())
+        or set()
+    )
+    return "env/admin" if any(name in fields_set for name in field_names) else "default"
+
+
+def _resolve_gemini_model_chain(is_experiment_request: bool) -> Tuple[List[str], str, str]:
+    enabled = getattr(settings, "AG2_GEMINI_CHAIN_ENABLED", False)
+    apply_prod = getattr(settings, "AG2_GEMINI_CHAIN_APPLY_PRODUCTION", True)
+    apply_exp = getattr(settings, "AG2_GEMINI_CHAIN_APPLY_EXPERIMENT", True)
+    max_models = getattr(settings, "AG2_GEMINI_CHAIN_MAX_MODELS", 4)
+    model_chain_str = getattr(settings, "AG2_GEMINI_MODEL_CHAIN", "")
+
+    use_chain = False
+    if enabled:
+        if is_experiment_request and apply_exp:
+            use_chain = True
+        elif not is_experiment_request and apply_prod:
+            use_chain = True
+
+    chain = []
+    if use_chain and model_chain_str:
+        parts = [p.strip() for p in model_chain_str.split(",") if p.strip()]
+        for p in parts:
+            if p not in chain:
+                chain.append(p)
+        chain = chain[:max_models]
+
+    if chain:
+        return (
+            chain,
+            _settings_field_source("AG2_GEMINI_MODEL_CHAIN"),
+            "AG2_GEMINI_MODEL_CHAIN",
+        )
+
+    # Fallback logic cũ
+    old_chain = []
+    if is_experiment_request:
+        exp_model = getattr(settings, "GEMINI_EXPERIMENT_MODEL", None)
+        if exp_model:
+            old_chain.append(exp_model)
+        fallback = getattr(settings, "GEMINI_EXPERIMENT_FALLBACK_MODEL", None)
+        if fallback and fallback not in old_chain:
+            old_chain.append(fallback)
+    else:
+        primary = getattr(settings, "AG2_GEMINI_PRIMARY_MODEL", None) or getattr(settings, "GEMINI_MODEL", None)
+        fallback_str = getattr(settings, "AG2_GEMINI_FALLBACK_MODELS", None) or getattr(settings, "GEMINI_FALLBACK_MODEL", None)
+
+        if primary:
+            old_chain.append(primary)
+        if fallback_str:
+            fallbacks = [p.strip() for p in fallback_str.split(",") if p.strip()]
+            for f in fallbacks:
+                if f not in old_chain:
+                    old_chain.append(f)
+
+    if not old_chain:
+        old_chain = list(FALLBACK_MODELS)
+        return old_chain, "default", "FALLBACK_MODELS"
+
+    legacy_fields = (
+        "GEMINI_EXPERIMENT_MODEL",
+        "GEMINI_EXPERIMENT_FALLBACK_MODEL",
+    ) if is_experiment_request else (
+        "AG2_GEMINI_PRIMARY_MODEL",
+        "GEMINI_MODEL",
+        "AG2_GEMINI_FALLBACK_MODELS",
+        "GEMINI_FALLBACK_MODEL",
+    )
+    return old_chain, _settings_field_source(*legacy_fields), "legacy_model_config"
+
+
+def _ag2_model_chain_warning(
+    model_chain: List[str],
+    model_chain_source: Optional[str],
+) -> Optional[str]:
+    if str(model_chain_source or "").strip().casefold() != "env/admin":
+        return None
+    normalized_chain = {
+        str(model or "").strip().casefold()
+        for model in model_chain or []
+    }
+    if normalized_chain.intersection(UNVERIFIED_ENV_ADMIN_GEMINI_MODELS):
+        return AG2_UNVERIFIED_MODEL_CHAIN_WARNING
+    return None
+
+
+def _build_gemini_model_chain(is_experiment_request: bool) -> List[str]:
+    chain, _source, _detail = _resolve_gemini_model_chain(is_experiment_request)
+    return chain
+
+
+
+async def run_agent2_llm(
+    image_bytes: bytes,
+    context: str = "",
+    debug_log: Optional[Dict] = None,
+    *,
+    model_names: Optional[List[str]] = None,
+    temperature: Optional[float] = None,
+    max_output_tokens: Optional[int] = None,
+    model_trace: Optional[Dict[str, Any]] = None,
+) -> str:
     """
     Agent 2 chính:
     - Nhận image_bytes
@@ -736,24 +992,53 @@ async def run_agent2_llm(image_bytes: bytes, context: str = "", debug_log: Optio
     last_error = ""
     last_invalid_json = ""
 
-    for model_name in FALLBACK_MODELS:
-        print(f"[Agent 2 LLM] Đang thử model: {model_name}")
+    # Identify if this was intended as an experiment run by checking the old params
+    requested_models_init = list(model_names or FALLBACK_MODELS)
+    is_experiment_request = bool(
+        model_names
+        and requested_models_init
+        and requested_models_init[0] == getattr(settings, "GEMINI_EXPERIMENT_MODEL", None)
+    )
 
-        for attempt in range(1, MAX_ATTEMPTS_PER_MODEL + 1):
-            print(f"[Agent 2 LLM] Model {model_name}, attempt {attempt}/{MAX_ATTEMPTS_PER_MODEL}")
+    selected_models, model_chain_source, model_chain_source_detail = _resolve_gemini_model_chain(
+        is_experiment_request
+    )
+    model_chain_warning = _ag2_model_chain_warning(selected_models, model_chain_source)
+
+    primary_provider_error = ""
+    resolved_temperature = 0.1 if temperature is None else temperature
+    if model_trace is not None:
+        model_trace["requested_model"] = selected_models[0] if selected_models else None
+        model_trace["model"] = selected_models[0] if selected_models else None
+        model_trace["model_chain_source"] = model_chain_source
+        model_trace["model_chain_source_detail"] = model_chain_source_detail
+        if model_chain_warning:
+            model_trace["model_chain_warning"] = model_chain_warning
+
+    # Logic retry/pro
+    has_retried_pro = False
+    pro_model = getattr(settings, "GEMINI_EXPERIMENT_PRO_MODEL", "")
+
+    ag2_model_attempts = []
+
+    max_attempts = getattr(settings, "AG2_GEMINI_MAX_ATTEMPTS_PER_MODEL", MAX_ATTEMPTS_PER_MODEL)
+
+    for model_index, model_name in enumerate(selected_models):
+        print(f"[Agent 2 LLM] Đang thử model: {model_name}")
+        if model_trace is not None:
+            model_trace["model"] = model_name
+            model_trace["fallback_model"] = (
+                selected_models[1] if len(selected_models) > 1 else None
+            )
+            model_trace["fallback_used"] = model_index > 0
+
+        for attempt in range(1, max_attempts + 1):
+            print(f"[Agent 2 LLM] Model {model_name}, attempt {attempt}/{max_attempts}")
 
             prompt = build_agent2_prompt(context=context, model_name=model_name)
 
-            # Nếu attempt thứ 2, nhấn mạnh lại lỗi format
             if attempt > 1:
-                prompt += """
-
-LƯU Ý QUAN TRỌNG:
-Lần trước kết quả không hợp lệ.
-Hãy trả về ĐÚNG JSON theo template.
-Không thêm chữ bên ngoài JSON.
-Không thiếu field.
-"""
+                prompt += "\n\nLƯU Ý QUAN TRỌNG:\nLần trước kết quả thiếu trường bắt buộc (mệnh giá/quốc gia) hoặc JSON lỗi. Hãy đọc thật kỹ mệnh giá trên ảnh bằng SỐ THUẦN. Trả đúng JSON."
 
             try:
                 raw_text = await asyncio.to_thread(
@@ -761,74 +1046,211 @@ Không thiếu field.
                     model_name,
                     prompt,
                     safe_img,
+                    resolved_temperature,
+                    max_output_tokens,
                 )
 
                 if debug_log is not None:
                     debug_log["prompt_sent"] = prompt
                     debug_log["raw_response"] = raw_text
+                    debug_log["model"] = model_name
 
-                cleaned = clean_json(raw_text)
-                valid, message, normalized_json = validate_agent2_result(cleaned)
+                cleaned = clean_json(raw_text, robust=is_experiment_request)
+                valid, message, normalized_json = validate_agent2_result(
+                    cleaned,
+                    robust=is_experiment_request,
+                )
 
+                # Check if we should retry logic
+                needs_retry = False
+                parsed_dict = None
                 if valid and normalized_json:
-                    print(f"[Agent 2 LLM] Nhận JSON hợp lệ từ {model_name}")
-
-                    # Gắn đúng model vào phuong_phap
                     try:
-                        parsed = json.loads(normalized_json)
-                        parsed[0]["phuong_phap"] = f"LLM Gemini - {model_name}"
-                        parsed[0]["status"] = "Completed"
-                        return json.dumps(parsed, ensure_ascii=False)
-                    except Exception:
-                        return normalized_json
+                        parsed_arr = json.loads(normalized_json)
+                        if parsed_arr and isinstance(parsed_arr, list):
+                            parsed_dict = parsed_arr[0]
+                    except: pass
+
+                    if parsed_dict:
+                        status = parsed_dict.get("status", "")
+                        menh_gia = parsed_dict.get("menh_gia", "")
+                        quoc_gia = parsed_dict.get("quoc_gia", "")
+
+                        is_missing_denomination = _is_invalid_value(menh_gia) or "không xác định" in str(menh_gia).lower()
+                        is_missing_country = _is_invalid_value(quoc_gia) or "không xác định" in str(quoc_gia).lower()
+                        is_uncertain = "uncertain" in status.lower() or "partial" in status.lower()
+
+                        if is_missing_denomination or is_missing_country or is_uncertain:
+                            needs_retry = True
+
+                if valid and normalized_json and not needs_retry:
+                    print(f"[Agent 2 LLM] Nhận JSON hợp lệ từ {model_name}")
+                    parsed = json.loads(normalized_json)
+                    parsed[0]["phuong_phap"] = f"LLM Gemini - {model_name}"
+                    parsed[0]["status"] = "Completed"
+                    parsed[0]["ag2_model_chain_used"] = selected_models
+                    parsed[0]["ag2_model_chain_source"] = model_chain_source
+                    parsed[0]["ag2_model_chain_source_detail"] = model_chain_source_detail
+                    if model_chain_warning:
+                        parsed[0]["ag2_model_chain_warning"] = model_chain_warning
+                    parsed[0]["ag2_model_attempts"] = ag2_model_attempts + [{"model": model_name, "status": "completed"}]
+                    parsed[0]["ag2_final_model"] = model_name
+                    parsed[0]["fallback_used"] = model_index > 0
+                    return json.dumps(parsed, ensure_ascii=False)
+
+                # If experiment_mode and pro_model available and not retried pro yet
+                if is_experiment_request and needs_retry and pro_model and not has_retried_pro:
+                    print(f"[Agent 2 LLM] Cần retry với Pro Model: {pro_model}")
+                    has_retried_pro = True
+                    try:
+                        pro_raw = await asyncio.to_thread(
+                            _sync_call_gemini_wrapper,
+                            pro_model,
+                            prompt + "\nChú ý: Lần trước model nhỏ hơn đã không tìm ra mệnh giá hoặc quốc gia. Hãy cố gắng phân tích thật kỹ SỐ và HÌNH ẢNH.",
+                            safe_img,
+                            resolved_temperature,
+                            max_output_tokens,
+                        )
+                        pro_cleaned = clean_json(pro_raw, robust=True)
+                        pro_valid, pro_msg, pro_norm = validate_agent2_result(pro_cleaned, robust=True)
+                        if pro_valid and pro_norm:
+                            parsed_pro = json.loads(pro_norm)
+                            parsed_pro[0]["phuong_phap"] = f"LLM Gemini - {pro_model}"
+                            if "uncertain" not in parsed_pro[0].get("status", "").lower():
+                                parsed_pro[0]["status"] = "Completed"
+                            parsed_pro[0]["ag2_model_chain_used"] = selected_models
+                            parsed_pro[0]["ag2_model_chain_source"] = model_chain_source
+                            parsed_pro[0]["ag2_model_chain_source_detail"] = model_chain_source_detail
+                            if model_chain_warning:
+                                parsed_pro[0]["ag2_model_chain_warning"] = model_chain_warning
+                            parsed_pro[0]["ag2_model_attempts"] = ag2_model_attempts + [{"model": model_name, "status": "failed", "reason": "missing_fields"}, {"model": pro_model, "status": "completed"}]
+                            parsed_pro[0]["ag2_final_model"] = pro_model
+                            parsed_pro[0]["fallback_used"] = model_index > 0 or True
+                            return json.dumps(parsed_pro, ensure_ascii=False)
+                    except Exception as ex_pro:
+                        print(f"[Agent 2 LLM] Lỗi với model {pro_model}: {str(ex_pro)}")
+
+                # If we get here, valid but needs_retry is true AND we exhausted pro, or just invalid json
+                if valid and normalized_json:
+                    print(f"[Agent 2 LLM] Trả về JSON dù còn thiếu field (sau khi đã thử retry): {model_name}")
+                    parsed = json.loads(normalized_json)
+                    parsed[0]["phuong_phap"] = f"LLM Gemini - {model_name}"
+                    parsed[0]["ag2_model_chain_used"] = selected_models
+                    parsed[0]["ag2_model_chain_source"] = model_chain_source
+                    parsed[0]["ag2_model_chain_source_detail"] = model_chain_source_detail
+                    if model_chain_warning:
+                        parsed[0]["ag2_model_chain_warning"] = model_chain_warning
+                    parsed[0]["ag2_model_attempts"] = ag2_model_attempts + [{"model": model_name, "status": "completed_with_missing_fields"}]
+                    parsed[0]["ag2_final_model"] = model_name
+                    parsed[0]["fallback_used"] = model_index > 0
+                    return json.dumps(parsed, ensure_ascii=False)
 
                 last_invalid_json = cleaned
                 last_error = message
                 print(f"[Agent 2 LLM] JSON không hợp lệ từ {model_name}: {message}")
 
                 # Nếu JSON sai thì retry cùng model
+                if attempt == max_attempts:
+                    ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": "invalid_json"})
                 await asyncio.sleep(1)
 
             except Exception as e:
                 error_msg = str(e)
                 last_error = error_msg
-
                 print(f"[Agent 2 LLM] Lỗi với model {model_name}: {error_msg}")
 
+                reason_str = "error"
                 # Hết quota thì chuyển model ngay
                 if (
                     "429" in error_msg
                     or "RESOURCE_EXHAUSTED" in error_msg
                     or "quota" in error_msg.lower()
+                    or "rate" in error_msg.lower()
+                    or "limit" in error_msg.lower()
                 ):
-                    print(f"[Agent 2 LLM] {model_name} hết quota, chuyển sang model dự phòng.")
+                    reason_str = "quota_or_rate_limit"
+                    print(f"[Agent 2 LLM] {model_name} hết quota hoặc rate limit, chuyển sang model dự phòng.")
+                    ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": reason_str})
+
+                    if model_index > 0:
+                        print(f"[Agent 2 LLM] Fallback model {model_name} cũng bị rate limit, dừng sớm để tránh loop vô ích.")
+                        return _build_error_response(
+                            "Hệ thống nhận diện đang quá tải do giới hạn lưu lượng (rate limit).",
+                            status="Partial",
+                            error_type="provider_quota_exhausted",
+                            technical_error=True,
+                            attempted_models=ag2_model_attempts,
+                            fallback_used=True,
+                            model_chain_used=selected_models,
+                            model_chain_source=model_chain_source,
+                            model_chain_source_detail=model_chain_source_detail,
+                            model_chain_warning=model_chain_warning,
+                        )
+                    break
+
+                if "not found" in error_msg.lower() or "does not exist" in error_msg.lower():
+                    reason_str = "model_not_found"
+                    ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": reason_str})
                     break
 
                 # Lỗi server thì đợi rồi retry
                 if (
                     "503" in error_msg
                     or "UNAVAILABLE" in error_msg
+                    or "high demand" in error_msg.lower()
+                    or "try again later" in error_msg.lower()
+                    or "temporarily unavailable" in error_msg.lower()
                     or "overloaded" in error_msg.lower()
                     or "timeout" in error_msg.lower()
                 ):
+                    reason_str = "provider_unavailable"
+                    if not primary_provider_error:
+                        primary_provider_error = "high_demand"
+                    if model_index + 1 < len(selected_models):
+                        print(
+                            f"[Agent 2 LLM] {model_name} unavailable, chuyển sang model dự phòng."
+                        )
+                        ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": reason_str})
+                        break
+                    if attempt == max_attempts:
+                        ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": reason_str})
                     await asyncio.sleep(2)
                     continue
 
                 # Lỗi khác: thử model tiếp theo
+                ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": reason_str})
                 break
-
     print("[Agent 2 LLM] Thất bại sau khi thử toàn bộ model Gemini.")
 
-    detail = "Tất cả model Gemini đều lỗi hoặc trả JSON sai cấu trúc."
-    if last_error:
-        detail += f" Lỗi cuối: {last_error}"
-    if last_invalid_json:
-        detail += f" JSON cuối nhận được: {last_invalid_json[:500]}"
+    final_error_type = "technical_error"
+    if any(a.get("reason") == "quota_or_rate_limit" for a in ag2_model_attempts):
+        final_error_type = "provider_quota_exhausted"
+    elif any(a.get("reason") == "provider_unavailable" for a in ag2_model_attempts):
+        final_error_type = "provider_unavailable"
 
-    return _build_error_response(detail)
+    fallback_was_used = len(selected_models) > 1 and len(ag2_model_attempts) > 1
+
+    return _build_error_response(
+        "AI provider đang quá tải hoặc hết quota. Vui lòng thử lại sau.",
+        status="Partial",
+        error_type=final_error_type,
+        technical_error=True,
+        attempted_models=ag2_model_attempts,
+        fallback_used=fallback_was_used,
+        model_chain_used=selected_models,
+        model_chain_source=model_chain_source,
+        model_chain_source_detail=model_chain_source_detail,
+        model_chain_warning=model_chain_warning,
+    )
 
 
-def _sync_call_gemini_wrapper(model_name: str, prompt: str, image: Image.Image) -> str:
+def _sync_call_gemini_wrapper(
+    model_name: str,
+    prompt: str,
+    image: Image.Image,
+    temperature: float = 0.1,
+    max_output_tokens: Optional[int] = None,
+) -> str:
     """
     Wrapper sync để chạy trong asyncio.to_thread.
     Vì google genai generate_content là hàm sync.
@@ -839,7 +1261,8 @@ def _sync_call_gemini_wrapper(model_name: str, prompt: str, image: Image.Image) 
             contents=[prompt, image],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                temperature=0.1,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
             ),
         )
         return response.text or ""

@@ -1,419 +1,482 @@
-import json
 import time
+import json
 import asyncio
-from typing import Dict, Any, Optional
-
+import traceback
+from typing import Optional, Dict, Any
 from app.core.config import settings
-from app.agents.agent_3_lens import (
-    Agent3Lens,
-    parse_lens_evidence_without_llm,
-    validate_agent3_identity,
-)
-from app.services.groq_evidence_reader_service import (
-    read_evidence_with_groq,
-    reconcile_ag3_evidence,
-    GROQ_AVAILABLE,
-)
-from app.services.evidence_ranker_service import rank_lens_evidence
-from app.utils.currency_normalizer import normalize_agent_vote
 
-def _mask_secret(val: Optional[str]) -> str:
-    if not val:
-        return "not_set"
-    v = str(val).strip()
-    if len(v) <= 4:
-        return "****"
-    return f"****{v[-4:]}"
+def extract_articles_from_parsed(parsed_result: dict, provider: str) -> dict:
+    evidence = parsed_result.get("evidence", [])
+    if not isinstance(evidence, list):
+        evidence = []
 
-def _safe_raw(data: Any, return_raw: bool) -> Any:
-    if return_raw:
-        return data
-    
-    if isinstance(data, dict):
+    items = []
+    for i, ev in enumerate(evidence):
+        items.append({
+            "rank": i + 1,
+            "provider": provider,
+            "source_type": ev.get("source_type", "unknown"),
+            "title": ev.get("title", ""),
+            "snippet": ev.get("snippet", ""),
+            "url": ev.get("link") or ev.get("url", ""),
+            "domain": ev.get("domain", ""),
+            "page_text_excerpt": ev.get("page_text_excerpt", ""),
+            "raw_position": ev.get("position", 0),
+            "is_independent_source": ev.get("is_independent_source", False),
+            "is_social_or_video": ev.get("is_social_media", False),
+            "matched_country": ev.get("country", ""),
+            "matched_currency": ev.get("currency", ""),
+            "matched_denomination": ev.get("denomination", ""),
+            "support_class": ev.get("support_class", "unknown"),
+            "support_reason": ev.get("noise_reason", "")
+        })
+
+    return {
+        "count": len(items),
+        "items": items
+    }
+
+def extract_groq_from_debug_log(debug_log: dict) -> dict:
+    groq = debug_log.get("groq_evidence_reader", {})
+    if not groq:
         return {
-            "truncated": True,
-            "keys": list(data.keys()),
-            "msg": "Use return_raw_response=true to see full payload"
+            "enabled": False,
+            "called": False,
+            "used": False,
+            "skipped_reason": "Not found in debug_log"
         }
-    if isinstance(data, list):
-        return {
-            "truncated": True,
-            "length": len(data),
-            "msg": "Use return_raw_response=true to see full list"
-        }
-    return str(data)[:200] + "..." if len(str(data)) > 200 else data
+    return groq
 
-async def run_ag3_test(options: Dict[str, Any], image_bytes: Optional[bytes] = None) -> Dict[str, Any]:
-    """
-    Main orchestration for the AG3 test page.
-    Isolates the AG3 pipeline. Does NOT run AG1/AG2/AG4.
-    """
+async def run_ag3_test(options: dict, image_bytes: bytes) -> dict:
     mode = str(options.get("mode") or "full_ag3").strip().lower()
-    provider_req = str(options.get("provider") or "auto").strip().lower()
-    return_raw = bool(options.get("return_raw_response", False))
-    
-    # Initialize response structure
+    provider_req = str(options.get("provider_requested") or options.get("provider") or "auto").strip().lower()
+
     res = {
         "ok": True,
         "mode": mode,
         "provider_requested": provider_req,
         "provider_used": None,
         "run_id": f"ag3test_{int(time.time())}",
-        "flow_trace": [],
+        "form_debug": options.get("_form_debug", {}),
+        "image_debug": {
+            "image_bytes_size": len(image_bytes) if image_bytes else 0
+        },
         "config_debug": {
             "serpapi_key_loaded": bool(settings.SERPAPI_KEY),
-            "serpapi_key_last4": _mask_secret(settings.SERPAPI_KEY),
-            "groq_key_loaded": bool(settings.GROQ_API_KEY),
-            "groq_key_last4": _mask_secret(settings.GROQ_API_KEY),
-            "selenium_enabled_env": getattr(settings, "AGENT3_SELENIUM_ENABLED", False),
-            "fallback_enabled": getattr(settings, "AGENT3_FALLBACK_ENABLED", False),
-            "groq_evidence_reader_enabled_env": getattr(settings, "AGENT3_GROQ_EVIDENCE_READER_ENABLED", False),
-            "vision_resize_enabled": getattr(settings, "VISION_RESIZE_ENABLED", False),
-            "vision_resize_max_side": getattr(settings, "VISION_RESIZE_MAX_SIDE", 512),
+            "groq_key_loaded": bool(getattr(settings, "GROQ_API_KEY", None)),
         },
-        "image_debug": {
-            "used_original_image": bool(options.get("use_original_image", False)),
-            "image_bytes_size": len(image_bytes) if image_bytes else 0,
-            "upload_provider": "none",
-            "image_url_available": False,
-            "image_url_domain": None,
-            "image_url_error": None
-        },
-        "serpapi_debug": {
-            "enabled": True, "attempted": False, "engine": "google_lens",
-            "http_status": None, "error_type": None, "error_message": None,
-            "quota_or_rate_limit": False, "raw_response_keys": [],
-            "visual_matches_count": 0, "organic_results_count": 0, "image_results_count": 0,
-            "evidence_count": 0
-        },
-        "selenium_debug": {
-            "enabled": bool(options.get("enable_selenium", getattr(settings, "AGENT3_SELENIUM_ENABLED", False))),
-            "attempted": False, "headless": getattr(settings, "AGENT3_SELENIUM_HEADLESS", True),
-            "timeout_seconds": getattr(settings, "AGENT3_SELENIUM_TIMEOUT_SECONDS", 35),
-            "skipped_reason": "selenium_disabled" if not bool(options.get("enable_selenium", getattr(settings, "AGENT3_SELENIUM_ENABLED", False))) else None,
-            "error_type": None, "error_message": None,
-            "evidence_count": 0, "screenshot_path": None
-        },
-        "evidence_harvest": {
-            "count": 0, "top_n": int(options.get("top_n_evidence", 5)),
-            "items": []
-        },
-        "deterministic_parser": {
-            "status": "Failed",
-            "identity": None,
-            "support_count": 0, "exact_amount_support_count": 0, "independent_source_count": 0,
-            "conflict_count": 0, "noise_count": 0,
-            "reason": "not_run", "promoted": False
-        },
-        "groq_evidence_reader": {
-            "enabled": bool(options.get("enable_groq_evidence_reader", getattr(settings, "AGENT3_GROQ_EVIDENCE_READER_ENABLED", False))),
-            "mode": str(options.get("groq_evidence_reader_mode", "when_weak")),
-            "called": False, "used": False, "skipped_reason": "not_run",
-            "status": "skipped"
-        },
-        "reconciliation": {
-            "agreement_level": "none", "eligible_for_validation": False,
-            "reconciled_identity": None, "reason": "not_run"
-        },
-        "validator": {
-            "attempted": False, "passed": False, "status": "Failed",
-            "not_counted_in_consensus": True, "validation_errors": []
-        },
-        "ag3_final": {
-            "status": "Partial", "provider": "none", "search_provider": "none",
-            "quoc_gia": "Không xác định", "ma_tien_te": "Không xác định", "menh_gia": "Không xác định",
-            "not_counted_in_consensus": True, "validation_errors": []
-        },
-        "timing_ms": {},
-        "raw": {"serpapi": None, "selenium": None, "groq": None}
     }
-    
-    t_start_total = time.monotonic()
-    
-    def add_trace(step, status, started_at, input_sum=None, output_sum=None, reason=None, err_type=None, err_msg=None):
-        dur = int((time.monotonic() - started_at) * 1000)
-        res["flow_trace"].append({
-            "step": step, "status": status, "duration_ms": dur,
-            "input_summary": input_sum or {}, "output_summary": output_sum or {},
-            "reason": reason, "error_type": err_type, "error_message": err_msg
-        })
-        res["timing_ms"][step] = dur
 
-    agent = Agent3Lens()
-    
-    # ---------------------------------------------------------
-    # STEP: Image Prepare & Upload
-    # ---------------------------------------------------------
-    t_prepare = time.monotonic()
-    image_url = None
-    if image_bytes and mode in ("full_ag3", "serpapi_only", "lens_only", "evidence_only"):
-        if not options.get("use_original_image", False):
+    if not image_bytes:
+        res["ok"] = False
+        res["error_type"] = "missing_image"
+        res["error_message"] = "image_bytes is empty"
+        return res
+
+    try:
+        from app.agents.agent_3_selector import _run_by_provider, run_agent3_lens, _safe_parse_agent3_result
+
+        async def execute_provider(prov: str, isolated: bool = True):
+            debug_log = {}
+            t0 = time.monotonic()
+
+            import asyncio
+            import traceback
+            import selenium.common.exceptions as sel_exc
+
             try:
-                import cv2
-                import numpy as np
-                np_arr = np.frombuffer(image_bytes, np.uint8)
-                img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                if img is not None:
-                    res["image_debug"]["original_width"] = img.shape[1]
-                    res["image_debug"]["original_height"] = img.shape[0]
-                    max_side = int(options.get("image_max_side") or 512)
-                    h, w = img.shape[:2]
-                    if max(h, w) > max_side:
-                        scale = max_side / float(max(h, w))
-                        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-                        is_success, buffer = cv2.imencode(".jpg", img, [int(getattr(settings, "VISION_RESIZE_JPEG_QUALITY", 85))])
-                        if is_success:
-                            image_bytes = buffer.tobytes()
-                    res["image_debug"]["processed_width"] = img.shape[1]
-                    res["image_debug"]["processed_height"] = img.shape[0]
-            except Exception as e:
-                add_trace("image_prepare", "failed", t_prepare, err_type="resize_error", err_msg=str(e))
-                return res
-        
-        add_trace("image_prepare", "completed", t_prepare, {"bytes": len(image_bytes)})
-        
-        t_upload = time.monotonic()
-        try:
-            image_url = await agent.upload_to_imgbb(image_bytes)
-            if image_url:
-                res["image_debug"]["image_url_available"] = True
-                res["image_debug"]["image_url_domain"] = image_url.split("/")[2] if "//" in image_url else "unknown"
-                add_trace("image_upload", "completed", t_upload, {"size": len(image_bytes)}, {"url_domain": res["image_debug"]["image_url_domain"]})
-            else:
-                res["image_debug"]["image_url_error"] = "Upload returned None"
-                add_trace("image_upload", "failed", t_upload, reason="no_url_returned")
-        except Exception as e:
-            res["image_debug"]["image_url_error"] = str(e)
-            add_trace("image_upload", "failed", t_upload, err_type="upload_exception", err_msg=str(e))
-
-    # ---------------------------------------------------------
-    # STEP: Provider Search (SerpAPI / Selenium)
-    # ---------------------------------------------------------
-    raw_evidence = []
-    
-    if mode in ("full_ag3", "serpapi_only", "lens_only", "evidence_only"):
-        if provider_req in ("auto", "serpapi") and mode != "selenium_only":
-            t_serp = time.monotonic()
-            res["serpapi_debug"]["attempted"] = True
-            if not image_url:
-                add_trace("serpapi_lens", "failed", t_serp, reason="no_image_url")
-            else:
-                try:
-                    import requests
-                    api_key = settings.SERPAPI_KEY
-                    if not api_key:
-                        raise ValueError("Missing SERPAPI_KEY")
-                    
-                    params = {
-                        "engine": "google_lens",
-                        "url": image_url,
-                        "api_key": api_key,
-                        "hl": "vi",
-                        "country": "vn"
-                    }
-                    if options.get("no_cache", False):
-                        params["no_cache"] = "true"
-                    
-                    serp_res = await asyncio.to_thread(requests.get, "https://serpapi.com/search", params=params, timeout=20)
-                    res["serpapi_debug"]["http_status"] = serp_res.status_code
-                    
-                    if serp_res.status_code == 200:
-                        data = serp_res.json()
-                        res["raw"]["serpapi"] = _safe_raw(data, return_raw)
-                        res["serpapi_debug"]["raw_response_keys"] = list(data.keys())
-                        
-                        v_matches = data.get("visual_matches", [])
-                        res["serpapi_debug"]["visual_matches_count"] = len(v_matches)
-                        
-                        compact_data = agent._compact_serpapi_result(data)
-                
-                        raw_evidence = []
-                        for item in compact_data.get("visual_matches") or []:
-                            raw_evidence.append({
-                                "bucket": "visual_match",
-                                "title": item.get("title", ""),
-                                "snippet": item.get("snippet", ""),
-                                "url": item.get("link", ""),
-                                "source": item.get("source", ""),
-                            })
-                        
-                        res["serpapi_debug"]["evidence_count"] = len(raw_evidence)
-                        res["provider_used"] = "serpapi"
-                        add_trace("serpapi_lens", "completed", t_serp, output_sum={"evidence_count": len(raw_evidence)})
+                if isolated:
+                    # Compute explicit deadline for selenium to bypass the 32s AGENT3_DEFAULT_BUDGET_SECONDS
+                    if prov == "selenium":
+                        selenium_total = float(
+                            getattr(settings, "AG3_TEST_SELENIUM_TOTAL_DEADLINE_SECONDS", 90) or 90
+                        )
+                        explicit_deadline = time.monotonic() + selenium_total
                     else:
-                        res["serpapi_debug"]["error_type"] = "http_error"
-                        res["serpapi_debug"]["error_message"] = serp_res.text[:200]
-                        add_trace("serpapi_lens", "failed", t_serp, err_type="http_error", err_msg=str(serp_res.status_code))
-                except Exception as e:
-                    res["serpapi_debug"]["error_type"] = "exception"
-                    res["serpapi_debug"]["error_message"] = str(e)
-                    add_trace("serpapi_lens", "failed", t_serp, err_type="exception", err_msg=str(e))
-
-        # Fallback to selenium if needed and allowed
-        if not raw_evidence and provider_req in ("auto", "selenium") and mode != "serpapi_only":
-            if res["selenium_debug"]["enabled"]:
-                t_sel = time.monotonic()
-                res["selenium_debug"]["attempted"] = True
-                res["selenium_debug"]["skipped_reason"] = None
-                try:
-                    res["selenium_debug"]["error_message"] = "Selenium is mocked in ag3_test_service to prevent driver zombies."
-                    res["selenium_debug"]["error_type"] = "mocked_out"
-                    add_trace("selenium_lens", "failed", t_sel, err_type="mocked_out", err_msg="Selenium mocked")
-                except Exception as e:
-                    add_trace("selenium_lens", "failed", t_sel, err_type="exception", err_msg=str(e))
-            else:
-                add_trace("selenium_lens", "skipped", time.monotonic(), reason="selenium_disabled")
-
-    # ---------------------------------------------------------
-    # STEP: Candidate Mode Logic
-    # ---------------------------------------------------------
-    if mode == "candidate_only":
-        t_cand = time.monotonic()
-        cand = {
-            "country": str(options.get("candidate_country", "")),
-            "currency_code": str(options.get("candidate_currency", "")),
-            "denomination": str(options.get("candidate_denomination", "")),
-            "currency_name": str(options.get("candidate_currency_name", ""))
-        }
-        
-        try:
-            from app.agents.agent_3_lens import build_candidate_verification_queries
-            queries = build_candidate_verification_queries(cand)
-            res["evidence_harvest"]["candidate_queries"] = queries
-            add_trace("candidate_search", "completed", t_cand, output_sum={"queries": queries})
-        except Exception as e:
-            add_trace("candidate_search", "failed", t_cand, err_type="exception", err_msg=str(e))
-
-    # ---------------------------------------------------------
-    # STEP: Evidence Harvest
-    # ---------------------------------------------------------
-    ranked_evidence = []
-    if mode in ("full_ag3", "lens_only", "evidence_only") and raw_evidence:
-        t_harv = time.monotonic()
-        ranked_evidence = rank_lens_evidence(raw_evidence, context="")
-        top_n = int(options.get("top_n_evidence", 5))
-        top_evidence = ranked_evidence[:top_n]
-        
-        res["evidence_harvest"]["count"] = len(top_evidence)
-        res["evidence_harvest"]["items"] = top_evidence
-        add_trace("evidence_harvest", "completed", t_harv, output_sum={"count": len(top_evidence)})
-    else:
-        top_evidence = []
-        if mode not in ("serpapi_only", "selenium_only", "groq_reader_only", "candidate_only"):
-            add_trace("evidence_harvest", "skipped", time.monotonic(), reason="no_raw_evidence")
-
-    # ---------------------------------------------------------
-    # STEP: Deterministic Parser
-    # ---------------------------------------------------------
-    det_result = {}
-    if mode in ("full_ag3", "evidence_only") and top_evidence:
-        t_det = time.monotonic()
-        det_result = parse_lens_evidence_without_llm(top_evidence, raw_lens_text="")
-        
-        # Fill debug info
-        res["deterministic_parser"]["status"] = det_result.get("status", "Failed")
-        res["deterministic_parser"]["promoted"] = (str(det_result.get("status", "")).lower() == "completed" and not det_result.get("not_counted_in_consensus"))
-        
-        trace = det_result.get("promotion_trace", {})
-        res["deterministic_parser"]["identity"] = trace.get("selected_identity")
-        res["deterministic_parser"]["support_count"] = trace.get("support_count", 0)
-        res["deterministic_parser"]["exact_amount_support_count"] = trace.get("exact_amount_support_count", 0)
-        res["deterministic_parser"]["independent_source_count"] = trace.get("independent_source_count", 0)
-        res["deterministic_parser"]["conflict_count"] = trace.get("independent_conflicting_amount_support", 0)
-        res["deterministic_parser"]["conflicting_denominations"] = trace.get("conflicting_denominations", [])
-        res["deterministic_parser"]["supporting_domains"] = list(trace.get("supporting_domains", []))
-        res["deterministic_parser"]["reason"] = trace.get("reason", "unknown")
-        res["deterministic_parser"]["promotion_path"] = trace.get("promotion_path")
-        
-        add_trace("deterministic_parser", "completed", t_det, output_sum={"promoted": res["deterministic_parser"]["promoted"], "reason": res["deterministic_parser"]["reason"]})
-
-    # ---------------------------------------------------------
-    # STEP: Groq Evidence Reader
-    # ---------------------------------------------------------
-    groq_result = None
-    if mode in ("full_ag3", "groq_reader_only"):
-        t_groq = time.monotonic()
-        evidence_to_read = top_evidence
-        
-        if mode == "groq_reader_only" and options.get("manual_evidence_json"):
-            try:
-                evidence_to_read = json.loads(options["manual_evidence_json"])
-            except Exception:
-                pass
+                        explicit_deadline = None  # Let selector use its default
+                    raw_result = await _run_by_provider(
+                        provider=prov,
+                        image_bytes=image_bytes,
+                        context="AG3 isolated test",
+                        debug_log=debug_log,
+                        deadline=explicit_deadline,
+                        force_enable_selenium=options.get("enable_selenium", False),
+                        disable_selenium_proxy=options.get("disable_selenium_proxy", mode == "selenium_only")
+                    )
+                else:
+                    raw_result = await run_agent3_lens(
+                        image_bytes=image_bytes,
+                        context="AG3 full test",
+                        debug_log=debug_log,
+                        experiment_mode=False
+                    )
+            except (asyncio.TimeoutError, TimeoutError, sel_exc.TimeoutException) as e:
+                latency = int((time.monotonic() - t0) * 1000)
+                is_proxy_enabled = not options.get("disable_selenium_proxy", mode == "selenium_only")
+                return {
+                    "ok": False,
+                    "mode": mode,
+                    "provider_used": prov,
+                    "status": "Failed",
+                    "error_type": f"{prov}_timeout",
+                    "error_message": f"{prov.capitalize()} provider timed out before returning visual results",
+                    "exception_class": e.__class__.__name__,
+                    "latency_ms": latency,
+                    f"{prov}_debug": {
+                        "attempted": True,
+                        "proxy_enabled": is_proxy_enabled,
+                        "failure_stage": "selector_or_provider_timeout"
+                    },
+                    "articles": {"count": 0, "items": []},
+                    "evidence_harvest": {"count": 0, "items": []},
+                    "validator": [f"{prov}_timeout"]
+                }
+            except (PermissionError, sel_exc.WebDriverException) as e:
+                latency = int((time.monotonic() - t0) * 1000)
+                is_proxy_enabled = not options.get("disable_selenium_proxy", mode == "selenium_only")
+                error_type = f"{prov}_exception"
+                if isinstance(e, PermissionError):
+                    error_type = "google_lens_403"
+                elif isinstance(e, sel_exc.WebDriverException):
+                    error_type = "selenium_driver_error"
+                return {
+                    "ok": False,
+                    "mode": mode,
+                    "provider_used": prov,
+                    "status": "Failed",
+                    "error_type": error_type,
+                    "error_message": str(e),
+                    "exception_class": e.__class__.__name__,
+                    "latency_ms": latency,
+                    f"{prov}_debug": {
+                        "attempted": True,
+                        "proxy_enabled": is_proxy_enabled,
+                        "failure_stage": "provider_crashed"
+                    },
+                    "articles": {"count": 0, "items": []},
+                    "evidence_harvest": {"count": 0, "items": []},
+                    "validator": [error_type]
+                }
                 
-        if res["groq_evidence_reader"]["enabled"] and evidence_to_read:
-            res["groq_evidence_reader"]["called"] = True
+            latency = int((time.monotonic() - t0) * 1000)
+            parsed = _safe_parse_agent3_result(raw_result)
+
+            articles = extract_articles_from_parsed(parsed, prov)
+            evidence = parsed.get("evidence", [])
+            if not isinstance(evidence, list): evidence = []
+
+            # Manually run Groq for isolated tests if requested
+            if isolated and options.get("enable_groq_reader"):
+                from app.services.groq_formatter_service import format_lens_evidence
+                from app.agents.agent_3_lens import validate_agent3_identity
+                try:
+                    dl = time.monotonic() + 30
+                    groq_result = await format_lens_evidence(evidence, dl)
+                    if groq_result.get("ag3_groq_formatter_available") is not False:
+                        validated = validate_agent3_identity(groq_result, evidence=evidence)
+                        parsed.update(validated)
+                        # Fix status mapping based on missing critical fields
+                        status = str(validated.get("status") or "").strip().lower()
+                        country = str(validated.get("quoc_gia") or "").strip().lower()
+                        currency = str(validated.get("ma_tien_te") or "").strip().lower()
+                        denomination = str(validated.get("menh_gia") or "").strip().lower()
+                        missing_critical = (not country or country in {"không xác định", "unknown", "none"} or
+                                            not currency or currency in {"không xác định", "unknown", "none"} or
+                                            not denomination or denomination in {"không xác định", "unknown", "none"})
+                        
+                        if status == "completed" and not missing_critical:
+                            parsed["status"] = "Completed"
+                        else:
+                            parsed["status"] = "Partial"
+
+                        parsed["validation_errors"] = validated.get("validation_errors", [])
+                        debug_log["groq_evidence_reader"] = groq_result
+                    else:
+                        debug_log["groq_evidence_reader"] = {"skipped_reason": groq_result.get("ag3_groq_skipped_reason")}
+                except Exception as e:
+                    debug_log["groq_evidence_reader"] = {"error_message": str(e), "called": True}
+
+            promotion_trace = {
+                "support_signal_count": parsed.get("support_signal_count", 0),
+                "independent_source_count": parsed.get("independent_source_count", 0),
+                "exact_amount_support_count": parsed.get("exact_amount_support_count", 0),
+                "page_text_checked_count": parsed.get("page_text_checked_count", 0),
+                "page_text_support_count": parsed.get("page_text_support_count", 0),
+                "noise_filtered_evidence": parsed.get("noise_filtered_evidence", 0),
+                "reason": parsed.get("reason", "")
+            }
+            disable_proxy = options.get("disable_selenium_proxy", mode == "selenium_only")
+            env_proxy_enabled = str(getattr(settings, "AGENT3_SELENIUM_PROXY_ENABLED", "true")).lower() == "true"
+            is_proxy_enabled = not disable_proxy and env_proxy_enabled
+
+            # Additional debug context as requested
+            if prov == "selenium":
+                debug_log["config_debug"] = {
+                    "selenium_enabled_env": True,
+                    "selenium_requested_by_ui": options.get("enable_selenium", False),
+                    "selenium_effective_enabled": options.get("enable_selenium", False),
+                    "selenium_disabled_reason": None if options.get("enable_selenium", False) else "Disabled by UI",
+                    "headless": True,
+                    "timeout_seconds": getattr(settings, "AGENT3_SELENIUM_TIMEOUT_SECONDS", 60)
+                }
+                debug_log["selenium_debug"] = {
+                    "attempted": True if options.get("enable_selenium", False) else False,
+                    "disabled_reason": None if options.get("enable_selenium", False) else "Disabled by UI",
+                    "attempts": getattr(settings, "AGENT3_SELENIUM_ATTEMPTS", 2),
+                    "chrome_slot_acquired": True if options.get("enable_selenium", False) else False,
+                    "proxy_enabled": is_proxy_enabled,
+                    "proxy_used": "Dynamic" if is_proxy_enabled else None,
+                    "failure_stage": parsed.get("failure_stage") or (
+                        "google_lens_search_403" if parsed.get("google_lens_403")
+                        else ("deadline_exceeded" if parsed.get("error_type") == "deadline_exceeded"
+                        else ("google_lens_page_ready" if "did not become ready" in str(parsed.get("error_message", ""))
+                        else None))
+                    ),
+                    "deadline_seconds": parsed.get("deadline_seconds", getattr(settings, "AG3_TEST_SELENIUM_TOTAL_DEADLINE_SECONDS", 90)),
+                    "elapsed_ms": parsed.get("elapsed_ms"),
+                    "google_lens_403": parsed.get("google_lens_403", False),
+                    "final_url": parsed.get("final_url"),
+                    "page_title": parsed.get("page_title"),
+                    "page_text_sample": parsed.get("page_text_sample"),
+                    "screenshot_path": parsed.get("screenshot_path"),
+                    "html_path": parsed.get("html_path"),
+                    "page_ready_timeout_seconds": getattr(settings, "AGENT3_SELENIUM_PAGE_READY_TIMEOUT_SECONDS", 45),
+                    "evidence_count": len(evidence),
+                    "error_type": parsed.get("error_type"),
+                    "error_message": parsed.get("error_message")
+                }
+
+                if "selenium_debug" in parsed and isinstance(parsed["selenium_debug"], dict):
+                    debug_log["selenium_debug"].update(parsed["selenium_debug"])
+
+            is_ok = parsed.get("status") != "Failed" and parsed.get("status") != "Disabled"
+            if parsed.get("error_type") is not None or parsed.get("error_message") is not None:
+                is_ok = False
+
+            return {
+                "ok": is_ok,
+                "provider_used": prov,
+                "status": parsed.get("status", "Completed" if is_ok else "Failed"),
+                "error_type": parsed.get("error_type", None),
+                "error_message": parsed.get("error_message", None),
+                "latency_ms": latency,
+                "debug_log": debug_log,
+                "selenium_debug": debug_log.get("selenium_debug"),
+                "provider_result": {
+                    "raw_result": raw_result,
+                    "parsed_result": parsed
+                },
+                "agent_result_raw": raw_result,
+                "parsed_result": parsed,
+                "articles": {"count": len(articles.get("items", [])), "items": articles.get("items", [])},
+                "evidence_harvest": {
+                    "count": len(evidence),
+                    "items": evidence
+                },
+                "deterministic_parser": parsed,
+                "promotion_trace": promotion_trace,
+                "groq_evidence_reader": extract_groq_from_debug_log(debug_log),
+                "validator": parsed.get("validation_errors", []),
+                "ag3_final": parsed,
+                "summary": {
+                    "status": parsed.get("status"),
+                    "country": parsed.get("country") or parsed.get("quoc_gia"),
+                    "currency": parsed.get("currency") or parsed.get("ma_tien_te"),
+                    "denomination": parsed.get("denomination") or parsed.get("menh_gia"),
+                    "evidence_count": len(evidence),
+                    "article_count": articles["count"],
+                    "evidence_verified": parsed.get("evidence_verified", False),
+                    "independent_source_count": parsed.get("independent_source_count", 0),
+                    "exact_amount_support_count": parsed.get("exact_amount_support_count", 0)
+                }
+            }
+        
+        if mode == "serpapi_only":
+            res["provider_used"] = "serpapi"
+            branch = await execute_provider("serpapi")
+            res.update(branch)
+
+        elif mode == "selenium_only":
+            res["provider_used"] = "selenium"
+            branch = await execute_provider("selenium")
+            res.update(branch)
+
+        elif mode == "full_ag3":
+            res["provider_used"] = provider_req
+            branch = await execute_provider(provider_req, isolated=False)
+            res.update(branch)
+
+        elif mode == "compare_serpapi_selenium":
+            res["branches"] = {}
             try:
-                groq_result = await read_evidence_with_groq(
-                    evidence_to_read,
-                    candidate_identity=det_result.get("promotion_trace", {}).get("selected_identity"),
-                    timeout_seconds=float(options.get("timeout_seconds", 5.0)),
-                    top_n=int(options.get("top_n_evidence", 5))
-                )
-                res["groq_evidence_reader"].update(groq_result)
-                res["raw"]["groq"] = _safe_raw(groq_result, return_raw)
-                add_trace("groq_evidence_reader", "completed", t_groq, output_sum={"status": groq_result.get("status")})
+                res["branches"]["serpapi"] = await execute_provider("serpapi")
             except Exception as e:
-                res["groq_evidence_reader"]["error_type"] = "exception"
-                res["groq_evidence_reader"]["error_message"] = str(e)
-                res["groq_evidence_reader"]["status"] = "failed"
-                add_trace("groq_evidence_reader", "failed", t_groq, err_type="exception", err_msg=str(e))
-        else:
-            res["groq_evidence_reader"]["skipped_reason"] = "disabled_or_no_evidence"
-            add_trace("groq_evidence_reader", "skipped", t_groq, reason="disabled_or_no_evidence")
+                res["branches"]["serpapi"] = {
+                    "ok": False,
+                    "provider_used": "serpapi",
+                    "status": "Failed",
+                    "error_type": "serpapi_exception",
+                    "error_message": str(e),
+                    "exception_class": e.__class__.__name__,
+                    "traceback_sample": traceback.format_exc()[-1000:],
+                    "latency_ms": 10,
+                    "articles": {"count": 0, "items": []},
+                    "evidence_harvest": {"count": 0, "items": []},
+                    "summary": {"status": "Failed"}
+                }
+                
+            try:
+                res["branches"]["selenium"] = await execute_provider("selenium")
+            except Exception as e:
+                res["branches"]["selenium"] = {
+                    "ok": False,
+                    "provider_used": "selenium",
+                    "status": "Failed",
+                    "error_type": "selenium_exception",
+                    "error_message": str(e),
+                    "exception_class": e.__class__.__name__,
+                    "traceback_sample": traceback.format_exc()[-1000:],
+                    "latency_ms": 10,
+                    "articles": {"count": 0, "items": []},
+                    "evidence_harvest": {"count": 0, "items": []},
+                    "summary": {"status": "Failed"}
+                }
 
-    # ---------------------------------------------------------
-    # STEP: Reconciliation
-    # ---------------------------------------------------------
-    recon_result = None
-    if mode == "full_ag3":
-        t_recon = time.monotonic()
-        if top_evidence:
-            recon_result = reconcile_ag3_evidence(
-                det_result.get("promotion_trace", {}).get("selected_identity"),
-                groq_result,
-                top_evidence
-            )
-            res["reconciliation"].update(recon_result)
-            add_trace("reconciliation", "completed", t_recon, output_sum={"agreement": recon_result.get("agreement_level")})
-        else:
-            add_trace("reconciliation", "skipped", t_recon, reason="no_evidence")
+            res["comparison"] = _compute_compare_winner(res["branches"])
 
-    # ---------------------------------------------------------
-    # STEP: Validator & Final
-    # ---------------------------------------------------------
-    if mode == "full_ag3":
-        t_val = time.monotonic()
-        if not recon_result or not recon_result.get("eligible_for_validation"):
-            final_obj = dict(det_result) if det_result else {}
-            final_obj["not_counted_in_consensus"] = True
-            final_obj["status"] = "Partial"
-            final_obj["reconciliation_reason"] = (recon_result or {}).get("reason", "no_reconciliation")
-            res["validator"]["skipped_reason"] = "not_eligible"
-            add_trace("validator", "skipped", t_val, reason="not_eligible")
         else:
-            res["validator"]["attempted"] = True
-            validated = validate_agent3_identity(det_result, top_evidence)
-            final_obj = validated
-            res["validator"]["status"] = validated.get("status")
-            res["validator"]["passed"] = (str(validated.get("status")).lower() == "completed" and not validated.get("not_counted_in_consensus"))
-            res["validator"]["not_counted_in_consensus"] = bool(validated.get("not_counted_in_consensus"))
-            res["validator"]["validation_errors"] = validated.get("validation_errors", [])
-            add_trace("validator", "completed", t_val, output_sum={"passed": res["validator"]["passed"]})
-            
-        res["ag3_final"] = {
-            "status": final_obj.get("status", "Partial"),
-            "provider": res["provider_used"] or "none",
-            "search_provider": res["provider_used"] or "none",
-            "formatter_provider": "deterministic",
-            "quoc_gia": final_obj.get("quoc_gia") or final_obj.get("country", "Không xác định"),
-            "ma_tien_te": final_obj.get("ma_tien_te") or final_obj.get("currency_code", "Không xác định"),
-            "menh_gia": final_obj.get("menh_gia") or final_obj.get("denomination", "Không xác định"),
-            "do_tin_cay": final_obj.get("do_tin_cay", 0.0),
-            "evidence_verified": not final_obj.get("not_counted_in_consensus", True),
-            "not_counted_in_consensus": final_obj.get("not_counted_in_consensus", True),
-            "validation_errors": final_obj.get("validation_errors", [])
-        }
+            res["ok"] = False
+            res["error_type"] = "invalid_mode"
+            res["error_message"] = f"Unsupported mode: {mode}"
 
-    res["timing_ms"]["total"] = int((time.monotonic() - t_start_total) * 1000)
+    except Exception as e:
+        res["ok"] = False
+        res["error_type"] = "ag3_test_exception"
+        res["error_message"] = str(e)
+        res["exception_class"] = e.__class__.__name__
+        res["traceback_sample"] = traceback.format_exc()[-4000:]
+
     return res
+
+def _compute_compare_winner(branches: dict) -> dict:
+    s = branches.get("serpapi", {})
+    se = branches.get("selenium", {})
+
+    comp = {
+        "winner": "none",
+        "primary_provider": None,
+        "fallback_provider": None,
+        "reason": "",
+        "serpapi_score": 0,
+        "selenium_score": 0,
+        "criteria": {},
+        "failover_conditions": [
+          "primary provider returns no evidence",
+          "primary provider times out",
+          "primary provider has validation_errors",
+          "primary provider has conflict_count > support_count",
+          "primary provider returns Partial/Failed"
+        ]
+    }
+
+    if not s.get("ok") and not se.get("ok"):
+        comp["reason"] = "Both failed"
+        return comp
+
+    s_sum = s.get("summary", {})
+    se_sum = se.get("summary", {})
+
+    def _voting_eligible(summ):
+        return bool(summ.get("country") and summ.get("currency") and summ.get("denomination"))
+
+    def _c(name, s_val, se_val):
+        comp["criteria"][name] = f"SerpAPI={s_val} vs Selenium={se_val}"
+
+    _c("status", s_sum.get("status"), se_sum.get("status"))
+    _c("voting_eligible", _voting_eligible(s_sum), _voting_eligible(se_sum))
+    _c("evidence_verified", s_sum.get("evidence_verified"), se_sum.get("evidence_verified"))
+    _c("evidence_count", s_sum.get("evidence_count", 0), se_sum.get("evidence_count", 0))
+    _c("article_count", s_sum.get("article_count", 0), se_sum.get("article_count", 0))
+    _c("independent_source_count", s_sum.get("independent_source_count", 0), se_sum.get("independent_source_count", 0))
+    _c("exact_amount_support_count", s_sum.get("exact_amount_support_count", 0), se_sum.get("exact_amount_support_count", 0))
+
+    s_groq = s.get("groq_evidence_reader", {})
+    se_groq = se.get("groq_evidence_reader", {})
+    s_gsc = s_groq.get("support_count", 0)
+    se_gsc = se_groq.get("support_count", 0)
+    s_gcc = s_groq.get("conflict_count", 0)
+    se_gcc = se_groq.get("conflict_count", 0)
+    _c("groq_support_count", s_gsc, se_gsc)
+    _c("groq_conflict_count", s_gcc, se_gcc)
+
+    # Check status
+    s_c = (s_sum.get("status") == "Completed")
+    se_c = (se_sum.get("status") == "Completed")
+    if s_c and not se_c: return _win(comp, "serpapi", "Status Completed wins")
+    if se_c and not s_c: return _win(comp, "selenium", "Status Completed wins")
+
+    # Check voting
+    s_ve = _voting_eligible(s_sum)
+    se_ve = _voting_eligible(se_sum)
+    if s_ve and not se_ve: return _win(comp, "serpapi", "Voting eligible wins")
+    if se_ve and not s_ve: return _win(comp, "selenium", "Voting eligible wins")
+
+    # Check evidence verified
+    s_ev = s_sum.get("evidence_verified", False)
+    se_ev = se_sum.get("evidence_verified", False)
+    if s_ev and not se_ev: return _win(comp, "serpapi", "evidence_verified=true wins")
+    if se_ev and not s_ev: return _win(comp, "selenium", "evidence_verified=true wins")
+
+    # Check counts
+    s_isc = s_sum.get("independent_source_count", 0)
+    se_isc = se_sum.get("independent_source_count", 0)
+    if s_isc > se_isc: return _win(comp, "serpapi", f"Higher independent_source_count ({s_isc} > {se_isc})")
+    if se_isc > s_isc: return _win(comp, "selenium", f"Higher independent_source_count ({se_isc} > {s_isc})")
+
+    s_easc = s_sum.get("exact_amount_support_count", 0)
+    se_easc = se_sum.get("exact_amount_support_count", 0)
+    if s_easc > se_easc: return _win(comp, "serpapi", f"Higher exact_amount_support_count ({s_easc} > {se_easc})")
+    if se_easc > s_easc: return _win(comp, "selenium", f"Higher exact_amount_support_count ({se_easc} > {s_easc})")
+
+    if s_gsc > se_gsc: return _win(comp, "serpapi", f"Higher groq_support_count ({s_gsc} > {se_gsc})")
+    if se_gsc > s_gsc: return _win(comp, "selenium", f"Higher groq_support_count ({se_gsc} > {s_gsc})")
+
+    if s_gcc < se_gcc: return _win(comp, "serpapi", f"Lower groq_conflict_count ({s_gcc} < {se_gcc})")
+    if se_gcc < s_gcc: return _win(comp, "selenium", f"Lower groq_conflict_count ({se_gcc} < {s_gcc})")
+
+    s_ec = s_sum.get("evidence_count", 0)
+    se_ec = se_sum.get("evidence_count", 0)
+    if s_ec > se_ec: return _win(comp, "serpapi", f"Higher evidence_count ({s_ec} > {se_ec})")
+    if se_ec > s_ec: return _win(comp, "selenium", f"Higher evidence_count ({se_ec} > {s_ec})")
+
+    s_ac = s_sum.get("article_count", 0)
+    se_ac = se_sum.get("article_count", 0)
+    if s_ac > se_ac: return _win(comp, "serpapi", f"Higher article_count ({s_ac} > {se_ac})")
+    if se_ac > s_ac: return _win(comp, "selenium", f"Higher article_count ({se_ac} > {s_ac})")
+
+
+    # Latency
+    s_lat = s.get("latency_ms", 999999)
+    se_lat = se.get("latency_ms", 999999)
+    _c("latency_ms", s_lat, se_lat)
+    if s_lat < se_lat: return _win(comp, "serpapi", f"Lower latency ({s_lat}ms < {se_lat}ms)")
+    if se_lat < s_lat: return _win(comp, "selenium", f"Lower latency ({se_lat}ms < {s_lat}ms)")
+
+    comp["winner"] = "tie"
+    comp["primary_provider"] = "serpapi"
+    comp["fallback_provider"] = "selenium"
+    comp["reason"] = "All metrics equal"
+    return comp
+
+def _win(comp: dict, winner: str, reason: str) -> dict:
+    comp["winner"] = winner
+    comp["reason"] = reason
+    if winner == "serpapi":
+        comp["serpapi_score"] = comp.get("serpapi_score", 0) + 1
+        comp["primary_provider"] = "serpapi"
+        comp["fallback_provider"] = "selenium"
+    elif winner == "selenium":
+        comp["selenium_score"] = comp.get("selenium_score", 0) + 1
+        comp["primary_provider"] = "selenium"
+        comp["fallback_provider"] = "serpapi"
+    return comp

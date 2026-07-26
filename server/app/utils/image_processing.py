@@ -54,6 +54,10 @@ CROP_NMS_IOU_THRESHOLD = float(os.getenv("CROP_NMS_IOU_THRESHOLD", "0.30"))
 
 # Nested fragment: nếu box nhỏ chứa >= ratio này bên trong box lớn thì bị coi là fragment
 CROP_NESTED_CONTAINED_RATIO = float(os.getenv("CROP_NESTED_CONTAINED_RATIO", "0.84"))
+NESTED_VERY_LARGE_RATIO = float(os.getenv("NESTED_VERY_LARGE_RATIO", "0.82"))
+NESTED_LARGE_MIN_YOLO_CONF = float(
+    os.getenv("NESTED_LARGE_MIN_YOLO_CONF", "0.60")
+)
 
 # Contour heuristic: area_ratio tối thiểu / tối đa so với toàn ảnh
 CROP_CONTOUR_AREA_MIN = float(os.getenv("CROP_CONTOUR_AREA_MIN", "0.025"))
@@ -87,6 +91,9 @@ MERGE_UNION_AREA_MAX = float(os.getenv("MERGE_UNION_AREA_MAX", "0.50"))
 # Union box aspect ratio hợp lệ (min=1.0 không enforce, max=5.0)
 MERGE_UNION_ASPECT_MIN = float(os.getenv("MERGE_UNION_ASPECT_MIN", "1.0"))
 MERGE_UNION_ASPECT_MAX = float(os.getenv("MERGE_UNION_ASPECT_MAX", "5.0"))
+MERGE_DISTINCT_YOLO_CONF_MIN = float(
+    os.getenv("MERGE_DISTINCT_YOLO_CONF_MIN", "0.45")
+)
 
 # Lazy-loaded — không load khi import module
 _CROP_YOLO_MODEL = None
@@ -389,12 +396,33 @@ def _remove_nested_fragment_candidates(
 
     total_area = max(1, image_w * image_h)
 
+    def _is_trusted_large(item: Dict[str, Any]) -> bool:
+        source = str(item.get("source") or "").lower()
+        return (
+            _safe_float(item.get("yolo_conf"), 0.0)
+            >= NESTED_LARGE_MIN_YOLO_CONF
+            or source.startswith("merged(")
+            or "contour" in source
+        )
+
+    def _is_valid_inner_yolo(item: Dict[str, Any]) -> bool:
+        source = str(item.get("source") or "").lower()
+        x1, y1, x2, y2 = item["box"]
+        width = max(1, x2 - x1)
+        height = max(1, y2 - y1)
+        aspect = max(width / float(height), height / float(width))
+        return (
+            source.startswith("yolo")
+            and _safe_float(item.get("yolo_conf"), 0.0) >= 0.45
+            and 1.2 <= aspect <= 3.5
+        )
+
     # If there is a very large candidate that nearly covers the whole photo,
     # keep it and drop inner fragments. This is safer for single-banknote photos
     # taken in a hand/on a bag, where texture creates many fake regions.
     very_large = [
         item for item in candidates
-        if _box_area(item["box"]) / float(total_area) >= 0.72
+        if _box_area(item["box"]) / float(total_area) >= NESTED_VERY_LARGE_RATIO
     ]
 
     if very_large:
@@ -406,11 +434,18 @@ def _remove_nested_fragment_candidates(
 
         # Keep only the large candidate when almost all other boxes are fragments
         # inside it. This fixes the false 3-banknotes result on a single note.
-        if len(inner_items) >= max(1, len(candidates) - 1):
+        if (
+            _is_trusted_large(large)
+            and len(inner_items) >= max(1, len(candidates) - 1)
+        ):
             large = dict(large)
             large["source"] = f'{large.get("source", "unknown")}_large_single_note'
             large["score"] = float(large.get("score", 0)) + total_area * 0.5
             return [large]
+
+        valid_inner_yolo = [item for item in inner_items if _is_valid_inner_yolo(item)]
+        if not _is_trusted_large(large) and len(valid_inner_yolo) >= 2:
+            candidates = [item for item in candidates if item is not large]
 
     filtered: List[Dict[str, Any]] = []
 
@@ -430,7 +465,12 @@ def _remove_nested_fragment_candidates(
 
             # If a smaller box is mostly inside a larger one, it is usually a
             # fragment of the same banknote rather than a separate banknote.
-            if contained >= 0.84:
+            if contained >= CROP_NESTED_CONTAINED_RATIO:
+                if (
+                    not _is_trusted_large(kept)
+                    and _is_valid_inner_yolo(item)
+                ):
+                    continue
                 is_fragment = True
                 break
 
@@ -542,9 +582,28 @@ def _merge_adjacent_banknote_fragments(
                     )
                     continue
 
+                both_distinct_yolo = (
+                    str(src_a).lower().startswith("yolo")
+                    and str(src_b).lower().startswith("yolo")
+                    and yolo_conf_a >= MERGE_DISTINCT_YOLO_CONF_MIN
+                    and yolo_conf_b >= MERGE_DISTINCT_YOLO_CONF_MIN
+                    and x_gap_px > 0
+                )
+                if both_distinct_yolo:
+                    logger.debug(
+                        "[CropMerge] Skip pair #%s+#%s: distinct_yolo_positive_gap "
+                        "(conf_a=%.2f conf_b=%.2f x_gap_px=%.1f)",
+                        i + 1,
+                        j + 1,
+                        yolo_conf_a,
+                        yolo_conf_b,
+                        x_gap_px,
+                    )
+                    continue
+
                 # ── Kiểm tra từng điều kiện merge ─────────────────────────
                 # x_gap_px < 0 nghĩa là overlap. Nếu gap thì gap_ratio < 0.04
-                if x_gap_px >= 0 and x_gap_ratio >= 0.04:
+                if x_gap_px >= 0 and x_gap_ratio >= MERGE_X_GAP_MAX_RATIO:
                     logger.debug(
                         "[CropMerge] Skip pair %s/%s: skip_large_x_gap "
                         "(x_gap_px=%.0f x_gap_ratio=%.3f >= 0.04)",
@@ -1022,11 +1081,22 @@ def _run_ag0_on_candidates(
             ),
             "positive_evidence": list(ag0_result.get("positive_evidence") or []),
             "negative_evidence": list(ag0_result.get("negative_evidence") or []),
+            "rejected_reason": ag0_result.get("rejected_reason"),
             "strong_banknote_evidence": bool(
                 ag0_result.get("strong_banknote_evidence", False)
             ),
             "strong_document_structure": bool(
                 ag0_result.get("strong_document_structure", False)
+            ),
+            "small_clear_yolo_candidate": bool(
+                ag0_result.get("small_clear_yolo_candidate", False)
+            ),
+            "low_light_banknote_protection": bool(
+                ag0_result.get("low_light_banknote_protection", False)
+            ),
+            "yolo_review_threshold": _safe_float(
+                ag0_result.get("yolo_review_threshold"),
+                0.74,
             ),
             "decision_reason": str(ag0_result.get("decision_reason") or ""),
         }
@@ -1044,11 +1114,21 @@ def _run_ag0_on_candidates(
                 "document_score": crop_checker_meta["document_score"],
                 "positive_evidence": crop_checker_meta["positive_evidence"],
                 "negative_evidence": crop_checker_meta["negative_evidence"],
+                "rejected_reason": crop_checker_meta["rejected_reason"],
                 "strong_banknote_evidence": crop_checker_meta[
                     "strong_banknote_evidence"
                 ],
                 "strong_document_structure": crop_checker_meta[
                     "strong_document_structure"
+                ],
+                "small_clear_yolo_candidate": crop_checker_meta[
+                    "small_clear_yolo_candidate"
+                ],
+                "low_light_banknote_protection": crop_checker_meta[
+                    "low_light_banknote_protection"
+                ],
+                "yolo_review_threshold": crop_checker_meta[
+                    "yolo_review_threshold"
                 ],
                 "crop_checker": crop_checker_meta,
             })
@@ -1070,14 +1150,23 @@ def _apply_nms_merge_nested(
     candidates: List[Dict[str, Any]],
     image_w: int,
     image_h: int,
+    trace: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """NMS -> merge fragment -> nested filter."""
+    if trace is not None:
+        trace["yolo_raw_count"] = len(candidates)
     candidates = _non_max_suppression(candidates, iou_threshold=CROP_NMS_IOU_THRESHOLD)
+    after_nms_count = len(candidates)
+    if trace is not None:
+        trace["after_nms_count"] = after_nms_count
     logger.info("[CropProvider] after NMS count = %s", len(candidates))
 
     before_merge = len(candidates)
     candidates = _merge_adjacent_banknote_fragments(candidates, image_w, image_h)
     after_merge = len(candidates)
+    if trace is not None:
+        trace["after_merge_count"] = after_merge
+        trace["merge_count"] = max(0, after_nms_count - after_merge)
     logger.info("[CropProvider] after merge count = %s", after_merge)
     if after_merge < before_merge:
         logger.info(
@@ -1085,7 +1174,11 @@ def _apply_nms_merge_nested(
             before_merge - after_merge, before_merge, after_merge,
         )
 
+    before_nested = len(candidates)
     candidates = _remove_nested_fragment_candidates(candidates, image_w, image_h)
+    if trace is not None:
+        trace["after_nested_count"] = len(candidates)
+        trace["dropped_by_nested_count"] = max(0, before_nested - len(candidates))
     logger.info("[CropProvider] after nested count = %s", len(candidates))
     return candidates
 
@@ -1158,7 +1251,12 @@ def detect_banknote_objects(
         for idx, raw_item in enumerate(yolo_raw, start=1):
             _log_candidate_debug(idx, raw_item, image_w, image_h, stage="raw")
 
-        yolo_filtered = _apply_nms_merge_nested(yolo_raw, image_w, image_h)
+        yolo_filtered = _apply_nms_merge_nested(
+            yolo_raw,
+            image_w,
+            image_h,
+            trace=yolo_trace,
+        )
         yolo_filtered_keys = {_candidate_key(item) for item in yolo_filtered}
         yolo_trace["post_filter_candidates"] = [
             _candidate_public_meta(item, image_w, image_h, decision="POST_FILTER")
@@ -1181,6 +1279,7 @@ def detect_banknote_objects(
             yolo_filtered[:max_objects],
             key=lambda it: (it["box"][1] // 50, it["box"][0]),
         )
+        yolo_trace["overflow_count"] = max(0, len(yolo_filtered) - max_objects)
 
         if ENABLE_AG0_CHECKER:
             ag0_yolo = _run_ag0_on_candidates(yolo_limited, img, image_w, image_h, "yolo")
@@ -1192,6 +1291,7 @@ def detect_banknote_objects(
             logger.info("[AG0] Checker disabled (ENABLE_AG0_CHECKER=false), skipping.")
             valid_candidates = yolo_limited
             yolo_trace["valid_count"] = len(valid_candidates)
+        yolo_trace["eligible_crop_count"] = len(valid_candidates)
 
         box_selection_trace["providers"].append(yolo_trace)
 
@@ -1246,7 +1346,12 @@ def detect_banknote_objects(
             for idx, raw_item in enumerate(opencv_raw, start=1):
                 _log_candidate_debug(idx, raw_item, image_w, image_h, stage="raw")
 
-            opencv_filtered = _apply_nms_merge_nested(opencv_raw, image_w, image_h)
+            opencv_filtered = _apply_nms_merge_nested(
+                opencv_raw,
+                image_w,
+                image_h,
+                trace=opencv_trace,
+            )
             opencv_filtered_keys = {_candidate_key(item) for item in opencv_filtered}
             opencv_trace["post_filter_candidates"] = [
                 _candidate_public_meta(item, image_w, image_h, decision="POST_FILTER")
@@ -1269,6 +1374,10 @@ def detect_banknote_objects(
                 opencv_filtered[:max_objects],
                 key=lambda it: (it["box"][1] // 50, it["box"][0]),
             )
+            opencv_trace["overflow_count"] = max(
+                0,
+                len(opencv_filtered) - max_objects,
+            )
 
             if ENABLE_AG0_CHECKER:
                 ag0_opencv = _run_ag0_on_candidates(
@@ -1281,6 +1390,7 @@ def detect_banknote_objects(
             else:
                 valid_candidates = opencv_limited
                 opencv_trace["valid_count"] = len(valid_candidates)
+            opencv_trace["eligible_crop_count"] = len(valid_candidates)
         else:
             logger.info("[Crop] No heuristic candidates found.")
 
@@ -1423,11 +1533,22 @@ def detect_banknote_objects(
             ),
             "positive_evidence": list(ag0_result.get("positive_evidence") or []),
             "negative_evidence": list(ag0_result.get("negative_evidence") or []),
+            "rejected_reason": ag0_result.get("rejected_reason"),
             "strong_banknote_evidence": bool(
                 ag0_result.get("strong_banknote_evidence", False)
             ),
             "strong_document_structure": bool(
                 ag0_result.get("strong_document_structure", False)
+            ),
+            "small_clear_yolo_candidate": bool(
+                ag0_result.get("small_clear_yolo_candidate", False)
+            ),
+            "low_light_banknote_protection": bool(
+                ag0_result.get("low_light_banknote_protection", False)
+            ),
+            "yolo_review_threshold": _safe_float(
+                ag0_result.get("yolo_review_threshold"),
+                0.74,
             ),
             "decision_reason": str(ag0_result.get("decision_reason") or ""),
         }
@@ -1494,11 +1615,21 @@ def detect_banknote_objects(
                 "agent_eligible": crop_checker_meta["agent_eligible"],
                 "positive_evidence": crop_checker_meta["positive_evidence"],
                 "negative_evidence": crop_checker_meta["negative_evidence"],
+                "rejected_reason": crop_checker_meta["rejected_reason"],
                 "strong_banknote_evidence": crop_checker_meta[
                     "strong_banknote_evidence"
                 ],
                 "strong_document_structure": crop_checker_meta[
                     "strong_document_structure"
+                ],
+                "small_clear_yolo_candidate": crop_checker_meta[
+                    "small_clear_yolo_candidate"
+                ],
+                "low_light_banknote_protection": crop_checker_meta[
+                    "low_light_banknote_protection"
+                ],
+                "yolo_review_threshold": crop_checker_meta[
+                    "yolo_review_threshold"
                 ],
                 "decision_reason": crop_checker_meta["decision_reason"],
                 "selected_box_reason": selected_box_reason,
@@ -1542,7 +1673,7 @@ def detect_and_crop_banknotes(image_bytes: bytes) -> List[bytes]:
     crop_bytes_list = [
         item["crop_bytes"]
         for item in objects
-        if item.get("crop_bytes")
+        if item.get("crop_bytes") and item.get("agent_eligible", True)
     ]
 
     if crop_bytes_list:

@@ -1113,8 +1113,8 @@ class AdminService:
             "token_cost_per_scan": getattr(config, "token_cost_per_scan", 1),
 
             # Payment gateway
-            "payment_gateway_default": getattr(config, "payment_gateway_default", "sepay"),
-            "enabled_payment_gateways": getattr(config, "enabled_payment_gateways", ["sepay"]),
+            "payment_gateway_default": getattr(config, "payment_gateway_default", "bank_transfer"),
+            "enabled_payment_gateways": getattr(config, "enabled_payment_gateways", ["bank_transfer"]),
 
             "sepay_enabled": getattr(config, "sepay_enabled", True),
             "vnpay_enabled": getattr(config, "vnpay_enabled", False),

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from app.controllers.payment_controller import PaymentController
@@ -72,8 +72,7 @@ async def get_my_transactions(
 
 @router.post("/webhook/sepay")
 async def payment_sepay_webhook(request: Request):
-    payload = await request.json()
-    return await PaymentController.handle_webhook_payload(payload)
+    raise HTTPException(status_code=410, detail="SePay is disabled.")
 
 
 @router.get("/vnpay/return")

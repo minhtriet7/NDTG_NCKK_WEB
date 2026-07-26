@@ -54,6 +54,16 @@ AG0_KEEP_ASPECT_MAX = float(os.getenv("AG0_KEEP_ASPECT_MAX", "3.5"))
 # --- YOLO confidence levels ---
 AG0_YOLO_HIGH_CONF = float(os.getenv("AG0_YOLO_HIGH_CONF", "0.70"))
 AG0_YOLO_MEDIUM_CONF = float(os.getenv("AG0_YOLO_MEDIUM_CONF", "0.30"))
+AG0_SMALL_YOLO_AREA_MIN = float(os.getenv("AG0_SMALL_YOLO_AREA_MIN", "0.005"))
+AG0_REVIEW_ELIGIBLE_YOLO_BANKNOTE_SCORE = float(
+    os.getenv("AG0_REVIEW_ELIGIBLE_YOLO_BANKNOTE_SCORE", "0.68")
+)
+AG0_LOW_LIGHT_MIN_YOLO_CONF = float(
+    os.getenv("AG0_LOW_LIGHT_MIN_YOLO_CONF", "0.55")
+)
+AG0_LOW_LIGHT_OUTER_BORDER_MIN = float(
+    os.getenv("AG0_LOW_LIGHT_OUTER_BORDER_MIN", "0.15")
+)
 
 # --- Brightness sanity ---
 AG0_BRIGHTNESS_MIN = float(os.getenv("AG0_BRIGHTNESS_MIN", "20.0"))   # quá tối
@@ -143,6 +153,7 @@ def _compute_structural_metrics(gray: np.ndarray, edges: np.ndarray) -> Dict[str
         long_line_density = 0.0
 
     rectangle_like_density = 0.0
+    outer_border_score = 0.0
     try:
         contours, _ = cv2.findContours(
             edges,
@@ -161,9 +172,90 @@ def _compute_structural_metrics(gray: np.ndarray, edges: np.ndarray) -> Dict[str
             area_ratio = area / float(total_pixels)
             if 0.003 <= area_ratio <= 0.80:
                 rectangle_area += area
+            x, y, rect_w, rect_h = cv2.boundingRect(polygon)
+            rect_area = float(max(1, rect_w * rect_h))
+            rectangularity = _clip01(area / rect_area)
+            rect_aspect = max(
+                rect_w / float(max(1, rect_h)),
+                rect_h / float(max(1, rect_w)),
+            )
+            if (
+                0.25 <= area_ratio <= 0.96
+                and AG0_KEEP_ASPECT_MIN <= rect_aspect <= AG0_KEEP_ASPECT_MAX
+                and rectangularity >= 0.65
+            ):
+                outer_border_score = max(
+                    outer_border_score,
+                    _clip01(rectangularity * min(1.0, area_ratio / 0.60)),
+                )
         rectangle_like_density = _clip01(rectangle_area / float(total_pixels))
     except Exception:
         rectangle_like_density = 0.0
+        outer_border_score = 0.0
+
+    layout_panel_count = 0
+    layout_panel_area_ratio = 0.0
+    try:
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_RECT,
+            (max(3, int(w * 0.018)), max(3, int(h * 0.018))),
+        )
+        connected_edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+        panel_contours, _ = cv2.findContours(
+            connected_edges,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )
+        for contour in panel_contours:
+            area = float(abs(cv2.contourArea(contour)))
+            area_ratio = area / float(total_pixels)
+            if not 0.006 <= area_ratio <= 0.20:
+                continue
+            x, y, rect_w, rect_h = cv2.boundingRect(contour)
+            rectangularity = area / float(max(1, rect_w * rect_h))
+            if rectangularity < 0.38:
+                continue
+            layout_panel_count += 1
+            layout_panel_area_ratio += area_ratio
+    except Exception:
+        layout_panel_count = 0
+        layout_panel_area_ratio = 0.0
+
+    circle_like_count = 0
+    try:
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        _threshold, binary = cv2.threshold(
+            blurred,
+            0,
+            255,
+            cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+        )
+        for mask in (binary, cv2.bitwise_not(binary)):
+            circular_count = 0
+            contours, _ = cv2.findContours(
+                mask,
+                cv2.RETR_EXTERNAL,
+                cv2.CHAIN_APPROX_SIMPLE,
+            )
+            for contour in contours:
+                area = float(abs(cv2.contourArea(contour)))
+                area_ratio = area / float(total_pixels)
+                perimeter = float(cv2.arcLength(contour, True))
+                if perimeter <= 0 or not 0.003 <= area_ratio <= 0.09:
+                    continue
+                x, y, rect_w, rect_h = cv2.boundingRect(contour)
+                shape_aspect = rect_w / float(max(1, rect_h))
+                circularity = 4.0 * np.pi * area / (perimeter * perimeter)
+                if 0.72 <= shape_aspect <= 1.38 and circularity >= 0.68:
+                    circular_count += 1
+            circle_like_count = max(circle_like_count, circular_count)
+    except Exception:
+        circle_like_count = 0
+
+    layout_clutter_score = _clip01(
+        0.65 * _clip01((layout_panel_count - 2) / 5.0)
+        + 0.35 * _clip01((circle_like_count - 1) / 4.0)
+    )
 
     directional_edge_ratio = 0.0
     try:
@@ -181,6 +273,11 @@ def _compute_structural_metrics(gray: np.ndarray, edges: np.ndarray) -> Dict[str
         "long_line_density": round(long_line_density, 5),
         "rectangle_like_density": round(rectangle_like_density, 5),
         "directional_edge_ratio": round(directional_edge_ratio, 5),
+        "outer_border_score": round(outer_border_score, 5),
+        "layout_panel_count": int(layout_panel_count),
+        "layout_panel_area_ratio": round(_clip01(layout_panel_area_ratio), 5),
+        "circle_like_count": int(circle_like_count),
+        "layout_clutter_score": round(layout_clutter_score, 5),
     }
 
 
@@ -291,6 +388,11 @@ def compute_crop_metrics(
             "long_line_density": 0.0,
             "rectangle_like_density": 0.0,
             "directional_edge_ratio": 0.0,
+            "outer_border_score": 0.0,
+            "layout_panel_count": 0,
+            "layout_panel_area_ratio": 0.0,
+            "circle_like_count": 0,
+            "layout_clutter_score": 0.0,
         }
 
     h, w = crop_img.shape[:2]
@@ -400,6 +502,12 @@ def classify_crop(
     edge_density = _safe_float(metrics.get("edge_density"), 0.0)
     brightness = _safe_float(metrics.get("brightness"), 128.0)
     contrast = _safe_float(metrics.get("contrast"), 0.0)
+    outer_border_score = _safe_float(metrics.get("outer_border_score"), 0.0)
+    layout_clutter_score = _safe_float(metrics.get("layout_clutter_score"), 0.0)
+    layout_panel_count = int(_safe_float(metrics.get("layout_panel_count"), 0.0))
+    circle_like_count = int(_safe_float(metrics.get("circle_like_count"), 0.0))
+    long_line_density = _safe_float(metrics.get("long_line_density"), 0.0)
+    rectangle_density = _safe_float(metrics.get("rectangle_like_density"), 0.0)
     background_score = metrics.get("background_score")  # có thể None
 
     yolo_conf_val = _safe_float(yolo_conf, 0.0) if yolo_conf is not None else None
@@ -409,7 +517,44 @@ def classify_crop(
     reasons: list = []
 
     # ── Kiểm tra DROP đơn lẻ (area quá nhỏ) ─────────────────────────────────
-    if area_ratio < AG0_DROP_AREA_RATIO_MIN:
+    small_crop_quality_count = sum((
+        texture_variance >= 20.0,
+        edge_density >= 0.012,
+        contrast >= 8.0,
+    ))
+    strong_poster_layout = (
+        layout_clutter_score >= 0.78
+        or layout_panel_count >= 7
+        or (layout_panel_count >= 5 and circle_like_count >= 3)
+    )
+    strong_document_combo = (
+        layout_clutter_score >= 0.60
+        or (long_line_density >= 0.72 and rectangle_density >= 0.10)
+    )
+    small_clear_yolo_candidate = (
+        source == "yolo_crop"
+        and area_ratio >= AG0_SMALL_YOLO_AREA_MIN
+        and yolo_conf_val is not None
+        and yolo_conf_val >= AG0_LOW_LIGHT_MIN_YOLO_CONF
+        and AG0_KEEP_ASPECT_MIN <= aspect_ratio <= AG0_KEEP_ASPECT_MAX
+        and (
+            outer_border_score >= AG0_LOW_LIGHT_OUTER_BORDER_MIN
+            or yolo_conf_val >= 0.60
+        )
+        and small_crop_quality_count >= 2
+        and not strong_poster_layout
+        and not strong_document_combo
+    )
+    if area_ratio < AG0_SMALL_YOLO_AREA_MIN:
+        return {
+            "action": "DROP",
+            "confidence": 0.98,
+            "reason": (
+                f"Area ratio {area_ratio:.4f} < {AG0_SMALL_YOLO_AREA_MIN} "
+                "(below handheld YOLO safety minimum)"
+            ),
+        }
+    if area_ratio < AG0_DROP_AREA_RATIO_MIN and not small_clear_yolo_candidate:
         return {
             "action": "DROP",
             "confidence": 0.97,
@@ -560,6 +705,14 @@ def build_shadow_explainability(
     long_line_density = _safe_float(metrics.get("long_line_density"), 0.0)
     rectangle_density = _safe_float(metrics.get("rectangle_like_density"), 0.0)
     directional_ratio = _safe_float(metrics.get("directional_edge_ratio"), 0.0)
+    outer_border_score = _safe_float(metrics.get("outer_border_score"), 0.0)
+    layout_panel_count = int(_safe_float(metrics.get("layout_panel_count"), 0.0))
+    layout_panel_area_ratio = _safe_float(
+        metrics.get("layout_panel_area_ratio"),
+        0.0,
+    )
+    circle_like_count = int(_safe_float(metrics.get("circle_like_count"), 0.0))
+    layout_clutter_score = _safe_float(metrics.get("layout_clutter_score"), 0.0)
     yolo_confidence = _safe_float(yolo_conf, 0.0) if yolo_conf is not None else 0.0
 
     if AG0_KEEP_ASPECT_MIN <= aspect_ratio <= AG0_KEEP_ASPECT_MAX:
@@ -581,14 +734,15 @@ def build_shadow_explainability(
     area_score = 1.0 if 0.04 <= area_ratio <= 0.85 else 0.45
 
     banknote_score = _clip01(
-        0.20 * aspect_score
-        + 0.12 * texture_score
+        0.22 * aspect_score
+        + 0.14 * texture_score
         + 0.12 * edge_score
         + 0.10 * contrast_score
-        + 0.20 * color_richness
-        + 0.12 * saturation_score
-        + 0.06 * area_score
-        + 0.08 * yolo_confidence
+        + 0.10 * color_richness
+        + 0.04 * saturation_score
+        + 0.10 * area_score
+        + 0.10 * yolo_confidence
+        + 0.08 * outer_border_score
     )
 
     white_signal = _clip01((white_ratio - 0.45) / 0.45)
@@ -600,13 +754,14 @@ def build_shadow_explainability(
     extreme_aspect_signal = _clip01((aspect_ratio - 3.5) / 3.0)
 
     document_score = _clip01(
-        0.25 * white_signal
-        + 0.15 * low_color_signal
-        + 0.15 * low_saturation_signal
-        + 0.20 * long_line_signal
-        + 0.12 * rectangle_signal
-        + 0.06 * directional_signal
-        + 0.07 * extreme_aspect_signal
+        0.18 * white_signal
+        + 0.06 * low_color_signal
+        + 0.03 * low_saturation_signal
+        + 0.18 * long_line_signal
+        + 0.10 * rectangle_signal
+        + 0.07 * directional_signal
+        + 0.08 * extreme_aspect_signal
+        + 0.30 * layout_clutter_score
     )
 
     positive_evidence = []
@@ -630,6 +785,10 @@ def build_shadow_explainability(
         positive_evidence.append(f"meaningful saturation={saturation_mean:.1f}")
     if yolo_confidence >= AG0_YOLO_HIGH_CONF:
         positive_evidence.append(f"YOLO banknote confidence={yolo_confidence:.2f}")
+    if outer_border_score >= 0.28:
+        positive_evidence.append(
+            f"banknote-like outer border={outer_border_score:.3f}"
+        )
 
     if white_ratio >= 0.65:
         negative_evidence.append(f"large white background ratio={white_ratio:.3f}")
@@ -643,11 +802,77 @@ def build_shadow_explainability(
         negative_evidence.append(f"rectangle-like layout={rectangle_density:.3f}")
     if directional_ratio >= 0.72:
         negative_evidence.append(f"directional edge dominance={directional_ratio:.3f}")
+    if layout_panel_count >= 5:
+        negative_evidence.append(
+            f"multi-panel layout count={layout_panel_count} area={layout_panel_area_ratio:.3f}"
+        )
+    if circle_like_count >= 3:
+        negative_evidence.append(f"many circle-like regions={circle_like_count}")
+    if layout_clutter_score >= 0.60:
+        negative_evidence.append(f"poster/collage layout clutter={layout_clutter_score:.3f}")
+    if area_ratio >= 0.80 and outer_border_score < 0.20:
+        negative_evidence.append(
+            "full-frame crop lacks a distinct banknote-like outer border"
+        )
     if source != "yolo_crop" and aspect_ratio > AG0_KEEP_ASPECT_MAX:
         negative_evidence.append(f"heuristic source={source} with non-banknote aspect")
 
+    quality_support_count = sum((
+        texture >= 20.0,
+        0.012 <= edge_density <= 0.28,
+        contrast >= 8.0,
+    ))
+    poster_layout_strong = (
+        layout_clutter_score >= 0.78
+        or layout_panel_count >= 7
+        or (layout_panel_count >= 5 and circle_like_count >= 3)
+    )
+    poster_layout_reject = (
+        poster_layout_strong
+        and (outer_border_score < 0.55 or area_ratio >= 0.80)
+    )
+    aspect_is_banknote_like = (
+        AG0_KEEP_ASPECT_MIN <= aspect_ratio <= AG0_KEEP_ASPECT_MAX
+    )
+    confident_geometry = (
+        outer_border_score >= AG0_LOW_LIGHT_OUTER_BORDER_MIN
+        or yolo_confidence >= 0.60
+    )
+    clean_banknote_geometry = (
+        aspect_is_banknote_like
+        and confident_geometry
+        and layout_clutter_score < 0.60
+    )
+    small_clear_yolo_candidate = (
+        source == "yolo_crop"
+        and AG0_SMALL_YOLO_AREA_MIN <= area_ratio < AG0_DROP_AREA_RATIO_MIN
+        and yolo_confidence >= AG0_LOW_LIGHT_MIN_YOLO_CONF
+        and clean_banknote_geometry
+        and quality_support_count >= 2
+        and not poster_layout_reject
+        and document_score <= 0.50
+    )
+    low_light_banknote_protection = (
+        source == "yolo_crop"
+        and yolo_confidence >= AG0_LOW_LIGHT_MIN_YOLO_CONF
+        and area_ratio >= AG0_SMALL_YOLO_AREA_MIN
+        and clean_banknote_geometry
+        and quality_support_count >= 2
+        and not poster_layout_reject
+        and document_score <= 0.50
+    )
+    yolo_review_threshold = (
+        AG0_REVIEW_ELIGIBLE_YOLO_BANKNOTE_SCORE
+        if (
+            source == "yolo_crop"
+            and yolo_confidence >= AG0_LOW_LIGHT_MIN_YOLO_CONF
+            and aspect_is_banknote_like
+        )
+        else 0.74
+    )
     strong_banknote_evidence = (
         banknote_score >= 0.86
+        or low_light_banknote_protection
         or (
             AG0_KEEP_ASPECT_MIN <= aspect_ratio <= AG0_KEEP_ASPECT_MAX
             and texture >= AG0_KEEP_TEXTURE_MIN
@@ -659,20 +884,33 @@ def build_shadow_explainability(
     strong_document_structure = (
         long_line_density >= 0.72
         or rectangle_density >= 0.10
+        or poster_layout_strong
     )
     document_dominates = document_score > banknote_score * 0.75
-    too_many_negative_signals = len(negative_evidence) > 1
+    structural_negative_count = sum((
+        white_ratio >= 0.65,
+        long_line_density >= 0.72,
+        rectangle_density >= 0.10,
+        directional_ratio >= 0.72,
+        layout_panel_count >= 5,
+        circle_like_count >= 3,
+        layout_clutter_score >= 0.60,
+    ))
+    too_many_negative_signals = structural_negative_count > 1
 
     if action == "KEEP":
         # KEEP remains permissive for real notes on white/low-color backgrounds.
         # Only withhold a nominal KEEP when several strong document signals
         # agree and banknote evidence is not independently strong.
         agent_eligible = not (
-            document_score >= 0.65
-            and document_dominates
-            and strong_document_structure
-            and too_many_negative_signals
-            and not strong_banknote_evidence
+            poster_layout_reject
+            or (
+                document_score >= 0.65
+                and document_dominates
+                and strong_document_structure
+                and too_many_negative_signals
+                and not strong_banknote_evidence
+            )
         )
     elif action == "DROP":
         agent_eligible = False
@@ -681,22 +919,33 @@ def build_shadow_explainability(
             # YOLO confidence is supporting evidence, never the sole reason
             # for an uncertain crop to consume Agent calls.
             agent_eligible = (
-                banknote_score >= 0.78
-                and document_score <= 0.35
-                and not too_many_negative_signals
-                and not document_dominates
-                and not (
-                    strong_document_structure
-                    and not strong_banknote_evidence
+                not poster_layout_reject
+                and (
+                    low_light_banknote_protection
+                    or (
+                        banknote_score >= yolo_review_threshold
+                        and document_score <= (
+                            0.50
+                            if yolo_review_threshold < 0.74
+                            else 0.45
+                        )
+                        and not too_many_negative_signals
+                        and not document_dominates
+                        and not (
+                            strong_document_structure
+                            and not strong_banknote_evidence
+                        )
+                    )
                 )
             )
         else:
             # Heuristic-only crops have no YOLO confirmation, so require
             # stronger banknote evidence and a low document score.
             agent_eligible = (
-                banknote_score >= 0.80
-                and document_score <= 0.30
-                and aspect_ratio >= 1.80
+                banknote_score >= 0.76
+                and document_score <= 0.40
+                and clean_banknote_geometry
+                and not poster_layout_reject
             )
 
     agent_eligible_shadow = agent_eligible
@@ -711,7 +960,7 @@ def build_shadow_explainability(
             shadow_reason = (
                 "AG0 gate withholds this crop from agents because it is a WEAK REVIEW: "
                 f"banknote_score={banknote_score:.3f}, document_score={document_score:.3f}, "
-                f"negative_evidence_count={len(negative_evidence)}, "
+                f"structural_negative_count={structural_negative_count}, "
                 f"yolo_conf={yolo_confidence:.3f}, source={source}. "
                 "YOLO confidence alone is not enough to send it to AI Agents."
             )
@@ -733,6 +982,7 @@ def build_shadow_explainability(
         f"banknote_score={banknote_score:.3f}, document_score={document_score:.3f}. "
         f"{shadow_reason}"
     )
+    rejected_reason = decision_reason if not agent_eligible else None
 
     return {
         "ag0_action": action,
@@ -745,8 +995,15 @@ def build_shadow_explainability(
         "agent_eligible": bool(agent_eligible),
         "positive_evidence": positive_evidence,
         "negative_evidence": negative_evidence,
+        "rejected_reason": rejected_reason,
         "strong_banknote_evidence": bool(strong_banknote_evidence),
         "strong_document_structure": bool(strong_document_structure),
+        "small_clear_yolo_candidate": bool(small_clear_yolo_candidate),
+        "low_light_banknote_protection": bool(low_light_banknote_protection),
+        "yolo_review_threshold": round(yolo_review_threshold, 3),
+        "area_ratio": round(area_ratio, 5),
+        "yolo_conf": round(yolo_confidence, 4),
+        "poster_layout_reject": bool(poster_layout_reject),
         "decision_reason": decision_reason,
     }
 
@@ -814,6 +1071,11 @@ def check_crop(
             "long_line_density": 0.0,
             "rectangle_like_density": 0.0,
             "directional_edge_ratio": 0.0,
+            "outer_border_score": 0.0,
+            "layout_panel_count": 0,
+            "layout_panel_area_ratio": 0.0,
+            "circle_like_count": 0,
+            "layout_clutter_score": 0.0,
         }
 
     try:

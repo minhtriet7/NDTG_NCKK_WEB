@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile, File
 
 from app.controllers.recognition_controller import RecognitionController
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_admin
 from app.models.user_model import User
 
 
@@ -19,7 +19,7 @@ async def scan_banknote(
 @router.post("/debug_scan")
 async def debug_scan_banknote(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     return await RecognitionController.debug_recognize(current_user, file)
 

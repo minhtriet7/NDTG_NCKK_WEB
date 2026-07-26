@@ -25,7 +25,7 @@ from app.services.groq_evidence_reader_service import (
     should_call_groq_evidence_reader,
     GROQ_AVAILABLE as GROQ_EVIDENCE_READER_AVAILABLE,
 )
-from app.utils.currency_normalizer import normalize_agent_vote
+from app.utils.currency_normalizer import normalize_agent_vote, normalize_currency_identity
 from google.genai import types # 🌟 THÊM IMPORT NÀY ĐỂ ÉP KIỂU JSON
 
 
@@ -81,7 +81,8 @@ COUNTRY_ALIASES = {
 UNKNOWN_IDENTITY = "Không xác định"
 AGENT3_DEFAULT_BUDGET_SECONDS = 32.0
 PAGE_TEXT_MAX_URLS = 2
-PAGE_TEXT_TIMEOUT_SECONDS = 2.5
+import os
+PAGE_TEXT_TIMEOUT_SECONDS = float(os.getenv("AG3_TEST_PAGE_TEXT_TIMEOUT_SECONDS", 2.5))
 PAGE_TEXT_EXCERPT_MAX_CHARS = 2200
 PAGE_TEXT_FETCH_BYTES_LIMIT = 200000
 PAGE_TEXT_MIN_BUDGET_SECONDS = 5.0
@@ -99,6 +100,7 @@ SERPAPI_RATE_LIMIT_MARKERS = (
     "rate_limit",
     "too many requests",
 )
+FORMATTER_PROVIDER_VALUES = {"groq", "deterministic", "gemini", "none"}
 
 
 class SerpApiProviderError(RuntimeError):
@@ -130,6 +132,29 @@ def _classify_serpapi_error(
     if status_code == 429 or any(marker in message for marker in SERPAPI_RATE_LIMIT_MARKERS):
         return "rate_limit"
     return "provider_error"
+
+
+def _normalize_serpapi_formatter_provider_json(result_json: str) -> str:
+    try:
+        parsed = json.loads(result_json)
+    except Exception:
+        return result_json
+
+    items = parsed if isinstance(parsed, list) else [parsed]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        reported_provider = str(item.get("provider") or "").strip().lower()
+        if reported_provider in FORMATTER_PROVIDER_VALUES:
+            item.setdefault("formatter_provider", reported_provider)
+            item["provider"] = "serpapi"
+        elif not reported_provider:
+            item["provider"] = "serpapi"
+        provider_trace = item.get("provider_trace")
+        if isinstance(provider_trace, dict) and item.get("formatter_provider"):
+            provider_trace["formatter_provider"] = item.get("formatter_provider")
+
+    return json.dumps(parsed, ensure_ascii=False)
 
 # Conservative allow-list: prices, years and catalog IDs must not become votes.
 ALLOWED_DENOMINATIONS = {
@@ -174,6 +199,7 @@ COUNTRY_EXPECTED_CURRENCIES = {
     "australia": {"AUD"},
     "united kingdom": {"GBP"},
     "european union": {"EUR"},
+    "euro zone": {"EUR"},
 }
 
 # Defaults are only used after evidence has banknote context and no conflict.
@@ -266,6 +292,31 @@ def _contains_term(text: str, term: str) -> bool:
         normalized_text,
         flags=re.IGNORECASE,
     ) is not None
+
+
+def _fold_text_for_markers(value: Any) -> str:
+    text = unicodedata.normalize("NFD", str(value or "").casefold())
+    text = "".join(char for char in text if unicodedata.category(char) != "Mn")
+    return text
+
+
+def _contains_any_marker(text: str, markers: tuple[str, ...]) -> bool:
+    folded = _fold_text_for_markers(text)
+    for marker in markers:
+        folded_marker = _fold_text_for_markers(marker)
+        if folded_marker == "%" and "%" in folded:
+            return True
+        if _contains_term(folded, folded_marker):
+            return True
+    return False
+
+
+def _has_year_number_marker(text: str) -> bool:
+    folded = _fold_text_for_markers(text)
+    return bool(
+        _contains_any_marker(text, YEAR_NUMBER_MARKERS)
+        or re.search(r"(?<!viet\s)\bnam\b", folded)
+    )
 
 
 def _has_open_foreign_dollar_context(text: str) -> bool:
@@ -613,6 +664,8 @@ def _page_text_skip_reason(item: Dict[str, Any]) -> Optional[str]:
     weak_markers = (
         "shop", "auction", "marketplace", "collector price", "sold for",
         "price", "ebay", "amazon", "shopee", "lazada",
+        "istock", "stock photo", "stock image", "shutterstock",
+        "getty", "alamy", "dreamstime", "123rf", "adobe stock",
     )
     if any(marker in context_text for marker in weak_markers):
         amount, currency = _extract_amount_currency(identity_text)
@@ -871,7 +924,150 @@ def _parse_amount_token(raw_value: Any) -> Optional[int]:
         return None
 
 
+def _has_explicit_denomination_context(context: str, amount: int) -> bool:
+    if _has_direct_banknote_amount_context(context, amount):
+        return True
+    folded = _fold_text_for_markers(context)
+    amount_pattern = _amount_pattern(amount)
+    if not amount_pattern:
+        return False
+    explicit_patterns = (
+        rf"(?:denomination|face value|menh gia)\s*(?:is|la|:)?\s*{amount_pattern}",
+        rf"{amount_pattern}\s*(?:vnd|dong|usd|dollar|eur|euro|lak|kip|khr|riel)?\s*(?:denomination|face value|menh gia)",
+        rf"(?:this exact banknote|exact banknote|banknote is|note is)\s*(?:worth|is|la|:)?\s*{amount_pattern}",
+    )
+    return any(re.search(pattern, folded, flags=re.IGNORECASE) for pattern in explicit_patterns)
+
+
+def _identity_text_for_amounts(item: Dict[str, Any]) -> str:
+    return " ".join(
+        (
+            str(item.get("title") or ""),
+            str(item.get("snippet") or ""),
+            str(item.get("page_text_excerpt") or ""),
+        )
+    )
+
+
+def _ignored_amount_reason_for_match(
+    text: str,
+    match: Any,
+    amount: int,
+    matches: List[Any],
+    match_index: int,
+) -> Optional[str]:
+    raw = match.group(0)
+    local_context = text[max(0, match.start() - 72):match.end() + 72]
+    folded_context = _fold_text_for_markers(local_context)
+    prefix = text[max(0, match.start() - 40):match.start()]
+    suffix = text[match.end():match.end() + 32]
+    folded_prefix = _fold_text_for_markers(prefix)
+    folded_suffix = _fold_text_for_markers(suffix)
+    direct_denomination = _has_explicit_denomination_context(local_context, amount)
+
+    if suffix.lstrip().startswith("%") or re.match(r"\s*(?:percent|percentage|phan\s+tram)\b", folded_suffix):
+        return "ignored_percentage_number"
+
+    has_prior_non_year_amount = any(
+        prior is not None and not 1800 <= prior <= 2100
+        for prior in (_parse_amount_token(previous.group(0)) for previous in matches[:match_index])
+    )
+    looks_like_year = (
+        1800 <= amount <= 2100
+        and (
+            (not direct_denomination and _has_year_number_marker(local_context))
+            or has_prior_non_year_amount
+            or re.search(
+                rf"(?<!\d){re.escape(raw)}(?!\d)\s*(?:unc|series|edition)",
+                folded_context,
+            )
+        )
+    )
+    if looks_like_year:
+        return "ignored_year_number"
+
+    looks_like_serial = bool(
+        re.search(
+            r"(?:serial|seri|so\s+seri|serial\s+dep|seri\s+dep)\s*(?:no\.?|number|#|:)?\s*$",
+            folded_prefix,
+        )
+    )
+    if not direct_denomination and looks_like_serial:
+        return "ignored_serial_number"
+
+    looks_like_grade = bool(
+        re.search(r"(?:pmg|pcgs|grade)\s*$", folded_prefix)
+        or re.match(r"\s*(?:epq|unc|au|ef|vf|xf)\b", folded_suffix)
+    )
+    if not direct_denomination and (
+        looks_like_grade
+    ):
+        return "ignored_grade_number"
+
+    looks_like_quantity = bool(
+        re.match(r"\s*(?:pcs?|pieces?|bundle|brick|lots?|quantity|qty)\b", folded_suffix)
+        or re.search(r"(?:lot|bundle|brick|quantity|qty)\s*(?:of|:)?\s*$", folded_prefix)
+    )
+    if not direct_denomination and (
+        looks_like_quantity
+    ):
+        return "ignored_listing_quantity"
+
+    looks_like_commercial = bool(
+        re.search(
+            r"(?:price|gia\s+ban|sold\s+for|buy|sell|auction|sale|for\s+sale|contact|call|cart|lien\s+he)\s*(?:is|la|:)?\s*$",
+            folded_prefix,
+        )
+        or re.match(r"\s*(?:price|gia\s+ban|sold|sale|for\s+sale)\b", folded_suffix)
+    )
+    if not direct_denomination and looks_like_commercial:
+        return "weak_shop_conflict_ignored"
+
+    return None
+
+
+def _identity_text_amounts_with_ignored(
+    item: Dict[str, Any],
+    currency: Optional[str],
+) -> tuple[List[int], List[Dict[str, Any]]]:
+    """Extract denomination candidates only from identity text, with ignored-number trace."""
+    text = _identity_text_for_amounts(item)
+    text = re.sub(r"(?<!\w)one\s+dollar(?!\w)", "1 dollar", text, flags=re.IGNORECASE)
+    pattern = re.compile(
+        r"(?<!\w)(?P<short>\d{1,3})\s*[kK](?!\w)"
+        r"|(?<!\d)(?P<number>\d{1,3}(?:[.,\s]\d{2,3}){1,3}|\d{1,7})(?!\d)"
+    )
+    amounts: List[int] = []
+    ignored: List[Dict[str, Any]] = []
+    matches = list(pattern.finditer(text))
+    for match_index, match in enumerate(matches):
+        raw = match.group(0)
+        amount = _parse_amount_token(raw)
+        if not is_valid_agent3_denomination(amount, currency):
+            continue
+
+        reason = _ignored_amount_reason_for_match(text, match, amount, matches, match_index)
+        if reason:
+            ignored.append(
+                {
+                    "amount": amount,
+                    "raw": raw,
+                    "reason": reason,
+                    "context": _compact_text(text[max(0, match.start() - 48):match.end() + 48], 160),
+                }
+            )
+            continue
+        if amount not in amounts:
+            amounts.append(amount)
+    return amounts, ignored
+
+
 def _identity_text_amounts(item: Dict[str, Any], currency: Optional[str]) -> List[int]:
+    amounts, _ignored = _identity_text_amounts_with_ignored(item, currency)
+    return amounts
+
+
+def _legacy_identity_text_amounts(item: Dict[str, Any], currency: Optional[str]) -> List[int]:
     """Extract denomination candidates only from title/snippet identity text."""
     text = " ".join(
         (
@@ -946,6 +1142,77 @@ def _identity_text_amounts(item: Dict[str, Any], currency: Optional[str]) -> Lis
     return amounts
 
 
+DENOMINATION_LIST_MARKERS = (
+    "available denominations",
+    "banknote denominations",
+    "banknote family",
+    "banknote series",
+    "banknote set",
+    "banknotes include",
+    "catalog",
+    "catalogue",
+    "complete set",
+    "currency series",
+    "denomination list",
+    "denominations",
+    "issued denominations",
+    "series of notes",
+)
+
+DENOMINATION_LIST_SOURCE_MARKERS = (
+    "banknoteworld",
+    "catalog",
+    "catalogue",
+    "colnect",
+    "numista",
+    "worldbanknotes",
+)
+
+
+def _raw_valid_denomination_mentions(text: str, currency: Optional[str]) -> List[int]:
+    pattern = re.compile(
+        r"(?<!\w)(?P<short>\d{1,3})\s*[kK](?!\w)"
+        r"|(?<!\d)(?P<number>\d{1,3}(?:[.,\s]\d{2,3}){1,3}|\d{1,7})"
+        r"(?:\s*(?P<scale>thousand|nghin|ngan))?(?!\w)",
+        flags=re.IGNORECASE,
+    )
+    amounts: List[int] = []
+    for match in pattern.finditer(text or ""):
+        if match.group("short"):
+            amount = int(match.group("short")) * 1000
+        else:
+            amount = _parse_amount_token(match.group("number") or "")
+            if amount is not None and match.group("scale"):
+                amount *= 1000
+        if is_valid_agent3_denomination(amount, currency) and amount not in amounts:
+            amounts.append(amount)
+    return amounts
+
+
+def _denomination_list_context_reason(
+    item: Dict[str, Any],
+    currency: Optional[str],
+) -> Optional[str]:
+    identity_text = " ".join(
+        str(item.get(key) or "")
+        for key in ("title", "snippet", "page_text_excerpt")
+    ).casefold()
+    source_text = " ".join(
+        str(item.get(key) or "")
+        for key in ("source", "domain", "url")
+    ).casefold()
+    if len(_raw_valid_denomination_mentions(identity_text, currency)) < 3:
+        return None
+
+    has_list_marker = any(marker in identity_text for marker in DENOMINATION_LIST_MARKERS)
+    has_catalog_source = any(marker in source_text for marker in DENOMINATION_LIST_SOURCE_MARKERS)
+    if has_catalog_source:
+        return "catalog_denomination_list"
+    if has_list_marker:
+        return "denomination_family_list"
+    return None
+
+
 def is_valid_agent3_denomination(amount: Optional[int], currency: Optional[str]) -> bool:
     if amount is None or not currency:
         return False
@@ -956,30 +1223,48 @@ def is_valid_agent3_denomination(amount: Optional[int], currency: Optional[str])
     return bool(re.fullmatch(r"[A-Z]{3}", code) and 0 < amount <= 10_000_000)
 
 
-def _normalize_country_key(value: Any) -> str:
-    text = unicodedata.normalize("NFD", str(value or ""))
+def _normalize_country_key(value: Any, currency: Optional[str] = None) -> str:
+    identity = normalize_currency_identity(value, currency, None)
+    normalized = identity.get("canonical_country") or identity.get("reported_country")
+    text = unicodedata.normalize("NFD", str(normalized or value or ""))
     text = "".join(char for char in text if unicodedata.category(char) != "Mn")
     text = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
     aliases = {
-        "viet nam": "vietnam",
-        "vn": "vietnam",
-        "hoa ky": "united states",
-        "my": "united states",
-        "usa": "united states",
-        "united states of america": "united states",
-        "uk": "united kingdom",
-        "britain": "united kingdom",
-        "great britain": "united kingdom",
-        "eurozone": "european union",
-        "eu": "european union",
         "timor leste": "timor-leste",
+        "european union": "euro zone",
+        "europe": "euro zone",
+        "eurozone": "euro zone",
+        "eu": "euro zone",
     }
     return aliases.get(text, text)
 
 
 def _country_currency_consistent(country: Any, currency: Optional[str]) -> bool:
-    expected = COUNTRY_EXPECTED_CURRENCIES.get(_normalize_country_key(country))
+    expected = COUNTRY_EXPECTED_CURRENCIES.get(_normalize_country_key(country, currency))
     return not expected or str(currency or "").upper() in expected
+
+
+def _canonical_vote_key_from_parts(
+    country: Any,
+    currency: Any,
+    amount: Any,
+) -> Optional[tuple]:
+    identity = normalize_currency_identity(country, currency, amount)
+    vote_key = identity.get("vote_key")
+    return tuple(vote_key) if vote_key else None
+
+
+def _identity_conflict_fields(
+    left_key: Optional[tuple],
+    right_key: Optional[tuple],
+) -> List[str]:
+    if not left_key or not right_key:
+        return ["incomplete_identity"]
+    fields = []
+    for index, name in enumerate(("country", "currency", "denomination")):
+        if left_key[index] != right_key[index]:
+            fields.append(name)
+    return fields
 
 
 TRUSTED_EVIDENCE_HINTS = (
@@ -1002,25 +1287,69 @@ TRUSTED_EVIDENCE_HINTS = (
 
 WEAK_EVIDENCE_HINTS = (
     "facebook.com",
+    "facebook",
     "instagram.com",
+    "instagram",
     "youtube.com",
     "youtu.be",
     "tiktok.com",
     "ebay.",
+    "ebay",
     "amazon.",
     "shopee.",
+    "shopee",
     "lazada.",
+    "lazada",
     "marketplace",
     "auction",
     "dau gia",
     "đấu giá",
     "shop",
+    "cart",
+    "add to cart",
+    "sale",
+    "for sale",
+    "contact",
+    "call",
+    "seridep",
     "sold for",
     "collector",
     "collector price",
+    "collector marketplace",
     "birthday note",
+    "serial dep",
+    "seri dep",
+    "so seri",
+    "li xi",
+    "lixi",
     "serial đẹp",
     "seri đẹp",
+    "istock",
+    "stock photo",
+    "stock image",
+    "shutterstock",
+    "getty",
+    "alamy",
+    "dreamstime",
+    "123rf",
+    "adobe stock",
+)
+
+PERCENT_NUMBER_MARKERS = ("%", "percent", "percentage", "phan tram")
+YEAR_NUMBER_MARKERS = ("year", "issued", "issue date", "phat hanh", "new")
+SERIAL_NUMBER_MARKERS = ("serial", "seri", "so seri", "serial dep", "seri dep", "seridep")
+GRADE_NUMBER_MARKERS = ("pmg", "pcgs", "epq", "unc", "au", "ef", "vf", "xf", "grade", "condition")
+LISTING_QUANTITY_MARKERS = (
+    "pcs", "pc", "pieces", "piece", "bundle", "brick", "lot", "quantity", "qty",
+)
+COMMERCIAL_NUMBER_MARKERS = (
+    "price", "shop", "buy", "sell", "sold for", "auction", "ebay", "marketplace",
+    "collector", "collector price", "birthday note", "gia ban", "sale", "for sale",
+    "contact", "call", "cart", "lien he",
+)
+TRUE_DENOMINATION_MARKERS = (
+    "denomination", "face value", "menh gia", "this exact banknote",
+    "exact banknote", "banknote is", "note is",
 )
 
 EVIDENCE_BUCKET_ALIASES = {
@@ -1046,6 +1375,10 @@ COUNTRY_SIGNAL_ALIASES = {
     "thailand": ("thailand", "thái lan", "baht", "฿"),
     "united kingdom": ("united kingdom", "uk", "british", "pound", "pounds", "sterling", "gbp", "£"),
     "european union": ("european union", "eurozone", "euro", "euros", "eur", "€"),
+    "euro zone": (
+        "european union", "euro zone", "eurozone", "europe", "chau au",
+        "lien minh chau au", "euro", "euros", "eur", "€",
+    ),
     "myanmar": ("myanmar", "burma", "kyat"),
     "cambodia": ("cambodia", "campuchia", "riel"),
     "laos": ("laos", "lào", "kip"),
@@ -1145,9 +1478,10 @@ def _is_trusted_evidence(item: Dict[str, Any]) -> bool:
 def _is_weak_evidence(item: Dict[str, Any]) -> bool:
     text = " ".join(
         str(item.get(key) or "")
-        for key in ("title", "snippet", "source", "domain", "url")
+        for key in ("title", "snippet", "page_text_excerpt", "source", "domain", "url")
     ).lower()
-    return any(hint in text for hint in WEAK_EVIDENCE_HINTS)
+    folded = _fold_text_for_markers(text)
+    return any(hint in text or hint in folded for hint in WEAK_EVIDENCE_HINTS)
 
 
 def _evidence_noise_reason(item: Dict[str, Any]) -> Optional[str]:
@@ -1156,7 +1490,7 @@ def _evidence_noise_reason(item: Dict[str, Any]) -> Optional[str]:
         for key in ("title", "snippet", "source", "domain", "url")
     ).casefold()
     for marker in NEGATIVE_EXCHANGE_KEYWORDS:
-        if marker in text:
+        if _contains_term(text, marker):
             return f"noise:{marker}"
     return None
 
@@ -1193,7 +1527,14 @@ def _identity_text_signals(
         if _contains_term(combined, alias):
             currency_terms.append(alias)
             break
-    country_key = _normalize_country_key(country)
+    if (
+        currency == "USD"
+        and not currency_terms
+        and not _has_open_foreign_dollar_context(combined)
+        and any(_contains_term(combined, term) for term in ("dollar", "dollars"))
+    ):
+        currency_terms.append("dollar")
+    country_key = _normalize_country_key(country, currency)
     for alias in COUNTRY_SIGNAL_ALIASES.get(country_key, (country_key,)):
         if alias and _contains_term(combined, alias):
             currency_terms.append(alias)
@@ -1269,7 +1610,7 @@ def _structured_evidence_candidate(
     trusted_source = _is_trusted_evidence(item)
     return {
         "country": str(country).strip(),
-        "country_key": _normalize_country_key(country),
+        "country_key": _normalize_country_key(country, currency),
         "currency": currency,
         "amount": amount,
         "score": score,
@@ -1321,16 +1662,17 @@ def _evidence_support_for_identity(
     page_text_signals = _identity_text_signals(page_text_item, country, currency, amount)
     rank_reasons = [str(reason).strip() for reason in item.get("rank_reasons") or []]
     normalized_reasons = [reason.casefold() for reason in rank_reasons]
+    denomination_list_reason = _denomination_list_context_reason(item, currency)
 
-    target_country_key = _normalize_country_key(country)
+    target_country_key = _normalize_country_key(country, currency)
     detected_country = item.get("detected_country")
     detected_currency = _normalize_currency_code(item.get("detected_currency"))
     country_match = (
         not _is_unknown_identity(detected_country)
-        and _normalize_country_key(detected_country) == target_country_key
+        and _normalize_country_key(detected_country, currency) == target_country_key
     ) or any(
         reason.startswith("country:")
-        and _normalize_country_key(reason.split(":", 1)[1]) == target_country_key
+        and _normalize_country_key(reason.split(":", 1)[1], currency) == target_country_key
         for reason in rank_reasons
     )
     currency_match = detected_currency == currency or any(
@@ -1351,26 +1693,30 @@ def _evidence_support_for_identity(
         (_is_unknown_identity(detected_country) or country_match)
         and (not detected_currency or currency_match)
     )
-    detected_amounts = (
-        set(_identity_text_amounts(item, currency))
+    detected_amount_list, ignored_amounts = (
+        _identity_text_amounts_with_ignored(item, currency)
         if metadata_matches_identity
-        else set()
+        else ([], [])
     )
-    title_snippet_amounts = (
-        set(_identity_text_amounts(title_snippet_item, currency))
+    title_snippet_amount_list, _ignored_title_amounts = (
+        _identity_text_amounts_with_ignored(title_snippet_item, currency)
         if metadata_matches_identity
-        else set()
+        else ([], [])
     )
-    page_text_amounts = (
-        set(_identity_text_amounts(page_text_item, currency))
+    page_text_amount_list, _ignored_page_text_amounts = (
+        _identity_text_amounts_with_ignored(page_text_item, currency)
         if page_text_excerpt and metadata_matches_identity
-        else set()
+        else ([], [])
     )
+    detected_amounts = set(detected_amount_list)
+    title_snippet_amounts = set(title_snippet_amount_list)
+    page_text_amounts = set(page_text_amount_list)
     weak_source = _is_weak_evidence(item)
     direct_title_or_snippet_support = bool(
         amount in title_snippet_amounts
         and title_snippet_signals["direct_match"]
         and not weak_source
+        and not denomination_list_reason
     )
     # Weak-source exact support: social/video domain with clear banknote identity in title.
     # Contributes to signal counts but alone is NOT sufficient for promotion.
@@ -1378,11 +1724,19 @@ def _evidence_support_for_identity(
         weak_source
         and amount in title_snippet_amounts
         and title_snippet_signals["direct_match"]
+        and not denomination_list_reason
+    )
+    weak_page_text_support = bool(
+        weak_source
+        and amount in page_text_amounts
+        and page_text_signals["direct_match"]
+        and not denomination_list_reason
     )
     page_text_support = bool(
         amount in page_text_amounts
         and page_text_signals["direct_match"]
         and not weak_source
+        and not denomination_list_reason
     )
     amount_match = amount in detected_amounts or signals["amount_signal"]
     visual_context = (
@@ -1396,6 +1750,8 @@ def _evidence_support_for_identity(
         or (country_match and currency_match)
         or ((country_match or currency_match) and money_context)
     )
+    if denomination_list_reason:
+        supports = False
     evidence_key = str(item.get("url") or "").strip().lower() or "|".join(
         (
             str(item.get("domain") or item.get("source") or "").strip().lower(),
@@ -1408,6 +1764,27 @@ def _evidence_support_for_identity(
         or str(item.get("source") or "").strip().lower()
         or evidence_key
     )
+    conflicting_amounts: List[int] = []
+    conflict_ignored_amounts: List[Dict[str, Any]] = list(ignored_amounts)
+    if not denomination_list_reason:
+        for value in sorted(detected_amounts):
+            if value == amount:
+                continue
+            if weak_source and not _has_explicit_denomination_context(
+                _identity_text_for_amounts(item),
+                value,
+            ):
+                conflict_ignored_amounts.append(
+                    {
+                        "amount": value,
+                        "raw": str(value),
+                        "reason": "weak_shop_conflict_ignored",
+                        "context": _compact_text(_identity_text_for_amounts(item), 160),
+                    }
+                )
+                continue
+            conflicting_amounts.append(value)
+
     return {
         "supports": bool(supports),
         "evidence_key": evidence_key,
@@ -1421,12 +1798,36 @@ def _evidence_support_for_identity(
         ),
         "direct_title_or_snippet_support": direct_title_or_snippet_support,
         "weak_exact_support": weak_exact_support,
+        "weak_page_text_support": weak_page_text_support,
         "page_text_support": page_text_support,
-        "conflicting_amounts": sorted(
-            value for value in detected_amounts if value != amount and not weak_source
-        ),
+        "page_text_identity_terms": list(item.get("page_text_identity_terms") or []),
+        "conflicting_amounts": conflicting_amounts,
+        "ignored_amounts": conflict_ignored_amounts,
+        "denomination_list_reason": denomination_list_reason,
         "score": float(item.get("score") or 0.0),
     }
+
+
+def _has_complete_page_text_identity_terms(
+    terms: List[Any],
+    *,
+    country: Any,
+    currency: str,
+    amount: int,
+) -> bool:
+    normalized_terms = {str(term or "").strip().casefold() for term in terms}
+    country_key = _normalize_country_key(country, currency)
+    has_country = any(
+        term.startswith("country:")
+        and _normalize_country_key(term.split(":", 1)[1], currency) == country_key
+        for term in normalized_terms
+    )
+    return bool(
+        has_country
+        and f"currency:{str(currency or '').upper()}".casefold() in normalized_terms
+        and f"amount:{amount}".casefold() in normalized_terms
+        and any(term.startswith("banknote_context:") for term in normalized_terms)
+    )
 
 
 def verify_lens_evidence_identity(
@@ -1469,6 +1870,7 @@ def verify_lens_evidence_identity(
         "exact_amount_support_count": 0,
         "support_signal_count": 0,
         "independent_source_count": 0,
+        "trusted_source_count": 0,
         "direct_title_or_snippet_support_count": 0,
         "page_text_checked_count": page_text_checked_count,
         "page_text_support_count": 0,
@@ -1478,6 +1880,10 @@ def verify_lens_evidence_identity(
         "conflicting_denominations": [],
         "top5_evidence_count": len(normalized_evidence),
         "noise_filtered_count": len(noise_evidence),
+        "denomination_list_filtered_count": 0,
+        "denomination_list_filtered_evidence": [],
+        "ignored_amounts": [],
+        "ignored_amount_reasons": {},
         "noise_filtered_evidence": [
             {
                 "rank": item.get("rank"),
@@ -1547,9 +1953,12 @@ def verify_lens_evidence_identity(
         direct_title_support_records: Dict[str, Dict[str, Any]] = {}
         support_signal_records: Dict[str, Dict[str, Any]] = {}
         independent_support_sources = set()
+        denomination_list_filtered_records: Dict[str, Dict[str, Any]] = {}
         # RC3: separate tracking for weak-source exact signals
         weak_exact_records: Dict[str, Dict[str, Any]] = {}
+        weak_page_text_records: Dict[str, Dict[str, Any]] = {}
         weak_independent_sources = set()
+        ignored_amount_records: Dict[str, Dict[str, Any]] = {}
         for item in consensus_evidence:
             support = _evidence_support_for_identity(
                 item,
@@ -1573,8 +1982,12 @@ def verify_lens_evidence_identity(
                 independent_support_sources.add(support["independent_key"])
             # RC3: weak-source exact matches (YouTube/social with banknote identity)
             # contribute to independent source count and signal count separately.
-            elif support.get("weak_exact_support") and support["evidence_key"]:
+            elif (
+                support.get("weak_exact_support") or support.get("weak_page_text_support")
+            ) and support["evidence_key"]:
                 weak_exact_records.setdefault(support["evidence_key"], support)
+                if support.get("weak_page_text_support"):
+                    weak_page_text_records.setdefault(support["evidence_key"], support)
                 support_signal_records.setdefault(
                     f"weak:{support['evidence_key']}",
                     support,
@@ -1593,6 +2006,21 @@ def verify_lens_evidence_identity(
                 current = by_source.get(source_key)
                 if current is None or support["score"] > current["score"]:
                     by_source[source_key] = support
+            if support.get("denomination_list_reason") and support["evidence_key"]:
+                denomination_list_filtered_records.setdefault(
+                    support["evidence_key"],
+                    support,
+                )
+            for ignored in support.get("ignored_amounts") or []:
+                ignored_key = "|".join(
+                    (
+                        support["evidence_key"],
+                        str(ignored.get("amount")),
+                        str(ignored.get("reason")),
+                        str(ignored.get("raw")),
+                    )
+                )
+                ignored_amount_records.setdefault(ignored_key, ignored)
 
         group["support_records"] = support_records
         group["support_count"] = len(support_records) or min(len(group["records"]), 1)
@@ -1600,19 +2028,40 @@ def verify_lens_evidence_identity(
         group["exact_amount_support_count"] = len(exact_amount_support_records)
         group["support_signal_count"] = len(support_signal_records)
         group["weak_exact_count"] = len(weak_exact_records)
+        group["weak_page_text_count"] = len(weak_page_text_records)
         group["weak_independent_source_count"] = len(
             {s for s in weak_independent_sources if s}
         )
-        # independent_source_count = trusted direct sources + weak-exact sources
-        # (weak sources only count if they have clear banknote identity in title)
+        # Strong independent sources exclude stock/shop/social/collector listings.
+        # Weak exact matches stay visible in trace but cannot carry promotion.
         group["independent_source_count"] = len(
             {source for source in independent_support_sources if source}
-        ) + len({s for s in weak_independent_sources if s})
+        )
         group["direct_title_or_snippet_support_count"] = len(
             direct_title_support_records
         )
         group["page_text_support_count"] = len(page_text_support_records)
         group["page_text_used_for_identity"] = bool(page_text_support_records)
+        group["page_text_identity_terms"] = list(dict.fromkeys(
+            term
+            for support in page_text_support_records.values()
+            for term in support.get("page_text_identity_terms", [])
+        ))
+        group["denomination_list_filtered_count"] = len(denomination_list_filtered_records)
+        group["ignored_amounts"] = list(ignored_amount_records.values())
+        ignored_reasons: Dict[str, int] = {}
+        for ignored in group["ignored_amounts"]:
+            reason = str(ignored.get("reason") or "unknown")
+            ignored_reasons[reason] = ignored_reasons.get(reason, 0) + 1
+        group["ignored_amount_reasons"] = ignored_reasons
+        group["denomination_list_filtered_evidence"] = [
+            {
+                "rank": support.get("rank"),
+                "source": support.get("source"),
+                "reason": support.get("denomination_list_reason"),
+            }
+            for support in denomination_list_filtered_records.values()
+        ]
         group["non_weak_support_count"] = sum(
             not support["weak_source"] for support in support_records.values()
         )
@@ -1679,14 +2128,24 @@ def verify_lens_evidence_identity(
     base_trace["exact_amount_support_count"] = top_candidate_group["exact_amount_support_count"]
     base_trace["support_signal_count"] = top_candidate_group["support_signal_count"]
     base_trace["independent_source_count"] = top_candidate_group["independent_source_count"]
+    base_trace["trusted_source_count"] = top_candidate_group["trusted_count"]
     base_trace["direct_title_or_snippet_support_count"] = top_candidate_group[
         "direct_title_or_snippet_support_count"
     ]
     base_trace["page_text_support_count"] = top_candidate_group["page_text_support_count"]
     base_trace["page_text_used_for_identity"] = top_candidate_group["page_text_used_for_identity"]
+    base_trace["page_text_identity_terms"] = top_candidate_group.get("page_text_identity_terms") or []
     base_trace["independent_conflicting_amount_support_count"] = top_candidate_group[
         "independent_conflicting_amount_support_count"
     ]
+    base_trace["denomination_list_filtered_count"] = top_candidate_group[
+        "denomination_list_filtered_count"
+    ]
+    base_trace["denomination_list_filtered_evidence"] = top_candidate_group[
+        "denomination_list_filtered_evidence"
+    ]
+    base_trace["ignored_amounts"] = top_candidate_group.get("ignored_amounts") or []
+    base_trace["ignored_amount_reasons"] = top_candidate_group.get("ignored_amount_reasons") or {}
     base_trace["top_score"] = top_candidate_group["max_score"]
     base_trace["checks"].update(
         {
@@ -1700,6 +2159,8 @@ def verify_lens_evidence_identity(
                 top_candidate_group["support_signal_count"] >= 3
                 and top_candidate_group["independent_source_count"] >= 2
                 and top_candidate_group["direct_title_or_snippet_support_count"] >= 2
+                and top_candidate_group["exact_amount_support_count"] >= 2
+                and top_candidate_group["independent_conflicting_amount_support_count"] == 0
                 and (
                     top_candidate_group["independent_source_count"] > 2
                     or top_candidate_group["page_text_support_count"] >= 1
@@ -1709,21 +2170,94 @@ def verify_lens_evidence_identity(
         }
     )
 
-    true_explicit_conflicts = [
-        conflict
-        for conflict in top_candidate_group["conflicting_denominations"]
-        if conflict["support_count"] >= 2
-    ]
+    cross_identity_conflicts = []
+    for other_key, other_group in ranked_groups[1:]:
+        different_country_or_currency = other_key[:2] != top_candidate_key[:2]
+        other_has_direct_identity = (
+            other_group["exact_amount_support_count"] >= 1
+            and other_group["direct_title_or_snippet_support_count"] >= 1
+        )
+        scores_are_close = abs(
+            top_candidate_group["max_score"] - other_group["max_score"]
+        ) <= 1.5
+        both_have_repeated_support = (
+            len(top_candidate_group["records"]) >= 2
+            and len(other_group["records"]) >= 2
+        )
+        if (
+            different_country_or_currency
+            and other_has_direct_identity
+            and (scores_are_close or both_have_repeated_support)
+        ):
+            cross_identity_conflicts.append((other_key, other_group))
+
+    if cross_identity_conflicts:
+        base_trace["reason"] = "conflicting_evidence"
+        base_trace["checks"]["conflict_check_passed"] = False
+        base_trace["conflicting_identities"] = [
+            {
+                "country_key": key[0],
+                "currency": key[1],
+                "amount": key[2],
+                "support_count": group["exact_amount_support_count"],
+                "top_score": group["max_score"],
+            }
+            for key, group in cross_identity_conflicts
+        ]
+        return None, base_trace, ["conflicting_evidence"]
+
+    true_explicit_conflicts = []
+    ignored_conflicts = []
+    candidate_support_count = top_candidate_group.get("exact_amount_support_count", 0)
+
+    for conflict in top_candidate_group.get("conflicting_denominations", []):
+        if conflict["support_count"] < 1:
+            continue
+
+        is_minor_noise = False
+        if conflict["support_count"] == 1:
+            candidate_dominant = candidate_support_count >= 3
+            is_low_rank = all(r > 3 for r in conflict.get("evidence_ranks", [])) if conflict.get("evidence_ranks") else False
+            is_low_score = conflict.get("max_score", 0.0) < 7.0
+            if candidate_dominant or is_low_rank or is_low_score:
+                is_minor_noise = True
+
+        if is_minor_noise:
+            ignored_conflicts.append({
+                "amount": conflict["amount"],
+                "raw": str(conflict["amount"]),
+                "reason": "minor_noise_ignored",
+                "context": f"Candidate support {candidate_support_count}, conflict max score {conflict.get('max_score', 0.0)}",
+            })
+        else:
+            true_explicit_conflicts.append(conflict)
+
+    if ignored_conflicts:
+        if "ignored_amounts" not in top_candidate_group:
+            top_candidate_group["ignored_amounts"] = []
+        top_candidate_group["ignored_amounts"].extend(ignored_conflicts)
+        base_trace["ignored_amounts"] = top_candidate_group["ignored_amounts"]
+
     if true_explicit_conflicts:
         base_trace["conflicting_denominations"] = true_explicit_conflicts
         near_top_conflict = any(
-            top_candidate_group["max_score"] - conflict["max_score"] <= 2.0
+            conflict["support_count"] >= 2
+            and top_candidate_group["max_score"] - conflict.get("max_score", 0.0) <= 2.0
+            for conflict in true_explicit_conflicts
+        )
+        significant_mixed_evidence = any(
+            conflict["support_count"] >= 2
+            and conflict.get("max_score", 0.0) >= 7.0
             for conflict in true_explicit_conflicts
         )
         reason = (
             "near_top_conflicting_denomination"
             if near_top_conflict
-            else "mixed_denomination_lens_evidence"
+            else (
+                "mixed_denomination_lens_evidence"
+                if significant_mixed_evidence
+                else "conflicting_denominations_in_lens_evidence"
+            )
         )
         base_trace["reason"] = reason
         base_trace["checks"]["conflict_check_passed"] = False
@@ -1795,7 +2329,7 @@ def verify_lens_evidence_identity(
             and group["independent_source_count"] >= 2
             and group["direct_title_or_snippet_support_count"] >= 2
             and group["exact_amount_support_count"] >= 2
-            and group["independent_conflicting_amount_support_count"] < 2
+            and group["independent_conflicting_amount_support_count"] == 0
             and (
                 group["independent_source_count"] > 2
                 or group["page_text_support_count"] >= 1
@@ -1819,19 +2353,45 @@ def verify_lens_evidence_identity(
         )
         weak_multi_source = (
             not multiple_agreement
-            and group["independent_source_count"] >= 2
-            and total_exact_signals >= 2
+            and group["support_signal_count"] >= 3
+            and group["independent_source_count"] >= 3
+            and group["direct_title_or_snippet_support_count"] >= 3
+            and group["exact_amount_support_count"] >= 3
+            and total_exact_signals >= 3
             and has_trusted_anchor
-            and group["independent_conflicting_amount_support_count"] < 2
+            and group["independent_conflicting_amount_support_count"] == 0
         )
-        if multiple_agreement or weak_multi_source:
-            group["multiple_agreement"] = multiple_agreement or weak_multi_source
+        page_text_identity_support = (
+            not multiple_agreement
+            and not weak_multi_source
+            and group["max_score"] >= 9.0
+            and group["support_signal_count"] >= 2
+            and group["independent_source_count"] >= 1
+            and group["direct_title_or_snippet_support_count"] >= 1
+            and group["exact_amount_support_count"] >= 1
+            and group["page_text_support_count"] >= 1
+            and group["independent_conflicting_amount_support_count"] == 0
+            and not all(record["weak_source"] for record in group["records"])
+            and _has_complete_page_text_identity_terms(
+                group.get("page_text_identity_terms") or [],
+                country=group["records"][0]["country"],
+                currency=group["records"][0]["currency"],
+                amount=group["records"][0]["amount"],
+            )
+        )
+        if multiple_agreement or weak_multi_source or page_text_identity_support:
+            group["multiple_agreement"] = (
+                multiple_agreement or weak_multi_source or page_text_identity_support
+            )
             group["weak_multi_source"] = weak_multi_source
+            group["page_text_identity_support"] = page_text_identity_support
             group["auxiliary_agreement"] = (
                 (multiple_agreement or weak_multi_source)
                 and group["auxiliary_support_count"] >= 1
             )
-            if weak_multi_source:
+            if page_text_identity_support:
+                group["promotion_path"] = "page_text_identity_support"
+            elif weak_multi_source:
                 # Tag for transparency in trace
                 group["promotion_path"] = "weak_multi_source"
             else:
@@ -1839,7 +2399,17 @@ def verify_lens_evidence_identity(
             qualified.append((key, group))
 
     if not qualified:
-        if top_candidate_group["support_signal_count"] < 3:
+        if top_candidate_group["independent_conflicting_amount_support_count"] > 0:
+            reason = "conflicting_denominations_in_lens_evidence"
+            base_trace["checks"]["conflict_check_passed"] = False
+        elif all(record["weak_source"] for record in candidates):
+            reason = (
+                "single_untrusted_page_text_source"
+                if top_candidate_group.get("weak_page_text_count", 0) > 0
+                and top_candidate_group.get("weak_independent_source_count", 0) <= 1
+                else "weak_commercial_source_not_counted"
+            )
+        elif top_candidate_group["support_signal_count"] < 3:
             reason = "insufficient_support_signals"
         elif top_candidate_group["independent_source_count"] < 2:
             reason = "insufficient_independent_evidence"
@@ -1850,8 +2420,6 @@ def verify_lens_evidence_identity(
             and top_candidate_group["page_text_support_count"] < 1
         ):
             reason = "page_text_support_required_for_two_sources"
-        elif all(record["weak_source"] for record in candidates):
-            reason = "weak_source_only"
         elif top_candidate_group["support_count"] <= 1:
             reason = "weak_single_lens_evidence"
         elif not any(record["signals"]["direct_match"] for record in candidates):
@@ -1880,14 +2448,18 @@ def verify_lens_evidence_identity(
     base_trace["exact_amount_support_count"] = top_group["exact_amount_support_count"]
     base_trace["support_signal_count"] = top_group["support_signal_count"]
     base_trace["independent_source_count"] = top_group["independent_source_count"]
+    base_trace["trusted_source_count"] = top_group["trusted_count"]
     base_trace["direct_title_or_snippet_support_count"] = top_group[
         "direct_title_or_snippet_support_count"
     ]
     base_trace["page_text_support_count"] = top_group["page_text_support_count"]
     base_trace["page_text_used_for_identity"] = top_group["page_text_used_for_identity"]
+    base_trace["page_text_identity_terms"] = top_group.get("page_text_identity_terms") or []
     base_trace["independent_conflicting_amount_support_count"] = top_group[
         "independent_conflicting_amount_support_count"
     ]
+    base_trace["ignored_amounts"] = top_group.get("ignored_amounts") or []
+    base_trace["ignored_amount_reasons"] = top_group.get("ignored_amount_reasons") or {}
 
     for other_key, other_group in qualified[1:]:
         scores_are_close = abs(top_group["max_score"] - other_group["max_score"]) <= 1.5
@@ -1899,10 +2471,21 @@ def verify_lens_evidence_identity(
             base_trace["checks"]["conflict_check_passed"] = False
             return None, base_trace, ["conflicting_evidence"]
 
-    best = max(
-        top_group["records"],
-        key=lambda record: (record["score"], int(record["trusted"])),
-    )
+    if top_group.get("page_text_identity_support"):
+        best = max(
+            top_group["records"],
+            key=lambda record: (
+                int(not record["weak_source"]),
+                int(record["signals"]["direct_match"]),
+                record["score"],
+                int(record["trusted"]),
+            ),
+        )
+    else:
+        best = max(
+            top_group["records"],
+            key=lambda record: (record["score"], int(record["trusted"])),
+        )
     support_count = top_group["support_count"]
     confidence = min(
         0.95,
@@ -1910,8 +2493,12 @@ def verify_lens_evidence_identity(
     )
     if top_group.get("auxiliary_agreement"):
         confidence = min(confidence, 0.85)
+    if top_group.get("page_text_identity_support"):
+        confidence = min(confidence, 0.80)
 
-    if top_group.get("weak_multi_source"):
+    if top_group.get("page_text_identity_support"):
+        reason = "page_text_identity_support"
+    elif top_group.get("weak_multi_source"):
         reason = "promoted_weak_multi_source_evidence"
     elif top_group.get("auxiliary_agreement"):
         reason = "promoted_from_lens_evidence"
@@ -1935,6 +2522,7 @@ def verify_lens_evidence_identity(
             "reason": reason,
             "promotion_path": top_group.get("promotion_path", "strict"),
             "weak_exact_count": top_group.get("weak_exact_count", 0),
+            "weak_page_text_count": top_group.get("weak_page_text_count", 0),
             "weak_independent_source_count": top_group.get("weak_independent_source_count", 0),
             "selected_identity": {
                 "country": best["country"],
@@ -1959,14 +2547,18 @@ def verify_lens_evidence_identity(
             "exact_amount_support_count": top_group["exact_amount_support_count"],
             "support_signal_count": top_group["support_signal_count"],
             "independent_source_count": top_group["independent_source_count"],
+            "trusted_source_count": top_group["trusted_count"],
             "direct_title_or_snippet_support_count": top_group[
                 "direct_title_or_snippet_support_count"
             ],
             "page_text_support_count": top_group["page_text_support_count"],
             "page_text_used_for_identity": top_group["page_text_used_for_identity"],
+            "page_text_identity_terms": top_group.get("page_text_identity_terms") or [],
             "independent_conflicting_amount_support_count": top_group[
                 "independent_conflicting_amount_support_count"
             ],
+            "ignored_amounts": top_group.get("ignored_amounts") or [],
+            "ignored_amount_reasons": top_group.get("ignored_amount_reasons") or {},
         }
     )
 
@@ -1980,14 +2572,18 @@ def verify_lens_evidence_identity(
         "exact_amount_support_count": top_group["exact_amount_support_count"],
         "support_signal_count": top_group["support_signal_count"],
         "independent_source_count": top_group["independent_source_count"],
+        "trusted_source_count": top_group["trusted_count"],
         "direct_title_or_snippet_support_count": top_group[
             "direct_title_or_snippet_support_count"
         ],
         "page_text_support_count": top_group["page_text_support_count"],
         "page_text_used_for_identity": top_group["page_text_used_for_identity"],
+        "page_text_identity_terms": top_group.get("page_text_identity_terms") or [],
         "independent_conflicting_amount_support_count": top_group[
             "independent_conflicting_amount_support_count"
         ],
+        "ignored_amounts": top_group.get("ignored_amounts") or [],
+        "ignored_amount_reasons": top_group.get("ignored_amount_reasons") or {},
         "top_score": best["score"],
         "trusted_source": bool(best["trusted"]),
         "reason": reason,
@@ -2022,7 +2618,7 @@ def _evidence_supports_identity(
     if not evidence:
         return False
 
-    target_key = (_normalize_country_key(country), str(currency).upper(), amount)
+    target_key = (_normalize_country_key(country, currency), str(currency).upper(), amount)
     for item in evidence:
         candidate, _ = _structured_evidence_candidate(item)
         if not candidate:
@@ -2123,10 +2719,13 @@ def validate_agent3_identity(
         "weak_single_lens_evidence",
         "mixed_denomination_lens_evidence",
         "near_top_conflicting_denomination",
+        "conflicting_denominations_in_lens_evidence",
         "insufficient_support_signals",
         "insufficient_independent_evidence",
         "insufficient_direct_title_or_snippet_support",
         "page_text_support_required_for_two_sources",
+        "single_untrusted_page_text_source",
+        "weak_commercial_source_not_counted",
     }
     if not verified_identity and verification_reason in confidence_cap_reasons:
         if confidence_valid:
@@ -2142,12 +2741,29 @@ def validate_agent3_identity(
         and is_valid_agent3_denomination(amount, currency)
         and _country_currency_consistent(country, currency)
     )
-    initial_key = (_normalize_country_key(country), currency, amount)
+    initial_key = _canonical_vote_key_from_parts(country, currency, amount)
     verified_key = (
-        _normalize_country_key(verified_identity.get("country")),
-        verified_identity.get("currency"),
-        verified_identity.get("amount"),
-    ) if verified_identity else None
+        _canonical_vote_key_from_parts(
+            verified_identity.get("country"),
+            verified_identity.get("currency"),
+            verified_identity.get("amount"),
+        )
+        if verified_identity
+        else None
+    )
+    if verified_identity:
+        promotion_trace["initial_canonical_vote_key"] = list(initial_key) if initial_key else None
+        promotion_trace["verified_canonical_vote_key"] = list(verified_key) if verified_key else None
+        promotion_trace["canonical_identity_match"] = (
+            initial_key == verified_key
+            if initial_key and verified_key
+            else None
+        )
+        if initial_key and verified_key and initial_key != verified_key:
+            promotion_trace["conflict_fields"] = _identity_conflict_fields(
+                initial_key,
+                verified_key,
+            )
     accepted_identity: Optional[Dict[str, Any]] = None
 
     if status in {"", "partial", "unknown"} and verified_identity:
@@ -2178,6 +2794,8 @@ def validate_agent3_identity(
             confidence if confidence_valid else 0.0,
             accepted_identity["confidence"],
         )
+        if accepted_identity["reason"] == "page_text_identity_support":
+            confidence = min(confidence, 0.80)
         if accepted_identity["reason"] == "promoted_from_lens_evidence":
             confidence = min(confidence, 0.85)
         confidence_valid = True
@@ -2276,8 +2894,20 @@ def validate_agent3_identity(
         )
     normalized["not_counted_in_consensus"] = True
     normalized["validation_errors"] = validation_errors
+    conflict_error_reasons = {
+        "conflicting_denominations_in_lens_evidence",
+        "mixed_denomination_lens_evidence",
+        "near_top_conflicting_denomination",
+        "conflicting_evidence",
+        "initial_identity_conflict",
+        "candidate_lens_identity_conflict",
+    }
     if "no_source_evidence" in validation_errors:
         normalized.setdefault("error_type", "no_source")
+    elif verification_reason in conflict_error_reasons or any(
+        reason in validation_errors for reason in conflict_error_reasons
+    ):
+        normalized["error_type"] = "conflicting_evidence"
     else:
         normalized.setdefault("error_type", "insufficient_evidence")
     return normalized
@@ -2336,10 +2966,12 @@ def _extract_amount_currency(text: str) -> tuple[Optional[int], Optional[str]]:
         )
     )
     if amount_matches:
-        for amount_match in amount_matches:
+        for match_index, amount_match in enumerate(amount_matches):
             a_str = amount_match.group(1)
             val = _parse_amount_token(a_str)
             if val is not None:
+                if _ignored_amount_reason_for_match(text_lower, amount_match, val, amount_matches, match_index):
+                    continue
                 context = text_lower[
                     max(0, amount_match.start() - 48):amount_match.end() + 48
                 ]
@@ -2800,8 +3432,10 @@ def _candidate_lens_weak(agent3_result: Dict[str, Any]) -> tuple[bool, str]:
     strong_conflicts = {
         "near_top_conflicting_denomination",
         "mixed_denomination_lens_evidence",
+        "conflicting_denominations_in_lens_evidence",
         "conflicting_evidence",
         "initial_identity_conflict",
+        "candidate_lens_identity_conflict",
     }
     if reason in strong_conflicts or trace.get("checks", {}).get("conflict_check_passed") is False:
         return False, "strong_lens_conflict"
@@ -2820,6 +3454,8 @@ def _candidate_lens_weak(agent3_result: Dict[str, Any]) -> tuple[bool, str]:
         "page_text_support_required_for_two_sources",
         "weak_source_only",
         "weak_single_lens_evidence",
+        "single_untrusted_page_text_source",
+        "weak_commercial_source_not_counted",
         "noise_only",
     }:
         return True, reason
@@ -2828,6 +3464,157 @@ def _candidate_lens_weak(agent3_result: Dict[str, Any]) -> tuple[bool, str]:
     if evidence_count > 0 and support_count < 3:
         return True, "insufficient_support_signals"
     return False, "lens_result_not_eligible"
+
+
+def _trace_int(trace: Dict[str, Any], key: str) -> int:
+    try:
+        return int(trace.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _lens_identity_extremely_strong(agent3_result: Dict[str, Any]) -> bool:
+    trace = dict(agent3_result.get("promotion_trace") or {})
+    checks = dict(trace.get("checks") or {})
+    trusted_source_count = _trace_int(trace, "trusted_source_count")
+    trusted_source = bool(checks.get("source_trusted")) or trusted_source_count >= 1
+    return bool(
+        _trace_int(trace, "direct_title_or_snippet_support_count") >= 3
+        and _trace_int(trace, "independent_source_count") >= 3
+        and _trace_int(trace, "exact_amount_support_count") >= 3
+        and _trace_int(trace, "support_signal_count") >= 3
+        and (
+            _trace_int(trace, "page_text_support_count") >= 1
+            or trusted_source
+        )
+        and _trace_int(trace, "independent_conflicting_amount_support_count") == 0
+    )
+
+
+def _candidate_vote_details(candidate: Dict[str, Any]) -> tuple[Dict[str, Any], Optional[tuple]]:
+    payload = {
+        "country": candidate.get("country"),
+        "currency_code": candidate.get("currency") or candidate.get("currency_code"),
+        "denomination": candidate.get("amount") or candidate.get("denomination"),
+    }
+    vote = normalize_agent_vote(payload)
+    vote_key = vote.get("vote_key")
+    if not vote_key and candidate.get("vote_key"):
+        vote_key = tuple(candidate.get("vote_key") or [])
+    vote_key = tuple(vote_key) if vote_key and len(tuple(vote_key)) == 3 else None
+    return vote, vote_key
+
+
+def _lens_vote_details(agent3_result: Dict[str, Any]) -> tuple[Dict[str, Any], Optional[tuple]]:
+    trace = dict((agent3_result or {}).get("promotion_trace") or {})
+    selected_identity = trace.get("selected_identity")
+    if isinstance(selected_identity, dict):
+        payload = {
+            "country": selected_identity.get("country"),
+            "currency_code": (
+                selected_identity.get("currency")
+                or selected_identity.get("currency_code")
+            ),
+            "denomination": (
+                selected_identity.get("amount")
+                or selected_identity.get("denomination")
+            ),
+        }
+    else:
+        payload = agent3_result or {}
+    vote = normalize_agent_vote(payload)
+    vote_key = vote.get("vote_key")
+    vote_key = tuple(vote_key) if vote_key and len(tuple(vote_key)) == 3 else None
+    return vote, vote_key
+
+
+def _candidate_lens_identity_diagnostics(
+    candidate: Dict[str, Any],
+    agent3_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    candidate_vote, candidate_key = _candidate_vote_details(candidate)
+    lens_vote, lens_key = _lens_vote_details(agent3_result)
+    canonical_match = bool(candidate_key and lens_key and candidate_key == lens_key)
+    return {
+        "canonical_identity_match": canonical_match,
+        "conflict_fields": (
+            []
+            if canonical_match
+            else _identity_conflict_fields(candidate_key, lens_key)
+        ),
+        "candidate_canonical_vote_key": list(candidate_key) if candidate_key else None,
+        "lens_canonical_vote_key": list(lens_key) if lens_key else None,
+        "candidate_canonical_identity": {
+            "country": candidate_vote.get("canonical_country"),
+            "currency": candidate_vote.get("currency_code"),
+            "amount": candidate_vote.get("amount"),
+        },
+        "lens_canonical_identity": {
+            "country": lens_vote.get("canonical_country"),
+            "currency": lens_vote.get("currency_code"),
+            "amount": lens_vote.get("amount"),
+        },
+    }
+
+
+def _candidate_conflicts_with_lens(
+    candidate: Dict[str, Any],
+    agent3_result: Dict[str, Any],
+) -> bool:
+    diagnostics = _candidate_lens_identity_diagnostics(candidate, agent3_result)
+    return bool(
+        diagnostics["candidate_canonical_vote_key"]
+        and diagnostics["lens_canonical_vote_key"]
+        and not diagnostics["canonical_identity_match"]
+    )
+
+
+def _demote_lens_for_candidate_conflict(
+    agent3_result: Dict[str, Any],
+    candidate: Dict[str, Any],
+) -> Dict[str, Any]:
+    output = dict(agent3_result or {})
+    trace = dict(output.get("promotion_trace") or {})
+    diagnostics = _candidate_lens_identity_diagnostics(candidate, output)
+    lens_vote, _lens_key = _lens_vote_details(output)
+    lens_identity = trace.get("selected_identity") or {
+        "country": lens_vote.get("country"),
+        "currency": lens_vote.get("currency_code"),
+        "amount": lens_vote.get("amount"),
+    }
+    trace.update(
+        {
+            "promoted": False,
+            "reason": "candidate_lens_identity_conflict",
+            "candidate_lens_conflict": True,
+            "candidate_identity": candidate,
+            "lens_selected_identity": lens_identity,
+            "candidate_conflict_extremely_strong": False,
+            **diagnostics,
+        }
+    )
+    checks = dict(trace.get("checks") or {})
+    checks["candidate_lens_conflict_check_passed"] = False
+    trace["checks"] = checks
+    output["promotion_trace"] = trace
+    output["status"] = "Partial"
+    output["not_counted_in_consensus"] = True
+    output["error_type"] = "conflicting_evidence"
+    output["reason"] = "candidate_lens_identity_conflict"
+    output["quoc_gia"] = UNKNOWN_IDENTITY
+    output["menh_gia"] = UNKNOWN_IDENTITY
+    output["ma_tien_te"] = UNKNOWN_IDENTITY
+    output["currency_code"] = UNKNOWN_IDENTITY
+    try:
+        output["do_tin_cay"] = min(float(output.get("do_tin_cay") or 0.0), 0.70)
+    except (TypeError, ValueError):
+        output["do_tin_cay"] = 0.0
+    output["mo_ta"] = "Có bằng chứng Lens nhưng mâu thuẫn với candidate từ AG1/AG2."
+    output["quan_diem"] = (
+        "AG3 không được tính phiếu vì Lens chọn danh tính khác candidate "
+        "đã được tác tử nhìn ảnh trả về."
+    )
+    return output
 
 
 def _attach_candidate_verification_trace(
@@ -2919,8 +3706,28 @@ async def run_candidate_assisted_verification(
             timeout_seconds=0.0,
         )
 
-    lens_weak, lens_reason = _candidate_lens_weak(original)
     queries = build_candidate_verification_queries(candidate)
+    if _candidate_conflicts_with_lens(candidate, original):
+        if not _lens_identity_extremely_strong(original):
+            demoted = _demote_lens_for_candidate_conflict(original, candidate)
+            return _attach_candidate_verification_trace(
+                demoted,
+                attempted=False,
+                reason="candidate_lens_identity_conflict",
+                candidate=candidate,
+                queries=queries,
+                provider="none",
+                skipped_reason="candidate_lens_identity_conflict",
+                mode=mode,
+                timeout_seconds=timeout_seconds,
+            )
+        original_trace = dict(original.get("promotion_trace") or {})
+        original_trace["candidate_identity"] = candidate
+        original_trace["candidate_lens_conflict"] = True
+        original_trace["candidate_conflict_extremely_strong"] = True
+        original["promotion_trace"] = original_trace
+
+    lens_weak, lens_reason = _candidate_lens_weak(original)
     if not lens_weak:
         return _attach_candidate_verification_trace(
             original,
@@ -3323,6 +4130,12 @@ class Agent3Lens(BaseAgent):
             item.setdefault("van_ban_nhin_thay", [])
             item.setdefault("dac_diem_chinh", [])
             item.setdefault("status", "Completed")
+            reported_provider = str(item.get("provider") or "").strip().lower()
+            if reported_provider in FORMATTER_PROVIDER_VALUES:
+                item.setdefault("formatter_provider", reported_provider)
+                item["provider"] = "serpapi"
+            else:
+                item.setdefault("provider", "serpapi")
             item["raw_text"] = raw_lens_data
             item = validate_agent3_identity(item, evidence=evidence)
             return json.dumps([item], ensure_ascii=False)
@@ -3888,7 +4701,7 @@ Quy tắc:
                     started_at=formatter_started,
                     deadline=deadline,
                 )
-                return formatter_result
+                return _normalize_serpapi_formatter_provider_json(formatter_result)
 
             if debug_log is not None:
                 debug_log.setdefault("formatter_router", {}).update(

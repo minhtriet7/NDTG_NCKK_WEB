@@ -7,10 +7,40 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
 
     # =========================================================
-    # GLOBAL VISION IMAGE RESIZE - PRODUCTION + EXPERIMENT
+    # IMAGE RESIZE POLICY — USER FLOW & EXPERIMENT FLOW
     # =========================================================
-    VISION_RESIZE_ENABLED: bool = False
-    VISION_RESIZE_MAX_SIDE: int = 512
+    # Policy: resize theo cạnh dài (long-side), giữ aspect ratio.
+    # KHÔNG bao giờ ép vuông 512x512. KHÔNG upscale ảnh nhỏ.
+    #
+    # --- User Production Flow ---
+    # Resize cho luồng user chính (sync + async task, không experiment).
+    # Default False (tắt) — bật khi đã kiểm tra ảnh hưởng accuracy.
+    USER_RECOGNITION_RESIZE_ENABLED: bool = False
+
+    # --- Experiment Flow ---
+    # Resize cho luồng experiment (experiment_service, debug controller).
+    # Default follows user policy — nếu muốn override thì set True/False riêng.
+    # None = follow USER_RECOGNITION_RESIZE_ENABLED (no separate override).
+    EXPERIMENT_RESIZE_ENABLED: bool = False
+    # Khi True, experiment dùng cùng policy với user flow (recommended để đo accuracy thật).
+    EXPERIMENT_RESIZE_FOLLOWS_USER: bool = True
+
+    # --- Per-Agent Max Long Side ---
+    # AG1 (OpenAI) + AG2 (Gemini) — text + OCR — cạnh dài tối đa 1280px
+    AGENT_IMAGE_MAX_LONG_SIDE: int = 1280
+    AGENT_IMAGE_JPEG_QUALITY: int = 85
+    # AG3 (Lens/SerpAPI) — visual matching — cạnh dài tối đa 1600px
+    AGENT3_IMAGE_MAX_LONG_SIDE: int = 1600
+    AGENT3_IMAGE_JPEG_QUALITY: int = 88
+    # Không upscale ảnh nhỏ hơn target — luôn True
+    AGENT_IMAGE_NO_UPSCALE: bool = True
+
+    # --- Legacy Backward-Compat (chỉ đọc, không dùng trong resize logic mới) ---
+    # VISION_RESIZE_ENABLED: được giữ như alias — nếu True sẽ activate USER_RECOGNITION_RESIZE_ENABLED.
+    # Nghĩa là: nếu legacy .env set VISION_RESIZE_ENABLED=true thì pipeline điều chỉnh automatically.
+    # Nhưng KHÔNG dùng VISION_RESIZE_MAX_SIDE để resize — luôn dùng AGENT_IMAGE_MAX_LONG_SIDE.
+    VISION_RESIZE_ENABLED: bool = False   # legacy alias, code mới đọc USER_RECOGNITION_RESIZE_ENABLED
+    VISION_RESIZE_MAX_SIDE: int = 1280    # legacy, KHAI BÁO THÔI — không dùng trong resize logic
     VISION_RESIZE_KEEP_ASPECT_RATIO: bool = True
     VISION_RESIZE_APPLY_PRODUCTION: bool = True
     VISION_RESIZE_APPLY_EXPERIMENT: bool = True
@@ -26,6 +56,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Banknote Recognition API"
     ENV: str = "development"
     ENABLE_EXPERIMENT_API: bool = True
+    OPENAI_API_KEY: Optional[str] = None
     OPENAI_EXPERIMENT_MODEL: str = "gpt-4o"
     OPENAI_EXPERIMENT_FALLBACK_MODEL: str = "gpt-4o"
     GEMINI_EXPERIMENT_MODEL: str = "gemini-2.5-flash"
@@ -134,6 +165,10 @@ class Settings(BaseSettings):
     # ============================================================
     # AGENT 2 LLM
     # ============================================================
+    AG2_GEMINI_PRIMARY_MODEL: Optional[str] = None
+    AG2_GEMINI_FALLBACK_MODELS: Optional[str] = None
+    AG2_GEMINI_MAX_ATTEMPTS_PER_MODEL: int = 2
+
     # AGENT 4 (AGGREGATOR)
     # ============================================================
     AG4_ACCEPT_TWO_STRONG_VOTES: bool = True
@@ -142,7 +177,7 @@ class Settings(BaseSettings):
     AG2_GEMINI_CHAIN_APPLY_PRODUCTION: bool = True
     AG2_GEMINI_CHAIN_APPLY_EXPERIMENT: bool = True
     AG2_GEMINI_CHAIN_MAX_MODELS: int = 4
-    AG2_GEMINI_MODEL_CHAIN: str = "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-3.1-flash-lite,gemini-3.5-flash"
+    AG2_GEMINI_MODEL_CHAIN: str = "gemini-2.5-flash,gemini-2.5-flash-lite"
 
     # AG4 Conflict Rerun
     AG4_CONFLICT_RERUN_ENABLED: bool = False
@@ -162,16 +197,22 @@ class Settings(BaseSettings):
     AGENT3_PROVIDER: str = "serpapi"
     AGENT3_FALLBACK_PROVIDER: str = "selenium"
     AGENT3_FALLBACK_ENABLED: bool = False
+    AGENT3_SERPAPI_ONLY_MODE: bool = True
     AGENT3_SERPAPI_TIMEOUT_SECONDS: int = 20
     AGENT3_SERPAPI_MAX_RETRIES: int = 1
     AGENT3_SERPAPI_NO_CACHE: bool = False
     AGENT3_SELENIUM_ENABLED: bool = False
     AGENT3_SELENIUM_HEADLESS: bool = True
-    AGENT3_SELENIUM_TIMEOUT_SECONDS: int = 35
+    AGENT3_SELENIUM_TIMEOUT_SECONDS: int = 60
+    AGENT3_SELENIUM_ATTEMPTS: int = 2
+    AGENT3_SELENIUM_PAGE_READY_TIMEOUT_SECONDS: int = 45
+    AGENT3_SELENIUM_PROXY_ENABLED: bool = True
     AGENT3_SELENIUM_MAX_RETRIES: int = 0
     AGENT3_FORMATTER_TIMEOUT_SECONDS: int = 10
     AGENT3_FORMATTER_MAX_RETRIES: int = 1
     AGENT3_V2_ENABLED: bool = False
+    # Test-only: extended deadline for Selenium in /admin/ag3-test
+    AG3_TEST_SELENIUM_TOTAL_DEADLINE_SECONDS: int = 90
 
     # ============================================================
     # GROQ - AGENT 3 TEXT-ONLY FORMATTER (NOT WIRED TO PIPELINE YET)

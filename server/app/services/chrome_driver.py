@@ -12,9 +12,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from app.core.logger import get_logger
 from app.core.config import settings
 
-
 logger = get_logger(__name__)
-
 
 class ChromeDriver:
     """
@@ -29,14 +27,24 @@ class ChromeDriver:
     - socks5://1.2.3.4:1080
     """
 
-    def __init__(self, proxy_file_path: Optional[str] = None):
+    def __init__(self, proxy_file_path: Optional[str] = None, disable_proxy: bool = False):
         self.project_root = self._get_project_root()
         self.proxy_file_path = proxy_file_path or os.path.join(
             self.project_root,
             "proxy.data",
         )
-        self.proxies = self._load_proxies()
+
+        env_proxy_enabled = str(getattr(settings, "AGENT3_SELENIUM_PROXY_ENABLED", "true")).lower() == "true"
+        self.disable_proxy = disable_proxy or not env_proxy_enabled
+
+        self.proxy_used_file_path = os.path.join(self.project_root, "proxy_used.data")
+        self.proxies = [] if self.disable_proxy else self._load_proxies()
+        self.used_proxies = [] if self.disable_proxy else self._load_used_proxies()
         self.user_data_dir: Optional[str] = None
+
+        self.selected_proxy: Optional[str] = None
+        self.selected_user_agent: Optional[str] = None
+        self.selected_window_size: Optional[str] = None
 
     def _get_project_root(self) -> str:
         # server/app/services/chrome_driver.py -> server/
@@ -98,11 +106,44 @@ class ChromeDriver:
 
         return f"http://{proxy}"
 
+    def _load_used_proxies(self) -> List[str]:
+        used = []
+        if os.path.exists(self.proxy_used_file_path):
+            try:
+                with open(self.proxy_used_file_path, "r", encoding="utf-8") as f:
+                    used = [line.strip() for line in f if line.strip()]
+            except Exception:
+                pass
+        return used
+
+    def _save_used_proxy(self, proxy: str) -> None:
+        try:
+            with open(self.proxy_used_file_path, "a", encoding="utf-8") as f:
+                f.write(f"{proxy}\n")
+        except Exception:
+            pass
+
+    def _reset_used_proxies(self) -> None:
+        try:
+            if os.path.exists(self.proxy_used_file_path):
+                os.remove(self.proxy_used_file_path)
+            self.used_proxies = []
+        except Exception:
+            pass
+
     def _pick_proxy(self) -> Optional[str]:
         if not self.proxies:
             return None
 
-        return random.choice(self.proxies)
+        available = [p for p in self.proxies if p not in self.used_proxies]
+        if not available:
+            self._reset_used_proxies()
+            available = self.proxies
+
+        chosen = random.choice(available)
+        self.used_proxies.append(chosen)
+        self._save_used_proxy(chosen)
+        return chosen
 
     def _build_options(self) -> Options:
         chrome_options = Options()
@@ -126,7 +167,11 @@ class ChromeDriver:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=1920,1080")
+
+        window_sizes = ["1920,1080", "1366,768", "1440,900", "1536,864"]
+        self.selected_window_size = random.choice(window_sizes)
+        chrome_options.add_argument(f"--window-size={self.selected_window_size}")
+
         chrome_options.add_argument("--lang=vi-VN,vi,en-US,en")
         chrome_options.add_argument("--disable-notifications")
         chrome_options.add_argument("--disable-popup-blocking")
@@ -141,23 +186,26 @@ class ChromeDriver:
         )
         chrome_options.add_experimental_option("useAutomationExtension", False)
 
-        user_agent = getattr(
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+        ]
+
+        self.selected_user_agent = getattr(
             settings,
             "CHROME_USER_AGENT",
-            (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
+            random.choice(user_agents),
         )
 
-        chrome_options.add_argument(f"--user-agent={user_agent}")
+        chrome_options.add_argument(f"--user-agent={self.selected_user_agent}")
 
-        selected_proxy = self._pick_proxy()
+        self.selected_proxy = self._pick_proxy()
 
-        if selected_proxy:
-            logger.info("Agent 3 ChromeDriver is using proxy: %s", selected_proxy)
-            chrome_options.add_argument(f"--proxy-server={selected_proxy}")
+        if self.selected_proxy:
+            logger.info("Agent 3 ChromeDriver is using proxy: %s", self.selected_proxy)
+            chrome_options.add_argument(f"--proxy-server={self.selected_proxy}")
         else:
             logger.info("Agent 3 ChromeDriver is running without proxy.")
 

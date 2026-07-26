@@ -1,7 +1,7 @@
 from typing import Optional
 import inspect
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile, Form, Request
 from pydantic import BaseModel
 
 from app.controllers.admin_controller import AdminController
@@ -98,13 +98,53 @@ async def get_agent_performance(current_user=Depends(admin_user)):
 # ============================================================
 @router.post("/ag3-test/run")
 async def run_ag3_test(
-    options: str = Query(..., description="JSON string of options"),
+    request: Request,
+    options: str = Form("{}"),
     image: Optional[UploadFile] = File(None),
+    image_file: Optional[UploadFile] = File(None),
     current_user = Depends(admin_user)
 ):
     import json
-    opts = json.loads(options)
-    return await maybe_await(AdminController.test_ag3(current_user, opts, image))
+    import traceback
+    from fastapi.responses import JSONResponse
+
+    opts = {}
+    try:
+        opts = json.loads(options or "{}")
+    except json.JSONDecodeError:
+        pass  # will just use empty dict
+
+    uploaded = image or image_file
+
+    opts["_form_debug"] = {
+        "content_type": request.headers.get("content-type"),
+        "raw_options_sample": options[:500],
+        "mode_received": opts.get("mode"),
+        "provider_received": opts.get("provider_requested") or opts.get("provider"),
+        "image_param_received": image is not None,
+        "image_file_param_received": image_file is not None,
+        "file_received": uploaded is not None,
+        "filename": uploaded.filename if uploaded else None,
+        "content_type_file": uploaded.content_type if uploaded else None,
+    }
+
+    try:
+        return await maybe_await(AdminController.test_ag3(current_user, opts, uploaded))
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("AG3 isolated test failed")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "error_type": "ag3_test_endpoint_error",
+                "error_message": str(e),
+                "exception_class": e.__class__.__name__,
+                "form_debug": opts.get("_form_debug"),
+                "traceback_sample": traceback.format_exc()[-4000:]
+            }
+        )
 
 @router.get("/recognition/recent")
 async def get_recent_scans(
@@ -497,6 +537,31 @@ async def sync_currency_rates(current_user: User = Depends(admin_user)):
 @router.get("/currency-rates/sync-logs")
 async def get_sync_logs(current_user: User = Depends(admin_user)):
     return await maybe_await(AdminController.get_sync_logs())
+
+
+@router.get("/currency/country-mappings")
+async def get_currency_country_mappings(
+    search: Optional[str] = Query(default=""),
+    status: Optional[str] = Query(default="all"),
+    current_user: User = Depends(admin_user),
+):
+    return await maybe_await(
+        AdminController.get_currency_country_mappings(
+            search=search or "",
+            status=status or "all",
+        )
+    )
+
+
+@router.patch("/currency/country-mappings/{country_code}")
+async def patch_currency_country_mapping(
+    country_code: str,
+    data: dict,
+    current_user: User = Depends(admin_user),
+):
+    return await maybe_await(
+        AdminController.patch_currency_country_mapping(country_code, data)
+    )
 
 
 @router.put("/currency-rates/{id}")
