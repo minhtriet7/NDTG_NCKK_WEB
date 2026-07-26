@@ -43,3 +43,23 @@ Thumbs.db
 !TECHNOLOGIES.md
 !requirements.txt
 !package.json
+
+# Runtime and Logs
+server/uploads/
+server/utils/logs/
+
+# Temp / Backup files
+*.safe-backup*
+*.bak
+*.backup
+*.old
+_safe_backup_anti/
+_safe_backups_from_src/
+
+# Scripts & Dump data
+server/fix.py
+server/fix_*.py
+server/debug_*.py
+server/lens_no_results.*
+server/proxy.data
+history_response_dump.json
