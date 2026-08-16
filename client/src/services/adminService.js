@@ -211,6 +211,10 @@ export const getAdminResultDetail = async (id) => {
   return await api.get(`/admin/results/${id}`);
 };
 
+export const getAdminResultDiagnostics = async (id, options = {}) => {
+  return await api.get(`/admin/results/${id}/diagnostics`, options);
+};
+
 export const updateAdminResultStatus = async (id, status) => {
   return await api.put(`/admin/results/${id}/status`, { status });
 };

@@ -35,10 +35,8 @@ def _clean_api_key(value: Optional[str]) -> Optional[str]:
 
 def _build_openai_key_trace(api_key: Optional[str], source: str) -> Dict[str, Any]:
     return {
-        "openai_key_loaded": bool(api_key),
-        "openai_key_source": source,
-        "openai_key_len": len(api_key or ""),
-        "openai_key_last4": (api_key or "")[-4:] if api_key else "",
+        "credential_configured": bool(api_key),
+        "credential_source": source,
     }
 
 

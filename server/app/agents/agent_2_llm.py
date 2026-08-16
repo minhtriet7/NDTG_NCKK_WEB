@@ -1,6 +1,7 @@
 import json
 import re
 import asyncio
+import time
 from io import BytesIO
 from typing import Any, Dict, List, Tuple, Optional
 
@@ -57,6 +58,36 @@ UNVERIFIED_ENV_ADMIN_GEMINI_MODELS = frozenset({
 AG2_UNVERIFIED_MODEL_CHAIN_WARNING = "env_admin_chain_contains_unverified_models"
 
 MAX_ATTEMPTS_PER_MODEL = 2
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, int((time.perf_counter() - started_at) * 1000))
+
+
+def _ag2_model_attempt_record(
+    model_name: str,
+    status: str,
+    started_at: float,
+    *,
+    reason: Optional[str] = None,
+    timeout_budget_ms: Optional[int] = None,
+    remaining_ag2_budget_before_ms: Optional[int] = None,
+    remaining_model_phase_budget_before_ms: Optional[int] = None,
+) -> Dict[str, Any]:
+    record = {
+        "model": model_name,
+        "status": status,
+        "duration_ms": _elapsed_ms(started_at),
+    }
+    if reason:
+        record["reason"] = reason
+    if timeout_budget_ms is not None:
+        record["timeout_budget_ms"] = timeout_budget_ms
+    if remaining_ag2_budget_before_ms is not None:
+        record["remaining_ag2_budget_before_ms"] = remaining_ag2_budget_before_ms
+    if remaining_model_phase_budget_before_ms is not None:
+        record["remaining_model_phase_budget_before_ms"] = remaining_model_phase_budget_before_ms
+    return record
 
 
 # =========================
@@ -859,6 +890,64 @@ async def _call_gemini_once(
         return response.text or ""
 
 
+async def _async_call_gemini_wrapper(
+    model_name: str,
+    prompt: str,
+    image: Image.Image,
+    temperature: float = 0.1,
+    max_output_tokens: Optional[int] = None,
+    timeout_budget_ms: Optional[int] = None,
+) -> str:
+    """
+    Native-async Gemini call via client.aio.models.generate_content().
+
+    Unlike _sync_call_gemini_wrapper this runs entirely on the event loop, so
+    asyncio.wait_for / asyncio.CancelledError work correctly — cancellation is
+    immediate and leaves no background OS thread.
+
+    SDK confirmed: google.genai.models.AsyncModels.generate_content is a true
+    coroutine (iscoroutinefunction=True) with signature:
+        async def generate_content(self, *, model: str,
+                                   contents: ...,
+                                   config: Optional[GenerateContentConfig] = None)
+    Accessed via: client.aio.models.generate_content(...)
+    """
+    try:
+        http_opts = types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1))
+        if timeout_budget_ms:
+            http_opts.timeout = timeout_budget_ms
+            
+        client = get_gemini_client()
+        
+        response = await client.aio.models.generate_content(
+            model=model_name,
+            contents=[prompt, image],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+                http_options=http_opts,
+            ),
+        )
+        return response.text or ""
+
+
+    except asyncio.CancelledError:
+        # Do NOT swallow — let the outer asyncio.wait_for timeout propagate.
+        raise
+
+    except TypeError:
+        # Fallback for older google-genai SDK versions that do not accept config.
+        try:
+            response = await get_gemini_client().aio.models.generate_content(
+                model=model_name,
+                contents=[prompt, image],
+            )
+            return response.text or ""
+        except asyncio.CancelledError:
+            raise
+
+
 # ============================================================
 # Main Agent Function
 # ============================================================
@@ -1023,7 +1112,15 @@ async def run_agent2_llm(
 
     max_attempts = getattr(settings, "AG2_GEMINI_MAX_ATTEMPTS_PER_MODEL", MAX_ATTEMPTS_PER_MODEL)
 
+    ag2_started = time.monotonic()
+    ag2_deadline = ag2_started + 95.0
+    primary_phase_max = 55.0
+    fallback_phase_max = 35.0
+
     for model_index, model_name in enumerate(selected_models):
+        phase_started = time.monotonic()
+        phase_max = primary_phase_max if model_index == 0 else fallback_phase_max
+        model_attempt_started_at = time.perf_counter()
         print(f"[Agent 2 LLM] Đang thử model: {model_name}")
         if model_trace is not None:
             model_trace["model"] = model_name
@@ -1040,14 +1137,39 @@ async def run_agent2_llm(
             if attempt > 1:
                 prompt += "\n\nLƯU Ý QUAN TRỌNG:\nLần trước kết quả thiếu trường bắt buộc (mệnh giá/quốc gia) hoặc JSON lỗi. Hãy đọc thật kỹ mệnh giá trên ảnh bằng SỐ THUẦN. Trả đúng JSON."
 
+            remaining_ag2 = ag2_deadline - time.monotonic()
+            remaining_phase = phase_max - (time.monotonic() - phase_started)
+            timeout_budget = min(remaining_ag2, remaining_phase)
+            timeout_budget_ms = int(timeout_budget * 1000)
+            rem_ag2_ms = int(remaining_ag2 * 1000)
+            rem_phase_ms = int(remaining_phase * 1000)
+
+            if timeout_budget <= 0:
+                print(f"[Agent 2 LLM] Hết thời gian cho phase/model này (còn lại {timeout_budget:.2f}s).")
+                ag2_model_attempts.append(
+                    _ag2_model_attempt_record(
+                        model_name,
+                        "timed_out",
+                        model_attempt_started_at,
+                        timeout_budget_ms=timeout_budget_ms,
+                        remaining_ag2_budget_before_ms=rem_ag2_ms,
+                        remaining_model_phase_budget_before_ms=rem_phase_ms,
+                        reason="insufficient_budget",
+                    )
+                )
+                break
+
             try:
-                raw_text = await asyncio.to_thread(
-                    _sync_call_gemini_wrapper,
-                    model_name,
-                    prompt,
-                    safe_img,
-                    resolved_temperature,
-                    max_output_tokens,
+                raw_text = await asyncio.wait_for(
+                    _async_call_gemini_wrapper(
+                        model_name,
+                        prompt,
+                        safe_img,
+                        resolved_temperature,
+                        max_output_tokens,
+                        timeout_budget_ms,
+                    ),
+                    timeout=timeout_budget
                 )
 
                 if debug_log is not None:
@@ -1093,7 +1215,16 @@ async def run_agent2_llm(
                     parsed[0]["ag2_model_chain_source_detail"] = model_chain_source_detail
                     if model_chain_warning:
                         parsed[0]["ag2_model_chain_warning"] = model_chain_warning
-                    parsed[0]["ag2_model_attempts"] = ag2_model_attempts + [{"model": model_name, "status": "completed"}]
+                    parsed[0]["ag2_model_attempts"] = ag2_model_attempts + [
+                        _ag2_model_attempt_record(
+                            model_name,
+                            "completed",
+                            model_attempt_started_at,
+                        timeout_budget_ms=timeout_budget_ms,
+                        remaining_ag2_budget_before_ms=rem_ag2_ms,
+                        remaining_model_phase_budget_before_ms=rem_phase_ms,
+                        )
+                    ]
                     parsed[0]["ag2_final_model"] = model_name
                     parsed[0]["fallback_used"] = model_index > 0
                     return json.dumps(parsed, ensure_ascii=False)
@@ -1102,9 +1233,18 @@ async def run_agent2_llm(
                 if is_experiment_request and needs_retry and pro_model and not has_retried_pro:
                     print(f"[Agent 2 LLM] Cần retry với Pro Model: {pro_model}")
                     has_retried_pro = True
+                    model_missing_fields_attempt = _ag2_model_attempt_record(
+                        model_name,
+                        "failed",
+                        model_attempt_started_at,
+                        timeout_budget_ms=timeout_budget_ms,
+                        remaining_ag2_budget_before_ms=rem_ag2_ms,
+                        remaining_model_phase_budget_before_ms=rem_phase_ms,
+                        reason="missing_fields",
+                    )
+                    pro_attempt_started_at = time.perf_counter()
                     try:
-                        pro_raw = await asyncio.to_thread(
-                            _sync_call_gemini_wrapper,
+                        pro_raw = await _async_call_gemini_wrapper(
                             pro_model,
                             prompt + "\nChú ý: Lần trước model nhỏ hơn đã không tìm ra mệnh giá hoặc quốc gia. Hãy cố gắng phân tích thật kỹ SỐ và HÌNH ẢNH.",
                             safe_img,
@@ -1123,7 +1263,17 @@ async def run_agent2_llm(
                             parsed_pro[0]["ag2_model_chain_source_detail"] = model_chain_source_detail
                             if model_chain_warning:
                                 parsed_pro[0]["ag2_model_chain_warning"] = model_chain_warning
-                            parsed_pro[0]["ag2_model_attempts"] = ag2_model_attempts + [{"model": model_name, "status": "failed", "reason": "missing_fields"}, {"model": pro_model, "status": "completed"}]
+                            parsed_pro[0]["ag2_model_attempts"] = ag2_model_attempts + [
+                                model_missing_fields_attempt,
+                                _ag2_model_attempt_record(
+                                    pro_model,
+                                    "completed",
+                                    pro_attempt_started_at,
+                                timeout_budget_ms=timeout_budget_ms,
+                                remaining_ag2_budget_before_ms=rem_ag2_ms,
+                                remaining_model_phase_budget_before_ms=rem_phase_ms,
+                                ),
+                            ]
                             parsed_pro[0]["ag2_final_model"] = pro_model
                             parsed_pro[0]["fallback_used"] = model_index > 0 or True
                             return json.dumps(parsed_pro, ensure_ascii=False)
@@ -1140,7 +1290,16 @@ async def run_agent2_llm(
                     parsed[0]["ag2_model_chain_source_detail"] = model_chain_source_detail
                     if model_chain_warning:
                         parsed[0]["ag2_model_chain_warning"] = model_chain_warning
-                    parsed[0]["ag2_model_attempts"] = ag2_model_attempts + [{"model": model_name, "status": "completed_with_missing_fields"}]
+                    parsed[0]["ag2_model_attempts"] = ag2_model_attempts + [
+                        _ag2_model_attempt_record(
+                            model_name,
+                            "completed_with_missing_fields",
+                            model_attempt_started_at,
+                        timeout_budget_ms=timeout_budget_ms,
+                        remaining_ag2_budget_before_ms=rem_ag2_ms,
+                        remaining_model_phase_budget_before_ms=rem_phase_ms,
+                        )
+                    ]
                     parsed[0]["ag2_final_model"] = model_name
                     parsed[0]["fallback_used"] = model_index > 0
                     return json.dumps(parsed, ensure_ascii=False)
@@ -1151,8 +1310,34 @@ async def run_agent2_llm(
 
                 # Nếu JSON sai thì retry cùng model
                 if attempt == max_attempts:
-                    ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": "invalid_json"})
+                    ag2_model_attempts.append(
+                        _ag2_model_attempt_record(
+                            model_name,
+                            "failed",
+                            model_attempt_started_at,
+                            timeout_budget_ms=timeout_budget_ms,
+                            remaining_ag2_budget_before_ms=rem_ag2_ms,
+                            remaining_model_phase_budget_before_ms=rem_phase_ms,
+                            reason="invalid_json",
+                        )
+                    )
                 await asyncio.sleep(1)
+
+            except asyncio.TimeoutError:
+                last_error = "timeout"
+                print(f"[Agent 2 LLM] Lỗi timeout với model {model_name} sau {timeout_budget:.2f}s.")
+                ag2_model_attempts.append(
+                    _ag2_model_attempt_record(
+                        model_name,
+                        "timed_out",
+                        model_attempt_started_at,
+                        reason="provider_timeout",
+                        timeout_budget_ms=timeout_budget_ms,
+                        remaining_ag2_budget_before_ms=rem_ag2_ms,
+                        remaining_model_phase_budget_before_ms=rem_phase_ms,
+                    )
+                )
+                break
 
             except Exception as e:
                 error_msg = str(e)
@@ -1170,7 +1355,17 @@ async def run_agent2_llm(
                 ):
                     reason_str = "quota_or_rate_limit"
                     print(f"[Agent 2 LLM] {model_name} hết quota hoặc rate limit, chuyển sang model dự phòng.")
-                    ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": reason_str})
+                    ag2_model_attempts.append(
+                        _ag2_model_attempt_record(
+                            model_name,
+                            "failed",
+                            model_attempt_started_at,
+                            timeout_budget_ms=timeout_budget_ms,
+                            remaining_ag2_budget_before_ms=rem_ag2_ms,
+                            remaining_model_phase_budget_before_ms=rem_phase_ms,
+                            reason=reason_str,
+                        )
+                    )
 
                     if model_index > 0:
                         print(f"[Agent 2 LLM] Fallback model {model_name} cũng bị rate limit, dừng sớm để tránh loop vô ích.")
@@ -1190,10 +1385,20 @@ async def run_agent2_llm(
 
                 if "not found" in error_msg.lower() or "does not exist" in error_msg.lower():
                     reason_str = "model_not_found"
-                    ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": reason_str})
+                    ag2_model_attempts.append(
+                        _ag2_model_attempt_record(
+                            model_name,
+                            "failed",
+                            model_attempt_started_at,
+                            timeout_budget_ms=timeout_budget_ms,
+                            remaining_ag2_budget_before_ms=rem_ag2_ms,
+                            remaining_model_phase_budget_before_ms=rem_phase_ms,
+                            reason=reason_str,
+                        )
+                    )
                     break
 
-                # Lỗi server thì đợi rồi retry
+                # Lỗi server
                 if (
                     "503" in error_msg
                     or "UNAVAILABLE" in error_msg
@@ -1206,19 +1411,32 @@ async def run_agent2_llm(
                     reason_str = "provider_unavailable"
                     if not primary_provider_error:
                         primary_provider_error = "high_demand"
-                    if model_index + 1 < len(selected_models):
-                        print(
-                            f"[Agent 2 LLM] {model_name} unavailable, chuyển sang model dự phòng."
+                    print(f"[Agent 2 LLM] {model_name} unavailable, chuyển model hoặc dừng.")
+                    ag2_model_attempts.append(
+                        _ag2_model_attempt_record(
+                            model_name,
+                            "failed",
+                            model_attempt_started_at,
+                            timeout_budget_ms=timeout_budget_ms,
+                            remaining_ag2_budget_before_ms=rem_ag2_ms,
+                            remaining_model_phase_budget_before_ms=rem_phase_ms,
+                            reason=reason_str,
                         )
-                        ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": reason_str})
-                        break
-                    if attempt == max_attempts:
-                        ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": reason_str})
-                    await asyncio.sleep(2)
-                    continue
+                    )
+                    break
 
                 # Lỗi khác: thử model tiếp theo
-                ag2_model_attempts.append({"model": model_name, "status": "failed", "reason": reason_str})
+                ag2_model_attempts.append(
+                    _ag2_model_attempt_record(
+                        model_name,
+                        "failed",
+                        model_attempt_started_at,
+                        timeout_budget_ms=timeout_budget_ms,
+                        remaining_ag2_budget_before_ms=rem_ag2_ms,
+                        remaining_model_phase_budget_before_ms=rem_phase_ms,
+                        reason=reason_str,
+                    )
+                )
                 break
     print("[Agent 2 LLM] Thất bại sau khi thử toàn bộ model Gemini.")
 

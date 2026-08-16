@@ -12,6 +12,7 @@ from app.schemas.user_schema import UserUpdate, ChangePasswordRequest, UserPrefe
 from app.core.config import settings
 from app.core.security import create_secure_token, get_password_hash, hash_token, verify_password
 from app.services.email_service import EmailService
+from app.services.result_payload_service import serialize_user_result
 from app.utils.cloudinary_handler import upload_image_to_cloudinary
 from app.utils.file_handler import validate_and_read_image
 
@@ -96,25 +97,7 @@ def serialize_user(user: User) -> Dict[str, Any]:
 
 
 def serialize_history(record: RecognitionRequest) -> Dict[str, Any]:
-    return {
-        "id": str(record.id),
-        "user_id": getattr(record, "user_id", None),
-        "uploaded_image_url": getattr(record, "uploaded_image_url", None),
-        "image_url": getattr(record, "uploaded_image_url", None),
-        "status": getattr(record, "status", None),
-        "final_result": getattr(record, "final_result", None),
-        "agent_results": getattr(record, "agent_results", []) or [],
-        "conversion_result": getattr(record, "conversion_result", None),
-        "task_id": getattr(record, "task_id", None),
-        "processing_time_ms": getattr(record, "processing_time_ms", None),
-        "error_message": getattr(record, "error_message", None),
-        "token_usage": getattr(record, "token_usage", {}) or {},
-        "system_tokens_charged": getattr(record, "system_tokens_charged", 0),
-        "balance_before": getattr(record, "balance_before", None),
-        "balance_after": getattr(record, "balance_after", None),
-        "created_at": getattr(record, "created_at", None),
-        "updated_at": getattr(record, "updated_at", None),
-    }
+    return serialize_user_result(record)
 
 
 def normalize_datetime(value: Optional[datetime]) -> Optional[datetime]:

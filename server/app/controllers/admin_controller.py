@@ -265,6 +265,10 @@ class AdminController:
         raise HTTPException(status_code=501, detail="Result detail is not implemented yet in the backend.")
 
     @staticmethod
+    async def get_result_diagnostics(id: str):
+        return await AdminService.get_result_diagnostics(id)
+
+    @staticmethod
     async def delete_result(id: str):
         return await AdminService.delete_result(id)
 

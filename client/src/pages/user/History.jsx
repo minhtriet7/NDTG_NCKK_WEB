@@ -1,16 +1,17 @@
-import React, { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { getMyHistory } from "../../services/userService";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../store/appStore";
 import { useCurrencyStore } from "../../store/currencyStore";
 import {
+  formatDenominationLabel,
+  normalizeUserResultResponse,
+} from "../../utils/userResultAdapter";
+import {
   Search,
   X,
   FileText,
-  Download,
   RotateCcw,
-  Eye,
-  Copy,
   Filter,
   FileSpreadsheet,
   CheckCircle2,
@@ -19,8 +20,6 @@ import {
   Cpu,
   BotMessageSquare,
   SearchCheck,
-  GitMerge,
-  FileJson,
   ChevronDown,
   ChevronUp,
   Check,
@@ -91,20 +90,33 @@ const SafeImage = ({ src, alt, className, iconClassName }) => {
 };
 
 const getRecDenom = (r) =>
-  safeStr(
-    r?.final_result?.final_denomination ||
+  formatDenominationLabel(
+    r?.summary?.denomination ||
+      r?.data?.denomination ||
+      r?.denomination ||
+      r?.final_result?.final_denomination ||
       r?.final_result?.menh_gia ||
       r?.final_result?.denomination ||
-      r?.data?.denomination ||
       r?.result?.final_result?.final_denomination ||
       r?.result?.final_result?.menh_gia,
+    r?.summary?.currency ||
+      r?.data?.currency ||
+      r?.currency ||
+      r?.final_result?.loai_tien ||
+      r?.final_result?.currency ||
+      r?.final_result?.currency_code ||
+      r?.result?.final_result?.currency ||
+      r?.result?.final_result?.currency_code,
+    "N/A",
   );
 
 const getRecCountry = (r) =>
   safeStr(
-    r?.final_result?.quoc_gia ||
-      r?.final_result?.country ||
+    r?.summary?.country ||
       r?.data?.country ||
+      r?.country ||
+      r?.final_result?.quoc_gia ||
+      r?.final_result?.country ||
       r?.result?.final_result?.quoc_gia ||
       r?.result?.final_result?.country,
   );
@@ -131,36 +143,43 @@ const inferCurrencyFromDenom = (denom) => {
 
 const getRecCurrency = (r) =>
   safeStr(
-    r?.final_result?.loai_tien ||
+    r?.summary?.currency ||
+      r?.data?.currency ||
+      r?.currency ||
+      r?.final_result?.loai_tien ||
       r?.final_result?.currency ||
       r?.final_result?.currency_code ||
-      r?.data?.currency ||
       inferCurrencyFromDenom(getRecDenom(r)),
   );
 
 const getRecMaterial = (r) =>
   safeStr(
-    r?.final_result?.chat_lieu ||
-      r?.final_result?.material ||
+    r?.summary?.material ||
       r?.data?.material ||
+      r?.material ||
+      r?.final_result?.chat_lieu ||
+      r?.final_result?.material ||
       r?.result?.final_result?.chat_lieu ||
       r?.result?.final_result?.material,
   );
 
 const getRecStatus = (r) => safeStr(r?.status || "completed").toLowerCase();
 
-const getRecConsensus = (r) =>
-  Number(
-    r?.final_result?.matched_agents ||
-      r?.final_result?.so_luong_dong_thuan ||
-      r?.consensus?.matched_agents ||
-      r?.result?.final_result?.matched_agents ||
-      0,
-  );
+const getRecConsensus = (r) => {
+  const matched =
+    r?.consensus?.matched_agents ??
+    r?.summary?.matched_agents ??
+    r?.final_result?.matched_agents ??
+    r?.final_result?.so_luong_dong_thuan ??
+    r?.result?.final_result?.matched_agents ??
+    null;
+  const number = Number(matched);
+  return Number.isFinite(number) ? number : null;
+};
 
 const normalizeAgentOutputs = (record) => {
   const agentResults =
-    record?.agent_results || record?.result?.agent_results || [];
+    record?.agent_votes || record?.agent_results || record?.result?.agent_results || [];
 
   if (Array.isArray(agentResults) && agentResults.length > 0) {
     const findAgent = (keywords) => {
@@ -169,7 +188,7 @@ const normalizeAgentOutputs = (record) => {
         return keywords.some((keyword) => agentName.includes(keyword));
       });
 
-      return found?.data || found?.result || null;
+      return found?.data || found?.result || found || null;
     };
 
     return {
@@ -265,11 +284,6 @@ const getAgentConfidence = (data) => {
   return data?.confidence || data?.do_tin_cay || data?.confidence_score;
 };
 
-const getAgentReasoning = (data) => {
-  if (Array.isArray(data)) return safeStr(data[0]?.reasoning || data[0]?.ly_do || data[0]?.giai_thich || data[0]?.quan_diem);
-  return safeStr(data?.reasoning || data?.ly_do || data?.giai_thich || data?.quan_diem);
-};
-
 const normalizeStatusLabel = (status, lang) => {
   const s = String(status || "").toLowerCase();
   if (s === "completed") return lang === "VI" ? "Hoàn thành" : "Completed";
@@ -338,9 +352,6 @@ export default function History() {
       errTitle: "Unable to load scan history",
       btnRetry: "Try again",
       modalTitle: "Analysis Detail",
-      jsonPreview: "JSON Preview",
-      btnCopy: "Copy JSON",
-      btnDownload: "Download",
       ag1: "ChatGPT Vision",
       ag2: "LLM",
       ag3: "Visual Search",
@@ -414,9 +425,6 @@ export default function History() {
       errTitle: "Không thể tải dữ liệu lịch sử",
       btnRetry: "Thử lại",
       modalTitle: "Chi Tiết Phân Tích",
-      jsonPreview: "Dữ liệu JSON",
-      btnCopy: "Sao chép JSON",
-      btnDownload: "Tải xuống",
       ag1: "Phân tích ChatGPT Vision",
       ag2: "Phân tích LLM",
       ag3: "Tìm kiếm Hình ảnh",
@@ -469,7 +477,11 @@ export default function History() {
     try {
       const data = await getMyHistory();
 
-      const sorted = (Array.isArray(data) ? data : []).sort(
+      const normalized = (Array.isArray(data) ? data : []).map(
+        (record) => normalizeUserResultResponse(record) || record,
+      );
+
+      const sorted = normalized.sort(
         (a, b) => new Date(b.created_at) - new Date(a.created_at),
       );
 
@@ -484,6 +496,7 @@ export default function History() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -520,9 +533,9 @@ export default function History() {
       }
 
       let matchConsensus = true;
-      if (consensusFilter === "3") matchConsensus = consensus >= 3;
+      if (consensusFilter === "3") matchConsensus = consensus !== null && consensus >= 3;
       if (consensusFilter === "2") matchConsensus = consensus === 2;
-      if (consensusFilter === "conflict") matchConsensus = consensus < 2;
+      if (consensusFilter === "conflict") matchConsensus = consensus !== null && consensus < 2;
 
       let matchDate = true;
       const diffTime = Math.abs(now - date);
@@ -589,6 +602,7 @@ export default function History() {
 
   const agentsList = useMemo(() => {
     if (!selectedRecord) return [];
+    if (Array.isArray(selectedRecord.agent_votes)) return selectedRecord.agent_votes;
     if (Array.isArray(selectedRecord.agent_results)) return selectedRecord.agent_results;
     if (Array.isArray(selectedRecord.result?.agent_results)) return selectedRecord.result.agent_results;
 
@@ -684,7 +698,7 @@ export default function History() {
         getRecCurrency(r),
         getRecCountry(r),
         getRecStatus(r),
-        `${getRecConsensus(r)}/3`,
+        getRecConsensus(r) === null ? "N/A" : String(getRecConsensus(r)),
         "1",
       ];
     });
@@ -707,26 +721,6 @@ export default function History() {
     document.body.removeChild(link);
 
     toast.success("CSV Exported successfully!");
-  };
-
-  const handleCopy = async (data) => {
-    await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-    toast.success("JSON copied to clipboard!");
-  };
-
-  const handleDownloadJSON = (data, id) => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: "application/json",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = `scan_${id || new Date().getTime()}.json`;
-    link.click();
-
-    URL.revokeObjectURL(url);
   };
 
   const resetFilters = () => {
@@ -1555,58 +1549,6 @@ export default function History() {
                 )}
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h3
-                    className={`text-lg font-bold flex items-center gap-2 ${
-                      isDark ? "text-white" : "text-slate-900"
-                    }`}
-                  >
-                    <FileJson className="w-5 h-5 text-slate-400" />
-                    {t.jsonPreview}
-                  </h3>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleCopy(selectedRecord)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold ${
-                        isDark
-                          ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <Copy size={14} />
-                      {t.btnCopy}
-                    </button>
-
-                    <button
-                      onClick={() =>
-                        handleDownloadJSON(selectedRecord, selectedRecord.id)
-                      }
-                      className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg text-xs font-bold ${
-                        isDark
-                          ? "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <Download size={14} />
-                      {t.btnDownload}
-                    </button>
-                  </div>
-                </div>
-
-                <div
-                  className={`p-4 rounded-2xl overflow-hidden border shadow-inner ${
-                    isDark
-                      ? "bg-slate-900 border-slate-800"
-                      : "bg-[#1E293B] border-slate-800"
-                  }`}
-                >
-                  <pre className="text-xs text-teal-300 font-mono leading-relaxed max-h-[300px] overflow-auto whitespace-pre-wrap scrollbar-thin scrollbar-thumb-slate-700">
-                    {JSON.stringify(selectedRecord, null, 2)}
-                  </pre>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -1801,9 +1743,23 @@ function HistoryObjectCard({ object, index, isDark, t, lang, rootImage, ratesDat
   const rawStatus = object?.final_result?.status || object?.summary?.status || object?.status || "Completed";
   const status = normalizeStatusLabel(rawStatus, lang);
   
-  const matchedAgents = Number(object?.final_result?.matched_agents || object?.summary?.matched_agents || 0);
-
-  const bboxText = object?.bbox ? `[${object.bbox.join(", ")}]` : null;
+  const matchedRaw =
+    object?.final_result?.matched_agents ??
+    object?.summary?.matched_agents ??
+    null;
+  const matchedNumber = Number(matchedRaw);
+  const matchedAgents = Number.isFinite(matchedNumber) ? matchedNumber : null;
+  const totalAgents =
+    object?.final_result?.total_agents ||
+    object?.summary?.total_agents ||
+    object?.agent_votes?.length ||
+    null;
+  const consensusText =
+    matchedAgents === null
+      ? "N/A"
+      : totalAgents
+        ? `${matchedAgents}/${totalAgents}`
+        : String(matchedAgents);
 
   // Extract Currency & Material
   const firstFinal = object?.final_result || {};
@@ -1832,8 +1788,9 @@ function HistoryObjectCard({ object, index, isDark, t, lang, rootImage, ratesDat
   }
 
   // Get dynamic agents list
-  const agentsList = useMemo(() => {
+    const agentsList = useMemo(() => {
     if (!object) return [];
+    if (Array.isArray(object.agent_votes)) return object.agent_votes;
     if (Array.isArray(object.agent_results)) return object.agent_results;
     if (Array.isArray(object.result?.agent_results)) return object.result.agent_results;
     
@@ -1864,9 +1821,9 @@ function HistoryObjectCard({ object, index, isDark, t, lang, rootImage, ratesDat
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className={`flex items-center justify-center w-9 h-9 rounded-xl font-black text-sm shrink-0 ${
-              matchedAgents >= 3
+              matchedAgents !== null && matchedAgents >= 3
                 ? "bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-400"
-                : matchedAgents >= 2
+                : matchedAgents !== null && matchedAgents >= 2
                 ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
                 : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
             }`}>
@@ -1885,14 +1842,14 @@ function HistoryObjectCard({ object, index, isDark, t, lang, rootImage, ratesDat
           </div>
           <div className="flex items-center gap-3 sm:ml-auto">
             <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black border whitespace-nowrap ${
-              matchedAgents >= 3
+              matchedAgents !== null && matchedAgents >= 3
                 ? "bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-500/20 dark:text-teal-300 dark:border-teal-500/30"
-                : matchedAgents >= 2
+                : matchedAgents !== null && matchedAgents >= 2
                 ? "bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/30"
                 : "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30"
             }`}>
               <Check size={10} strokeWidth={3} />
-              {matchedAgents}/3 {lang === "VI" ? "Khớp" : "Matched"}
+              {consensusText} {lang === "VI" ? "Khớp" : "Matched"}
             </span>
             {hasAgents && (
               <button
@@ -1944,7 +1901,7 @@ function HistoryObjectCard({ object, index, isDark, t, lang, rootImage, ratesDat
           <InfoRow label={t.currencyLabel} value={currency} />
           <InfoRow label={t.materialLabel} value={material} />
           <InfoRow label={t.vndEquivalent} value={convertedText} />
-          <InfoRow label={t.consensusLabel} value={`${matchedAgents}/3 agents`} />
+          <InfoRow label={t.consensusLabel} value={matchedAgents === null ? "N/A" : `${consensusText} agents`} />
         </div>
       </div>
 

@@ -1032,7 +1032,7 @@ def _run_ag0_on_candidates(
         )
         logger.info(
             "[AG0/Gate] source=%s bbox=[%s,%s,%s,%s] "
-            "action=%s banknote_score=%.4f document_score=%.4f agent_eligible=%s "
+            "action=%s banknote_score=%.4f document_score=%.4f agent_eligible=%s reason_code=%s "
             "positive=%s negative=%s",
             source,
             x1,
@@ -1043,6 +1043,7 @@ def _run_ag0_on_candidates(
             _safe_float(ag0_result.get("banknote_score"), 0.0),
             _safe_float(ag0_result.get("document_score"), 0.0),
             bool(ag0_result.get("agent_eligible", action != "DROP")),
+            ag0_result.get("gate_reason_code") or "unknown",
             ag0_result.get("positive_evidence") or [],
             ag0_result.get("negative_evidence") or [],
         )
@@ -1094,6 +1095,12 @@ def _run_ag0_on_candidates(
             "low_light_banknote_protection": bool(
                 ag0_result.get("low_light_banknote_protection", False)
             ),
+            "full_frame_banknote_review_allowed": bool(
+                ag0_result.get("full_frame_banknote_review_allowed", False)
+            ),
+            "gate_reason_code": str(
+                ag0_result.get("gate_reason_code") or ""
+            ),
             "yolo_review_threshold": _safe_float(
                 ag0_result.get("yolo_review_threshold"),
                 0.74,
@@ -1127,6 +1134,10 @@ def _run_ag0_on_candidates(
                 "low_light_banknote_protection": crop_checker_meta[
                     "low_light_banknote_protection"
                 ],
+                "full_frame_banknote_review_allowed": crop_checker_meta[
+                    "full_frame_banknote_review_allowed"
+                ],
+                "gate_reason_code": crop_checker_meta["gate_reason_code"],
                 "yolo_review_threshold": crop_checker_meta[
                     "yolo_review_threshold"
                 ],
@@ -1144,6 +1155,109 @@ def _run_ag0_on_candidates(
         provider_label, len(candidates), keep_count, review_count, drop_count,
     )
     return {"valid": valid, "dropped": dropped}
+
+
+def _build_original_image_fallback_candidate(
+    dropped_candidates: List[Dict[str, Any]],
+    image_w: int,
+    image_h: int,
+) -> Optional[Dict[str, Any]]:
+    """Build one guarded original-image fallback from a safe YOLO REVIEW."""
+    total_area = max(1, image_w * image_h)
+
+    for dropped in dropped_candidates:
+        source = str(dropped.get("source") or "").lower()
+        crop_checker = dropped.get("crop_checker") or {}
+        metrics = crop_checker.get("metrics") or {}
+        bbox = dropped.get("bbox") or []
+
+        if source != "yolo_crop":
+            continue
+        if str(dropped.get("ag0_action") or crop_checker.get("ag0_action") or "").upper() != "REVIEW":
+            continue
+
+        banknote_score = _safe_float(
+            dropped.get("banknote_score", crop_checker.get("banknote_score")),
+            0.0,
+        )
+        document_score = _safe_float(
+            dropped.get("document_score", crop_checker.get("document_score")),
+            0.0,
+        )
+        aspect_ratio = _safe_float(metrics.get("aspect_ratio"), 1.0)
+        area_ratio = _safe_float(metrics.get("area_ratio"), 0.0)
+        if not area_ratio and len(bbox) == 4:
+            area_ratio = _box_area(tuple(int(v) for v in bbox)) / float(total_area)
+
+        texture = _safe_float(metrics.get("texture_variance"), 0.0)
+        edge_density = _safe_float(metrics.get("edge_density"), 0.0)
+        contrast = _safe_float(metrics.get("contrast"), 0.0)
+        quality_support_count = sum((
+            texture >= 20.0,
+            0.012 <= edge_density <= 0.28,
+            contrast >= 8.0,
+        ))
+
+        strong_document = bool(
+            crop_checker.get("poster_layout_reject")
+            or (
+                _safe_float(metrics.get("layout_clutter_score"), 0.0) >= 0.60
+                and (
+                    int(_safe_float(metrics.get("layout_panel_count"), 0.0)) >= 5
+                    or int(_safe_float(metrics.get("circle_like_count"), 0.0)) >= 3
+                )
+            )
+            or (
+                _safe_float(metrics.get("long_line_density"), 0.0) >= 0.72
+                and _safe_float(metrics.get("rectangle_like_density"), 0.0) >= 0.10
+            )
+        )
+
+        safe_review = (
+            area_ratio >= 0.90
+            and 1.2 <= aspect_ratio <= 3.5
+            and quality_support_count >= 2
+            and banknote_score >= 0.70
+            and document_score <= 0.35
+            and (banknote_score - document_score) >= 0.30
+            and not strong_document
+        )
+
+        if not safe_review:
+            continue
+
+        fallback_ag0 = dict(crop_checker)
+        fallback_ag0["action"] = "REVIEW"
+        fallback_ag0["ag0_action"] = "REVIEW"
+        fallback_ag0["agent_eligible"] = True
+        fallback_ag0["agent_eligible_shadow"] = True
+        fallback_ag0["full_frame_banknote_review_allowed"] = True
+        fallback_ag0["gate_reason_code"] = "full_frame_banknote_review_allowed"
+        fallback_ag0["decision_reason"] = (
+            str(fallback_ag0.get("decision_reason") or "")
+            + " | original_image_fallback_allowed after safe near-full-frame YOLO REVIEW."
+        ).strip(" |")
+
+        logger.info(
+            "[AG0/Gate] original_image_fallback_allowed bbox=%s banknote_score=%.4f document_score=%.4f",
+            bbox,
+            banknote_score,
+            document_score,
+        )
+        return {
+            "box": (0, 0, image_w, image_h),
+            "_expanded_box": (0, 0, image_w, image_h),
+            "score": float(total_area),
+            "source": "original_image_fallback",
+            "fallback": True,
+            "fallback_reason": "safe_near_full_frame_yolo_review",
+            "original_candidate_bbox": bbox,
+            "yolo_conf": crop_checker.get("yolo_conf"),
+            "yolo_class": "banknote",
+            "_ag0_result": fallback_ag0,
+        }
+
+    return None
 
 
 def _apply_nms_merge_nested(
@@ -1396,7 +1510,26 @@ def detect_banknote_objects(
 
         box_selection_trace["providers"].append(opencv_trace)
 
-    # -- Phase 3: Nếu vẫn không có valid candidate -> trả list rỗng ---------------
+    # -- Phase 3: If no valid candidate remains, try one guarded original fallback.
+    if not valid_candidates:
+        original_fallback = _build_original_image_fallback_candidate(
+            ag0_dropped_all,
+            image_w,
+            image_h,
+        )
+        if original_fallback:
+            crop_provider = "original_image_fallback"
+            valid_candidates = [original_fallback]
+            box_selection_trace["original_image_fallback"] = {
+                "source": "original_image_fallback",
+                "reason": original_fallback.get("fallback_reason"),
+                "ag0_decision": (
+                    original_fallback.get("_ag0_result") or {}
+                ).get("ag0_action"),
+                "agent_eligible": True,
+                "original_bbox": original_fallback.get("original_candidate_bbox"),
+            }
+
     if not valid_candidates:
         logger.info(
             "[AG0] All candidates dropped by AG0 Checker. "
@@ -1546,6 +1679,12 @@ def detect_banknote_objects(
             "low_light_banknote_protection": bool(
                 ag0_result.get("low_light_banknote_protection", False)
             ),
+            "full_frame_banknote_review_allowed": bool(
+                ag0_result.get("full_frame_banknote_review_allowed", False)
+            ),
+            "gate_reason_code": str(
+                ag0_result.get("gate_reason_code") or ""
+            ),
             "yolo_review_threshold": _safe_float(
                 ag0_result.get("yolo_review_threshold"),
                 0.74,
@@ -1601,7 +1740,9 @@ def detect_banknote_objects(
                 "width": int(crop_w),
                 "height": int(crop_h),
                 "source": item.get("source", "unknown"),
-                "fallback": False,
+                "fallback": bool(item.get("fallback", False)),
+                "fallback_reason": item.get("fallback_reason"),
+                "original_candidate_bbox": item.get("original_candidate_bbox"),
                 # Fields bổ sung — không phá schema cũ
                 "crop_provider": crop_provider,
                 "yolo_conf": item.get("yolo_conf"),
@@ -1628,6 +1769,10 @@ def detect_banknote_objects(
                 "low_light_banknote_protection": crop_checker_meta[
                     "low_light_banknote_protection"
                 ],
+                "full_frame_banknote_review_allowed": crop_checker_meta[
+                    "full_frame_banknote_review_allowed"
+                ],
+                "gate_reason_code": crop_checker_meta["gate_reason_code"],
                 "yolo_review_threshold": crop_checker_meta[
                     "yolo_review_threshold"
                 ],

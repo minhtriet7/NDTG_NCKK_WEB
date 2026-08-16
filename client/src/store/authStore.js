@@ -16,7 +16,42 @@ export function getUserAvatar(user) {
     user?.user?.photoURL ||
     "";
 
-  return typeof value === "string" ? value.trim() : "";
+  if (!value || typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (trimmed === "null" || trimmed === "undefined" || trimmed === "none") return "";
+  return trimmed;
+}
+
+export function isUserAdmin(user) {
+  if (!user) return false;
+  const role = String(
+    user?.role?.name ||
+      user?.role ||
+      user?.user_role ||
+      user?.user?.role ||
+      (user?.is_admin ? "admin" : "")
+  ).trim().toLowerCase();
+
+  return ["admin", "administrator", "super_admin", "superadmin"].includes(role);
+}
+
+export function getAdminInitials(user) {
+  const nameStr = String(
+    user?.full_name ||
+      user?.name ||
+      user?.display_name ||
+      user?.email?.split("@")[0] ||
+      "Admin"
+  ).trim();
+
+  const parts = nameStr.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+  if (parts.length === 1 && parts[0].length >= 2) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return String(parts[0]?.[0] || "A").toUpperCase();
 }
 
 export function getAvatarImageSrc(user) {

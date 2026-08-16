@@ -37,6 +37,33 @@ function SkeletonItem() {
   );
 }
 
+function formatDenominationDisplay(denomination, currency) {
+  if (denomination === undefined || denomination === null || denomination === "") return "";
+  const str = String(denomination).trim();
+  if (!str) return "";
+
+  const match = str.match(/^([\d.,\s]+)(.*)$/);
+  if (match) {
+    const rawNumStr = match[1].replace(/[.,\s]/g, "");
+    const number = Number(rawNumStr);
+    if (Number.isFinite(number) && rawNumStr.length > 0) {
+      const formattedNum = number.toLocaleString("en-US");
+      const rest = match[2].trim();
+      const code = String(currency || "").trim().toUpperCase();
+
+      if (code && (rest.toUpperCase() === code || !rest)) {
+        return `${formattedNum} ${code}`;
+      }
+      if (rest) {
+        return `${formattedNum} ${rest}`;
+      }
+      return formattedNum;
+    }
+  }
+
+  return str;
+}
+
 export default function RecentHistorySide() {
   const [history, setHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -128,22 +155,40 @@ export default function RecentHistorySide() {
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {history.map((item, i) => {
+              const summary = item?.summary || item?.data || {};
               const finalResult = item?.final_result || {};
-              const denomination =
+
+              const rawDenomination =
+                summary?.denomination ||
+                summary?.final_denomination ||
+                summary?.menh_gia ||
                 finalResult?.final_denomination ||
                 finalResult?.menh_gia ||
                 finalResult?.denomination ||
-                "N/A";
+                item?.denomination;
+
               const country =
+                summary?.country ||
+                summary?.quoc_gia ||
+                summary?.origin ||
                 finalResult?.final_country ||
                 finalResult?.quoc_gia ||
                 finalResult?.country ||
+                item?.country ||
                 "";
+
               const currency =
+                summary?.currency ||
+                summary?.currency_code ||
+                summary?.ma_tien_te ||
                 finalResult?.final_currency ||
                 finalResult?.currency ||
                 finalResult?.tien_te ||
+                item?.currency ||
                 "";
+
+              const formattedDenom = formatDenominationDisplay(rawDenomination, currency);
+              const denomination = formattedDenom || "N/A";
               const identity = [country, currency].filter(Boolean).join(" · ");
               const imageUrl = item?.uploaded_image_url;
               const isValidUrl =

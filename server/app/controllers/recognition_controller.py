@@ -1,13 +1,14 @@
 from fastapi import UploadFile, HTTPException
 
 from app.models.user_model import User
-from app.services.recognition_service import RecognitionService, serialize_result
+from app.services.recognition_service import RecognitionService
+from app.services.result_payload_service import serialize_user_result
 
 
 def _serialize_record_or_payload(value):
     if isinstance(value, dict):
         return dict(value)
-    return serialize_result(value)
+    return serialize_user_result(value)
 
 
 def _derive_currency(denomination: str) -> str:
@@ -162,7 +163,7 @@ class RecognitionController:
                 "Không phát hiện tiền giấy. AI Agent không chạy và token không bị trừ."
             )
         else:
-            charged = int(payload.get("system_tokens_charged") or 0)
+            charged = int(payload.get("credits_charged") or 0)
             payload["message"] = (
                 f"Banknote recognized successfully. {charged} Token deducted."
             )
@@ -184,9 +185,16 @@ class RecognitionController:
         return await RecognitionService.get_task_status(user, task_id)
 
     @staticmethod
+    async def get_task_light_status(user: User, task_id: str):
+        return await RecognitionService.get_task_light_status(user, task_id)
+
+    @staticmethod
+    async def cancel_task(user: User, task_id: str):
+        return await RecognitionService.cancel_recognition_task(user, task_id)
+
+    @staticmethod
     async def get_result_detail(user: User, record_id: str):
-        result = await RecognitionService.get_recognition_by_id(str(user.id), record_id)
-        return _format_result_detail(result)
+        return await RecognitionService.get_recognition_by_id(str(user.id), record_id)
 
     @staticmethod
     async def debug_recognize(user: User, file: UploadFile):

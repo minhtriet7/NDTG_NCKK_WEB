@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 
 class AgentsConfigSchema(BaseModel):
@@ -90,6 +90,17 @@ class GoogleLensConfigSchema(BaseModel):
     no_cache: bool = True
     raw_fallback_enabled: bool = True
     formatter_model: str = "gemini-2.5-flash"
+
+
+class AdminDiagnosticsResponse(BaseModel):
+    record: Dict[str, Any] = Field(default_factory=dict)
+    task: Optional[Dict[str, Any]] = None
+    result: Dict[str, Any] = Field(default_factory=dict)
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+    billing: Dict[str, Any] = Field(default_factory=dict)
+    timing: Dict[str, Any] = Field(default_factory=dict)
+    technical_errors: Dict[str, Any] = Field(default_factory=dict)
+    raw: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SystemSettingsSchema(BaseModel):

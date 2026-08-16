@@ -7,7 +7,6 @@ import { useAppStore } from "../../store/appStore";
 import { useRecognitionStore } from "../../store/recognitionStore";
 import {
   clearActiveRecognitionTask,
-  getRecognitionTaskStatus,
 } from "../../services/recognitionService";
 
 import UploadZone from "../../components/workspace/UploadZone";
@@ -49,7 +48,6 @@ export default function Recognition() {
   const {
     activeTask,
     scanNonce,
-    getFreshActiveTask,
     clearActiveTask,
     resetScanSession,
   } = useRecognitionStore();
@@ -110,76 +108,6 @@ export default function Recognition() {
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, resetScanSession, navigate, location.pathname]);
-
-  useEffect(() => {
-    if (location.state?.resetScan) return undefined;
-
-    const task = getFreshActiveTask();
-    if (!task?.taskId) return undefined;
-
-    let cancelled = false;
-    let timerId = null;
-
-    const terminalStatuses = new Set([
-      "completed", "completed_with_review", "completed_partial",
-      "completed_with_limit", "no_banknote_detected", "needs_better_image",
-      "needs_review", "agent_error", "technical_error", "failed",
-      "timeout", "cancelled", "canceled", "error", "done", "success",
-    ]);
-
-    const normalizeStatus = (value) =>
-      String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-
-    const checkTask = async () => {
-      try {
-        const response = await getRecognitionTaskStatus(task.taskId);
-        if (cancelled) return;
-
-        const payload = response?.data ?? response ?? {};
-        const result =
-          payload?.result || payload?.data?.result || payload?.recognition || null;
-        const statuses = [
-          payload?.status,
-          payload?.result_status,
-          result?.status,
-          result?.final_result?.status,
-        ].map(normalizeStatus);
-
-        if (statuses.some((s) => terminalStatuses.has(s))) {
-          setCompletedTask({
-            taskId: task.taskId,
-            result: result || payload,
-            previewUrl:
-              result?.input_image_url ||
-              result?.uploaded_image_url ||
-              payload?.input_image_url ||
-              payload?.uploaded_image_url ||
-              null,
-          });
-          clearActiveTask();
-          clearActiveRecognitionTask();
-          return;
-        }
-
-        timerId = window.setTimeout(checkTask, 3000);
-      } catch (error) {
-        if (cancelled) return;
-        if (error?.response?.status === 404) {
-          clearActiveTask();
-          clearActiveRecognitionTask();
-          return;
-        }
-        timerId = window.setTimeout(checkTask, 5000);
-      }
-    };
-
-    checkTask();
-
-    return () => {
-      cancelled = true;
-      if (timerId) window.clearTimeout(timerId);
-    };
-  }, [activeTask?.taskId, clearActiveTask, getFreshActiveTask, location.state?.resetScan]);
 
   return (
     <div className="min-h-screen bg-slate-100/70 pb-20 dark:bg-slate-950">

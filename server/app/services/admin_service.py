@@ -6,6 +6,7 @@ from fastapi import HTTPException, UploadFile
 
 from app.models.user_model import User
 from app.models.recognition_model import RecognitionRequest
+from app.models.recognition_task_model import RecognitionTask
 from app.models.banknote_model import Banknote
 from app.models.transaction_model import Transaction
 from app.models.token_package_model import TokenPackage
@@ -16,6 +17,10 @@ from app.models.currency_model import CurrencyRate, CurrencyRateSyncLog
 
 from app.services.currency_service import CurrencyService
 from app.services.payment_service import PaymentService
+from app.services.result_payload_service import (
+    serialize_admin_diagnostics,
+    serialize_admin_result_summary,
+)
 from app.utils.cloudinary_handler import upload_image_to_cloudinary
 from app.utils.file_handler import validate_and_read_image
 
@@ -862,7 +867,33 @@ class AdminService:
     @staticmethod
     async def get_all_results() -> List[Dict[str, Any]]:
         results = await RecognitionRequest.find_all().sort("-created_at").to_list()
-        return [serialize_result(result) for result in results]
+        return [serialize_admin_result_summary(result) for result in results]
+
+    @staticmethod
+    async def get_result_detail(result_id: str) -> Dict[str, Any]:
+        result = await RecognitionRequest.get(to_object_id(result_id))
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Recognition result not found.")
+
+        return serialize_result(result)
+
+    @staticmethod
+    async def get_result_diagnostics(result_id: str) -> Dict[str, Any]:
+        result = await RecognitionRequest.get(to_object_id(result_id))
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Recognition result not found.")
+
+        task = None
+        task_id = getattr(result, "task_id", None)
+        if task_id:
+            try:
+                task = await RecognitionTask.get(to_object_id(str(task_id)))
+            except HTTPException:
+                task = None
+
+        return serialize_admin_diagnostics(result, task)
 
     @staticmethod
     async def delete_result(result_id: str) -> Dict[str, Any]:

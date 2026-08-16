@@ -178,6 +178,47 @@
     "logoutConfirmDesc": "Are you sure you want to log out of your account?",
     "cancel": "Cancel"
   },
+  "admin": {
+    "panel": "Admin Panel",
+    "userApp": "User App",
+    "changeLanguage": "Change language",
+    "changeTheme": "Change theme",
+    "logout": "Logout",
+    "adminUser": "Admin User",
+    "nav": {
+      "overviewGroup": "Overview",
+      "dashboard": "Dashboard",
+      "usersGroup": "User & Payments",
+      "users": "Users",
+      "tokenPackages": "Token Packages",
+      "transactions": "Transactions",
+      "feedbacks": "Feedbacks",
+      "recognitionGroup": "Recognition Data",
+      "results": "Results",
+      "experiments": "Experiments",
+      "banknotes": "Banknotes",
+      "currencyRates": "Currency Rates",
+      "agentsGroup": "AI Agents",
+      "agentsManager": "Agents Manager",
+      "agentsConfig": "Agents Config",
+      "aggregator": "Aggregator",
+      "systemGroup": "System",
+      "systemLogs": "System Logs",
+      "settings": "Settings",
+      "contentManager": "Content Manager"
+    }
+  },
+  "globalTracker": {
+    "analysisComplete": "Analysis Complete!",
+    "resultReady": "Your result is ready.",
+    "viewResult": "View Result",
+    "backgroundFailed": "Background analysis failed."
+  },
+  "legal": {
+    "policyTitle": "Legal & Policy",
+    "documentBadge": "Legal Document",
+    "lastUpdated": "Last updated:"
+  },
   "exchange": {
     "title": "Market Exchange Converter",
     "subtitle": "Convert supported currencies using the latest rates cached by BanknoteAI.",

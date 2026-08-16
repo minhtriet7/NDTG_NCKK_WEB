@@ -1,28 +1,30 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
-import toast from "react-hot-toast";
 
 import { useCurrencyStore } from "../../store/currencyStore";
 import { useRecognitionStore } from "../../store/recognitionStore";
 import { useLanguageStore } from "../../store/languageStore";
-import { getRecognitionTaskStatus, getRecognitionResult } from "../../services/recognitionService";
+import { useAuthStore } from "../../store/authStore";
+import { getRecognitionTaskLightStatus, getRecognitionResult } from "../../services/recognitionService";
+import {
+  formatDenominationLabel,
+  formatRecordedBoolean,
+  getNormalizedAg3Decision,
+  getNormalizedConsensus,
+  normalizeUserResultResponse,
+} from "../../utils/userResultAdapter";
 import {
   buildRecognitionRestoreKey,
-  buildMoneyCanonical,
-  findBackendValidVote,
+  formatCountryDisplay,
   formatSuggestedResultText,
   getAg3FormatterLabel,
-  getAg3MethodLabel,
   getAg3ProviderLabel,
   getCropPreviewSource,
+  getPublicAgentExplanation,
   inferMoneyCurrency,
-  isSameMoneyVote,
   normalizeConsensusAgentKey,
-  normalizeCurrencyCode,
-  normalizeMoneyText,
   parseMoneyAmount,
-  resolveAgentVoteStatus,
   shouldRefetchRecognitionResult,
 } from "../../utils/agentVote";
 
@@ -31,35 +33,25 @@ import {
   ChevronDown,
   ChevronUp,
   Coins,
-  Copy,
-  Cpu,
-  Download,
-  FileJson,
   History,
   MessageSquare,
   RotateCcw,
-  Wallet,
   CheckCircle2,
   AlertTriangle,
+  Clock,
   Globe,
-  Layers,
-  Zap,
-  BrainCircuit,
-  ScanSearch,
   TrendingUp,
-  ChevronRight,
   Hash,
   Calendar,
-  Check,
   Image as ImageIcon,
   ExternalLink,
   Maximize2,
   X,
-  ShieldCheck,
-  Gauge,
   Brain,
   Gavel,
   ScanLine,
+  ShieldCheck,
+  Search,
 } from "lucide-react";
 
 const normalizeText = (value) => {
@@ -160,12 +152,168 @@ const isInvalidConclusionResult = (item) => {
 
 const formatScore = (value) => {
   const n = Number(value);
-  if (!Number.isFinite(n)) return "—";
+  if (!Number.isFinite(n)) return "Not recorded";
   return n <= 1 ? n.toFixed(3) : n.toFixed(1);
 };
 
 const firstDefined = (...values) =>
   values.find((value) => value !== undefined && value !== null);
+
+const toFiniteOrNull = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
+const toBooleanOrNull = (value) => {
+  if (value === true || value === false) return value;
+  if (value === null || value === undefined || value === "") return null;
+  const text = String(value).trim().toLowerCase();
+  if (["true", "yes", "1"].includes(text)) return true;
+  if (["false", "no", "0"].includes(text)) return false;
+  return null;
+};
+
+const formatConsensusScoreText = (matched, total, fallback = "Not recorded", pattern = null) => {
+  const explicitPattern = String(pattern || "").trim();
+  if (explicitPattern) return explicitPattern;
+  if (matched === null || matched === undefined || total === null || total === undefined) {
+    return fallback;
+  }
+  return `${matched}/${total}`;
+};
+
+const getStrictConsensusMatchedCount = (consensusState, ag3Decision, fallback = null) => {
+  return toFiniteOrNull(consensusState?.matchedAgents) ?? toFiniteOrNull(fallback);
+};
+
+const getAg3DecisionMessage = (decision, lang) => {
+  const isVi = lang === "VI";
+
+  if (decision?.technicalError) {
+    if ((decision?.timeoutStage === "upload" || decision?.technicalStage === "upload") && decision?.searchPerformed === false) {
+      return isVi
+        ? "Quá trình xác minh Google Lens không thể bắt đầu vì không thể tải lên ảnh cắt."
+        : "Google Lens verification could not start because the crop image upload failed.";
+    }
+    return isVi
+      ? "Nhánh Google Lens không thể chạy vì nhà cung cấp SerpAPI trả về lỗi."
+      : "Google Lens verification could not run because the SerpAPI provider returned an error.";
+  }
+
+  if (decision?.searchPerformed === true && decision?.rawCount === 0) {
+    return isVi
+      ? "Google Lens không tìm thấy kết quả nào (0 results)."
+      : "Google Lens found no results.";
+  }
+
+  if (decision?.voteCreated && decision?.counted && decision?.matched) {
+    return isVi
+      ? `Google Lens đã tạo một phiếu từ mức đồng thuận ${decision.agreementPattern || "3/5"} và phiếu này được tính vào kết quả cuối.`
+      : `Google Lens created one vote from ${decision.agreementPattern || "3/5"} agreement and it was counted in the final result.`;
+  }
+  if (decision?.voteCreated && decision?.counted) {
+    return isVi
+      ? "Google Lens đã tạo một phiếu hợp lệ, nhưng phiếu không thuộc nhóm đồng thuận đa số."
+      : "Google Lens created a valid vote, but it was not part of the final majority consensus group.";
+  }
+  if (decision?.voteCreated) {
+    return isVi
+      ? "Google Lens đã tạo một phiếu hợp lệ, nhưng phiếu không được tính vào đồng thuận do không đủ điều kiện."
+      : "Google Lens created a valid vote, but it was not counted in the consensus.";
+  }
+
+  const totalSources = Math.max(
+    decision?.selectedSourceCount || 0,
+    decision?.candidateSourceCount || 0,
+  );
+
+  if (totalSources >= 3) {
+    return isVi
+      ? `AG3 đã xem xét ${totalSources} nguồn độc lập, nhưng chỉ có ${decision?.majorityAchieved || 0} nguồn cùng xác nhận kết quả chính xác. Cần ít nhất 3 nguồn khớp nhau.`
+      : `AG3 reviewed ${totalSources} independent sources, but only ${decision?.majorityAchieved || 0} supported the same exact identity. At least 3 matching sources are required.`;
+  }
+
+  if (totalSources === 0) {
+    return isVi
+      ? "Google Lens không tìm thấy nguồn độc lập phù hợp nào."
+      : "Google Lens found no usable independent sources.";
+  }
+
+  return isVi
+    ? `Google Lens chỉ tìm được ${totalSources} nguồn độc lập phù hợp; cần tối thiểu 3 nguồn để AG3 có thể biểu quyết.`
+    : `Google Lens found only ${totalSources} independent usable source${totalSources === 1 ? "" : "s"}; at least 3 are required before AG3 can vote.`;
+};
+
+const hasAdminResultAccess = (user) => {
+  const role = String(
+    user?.role ||
+      user?.user_role ||
+      user?.account_type ||
+      user?.user?.role ||
+      "",
+  ).toLowerCase();
+
+  return Boolean(
+    user?.is_admin ||
+      user?.isAdmin ||
+      user?.user?.is_admin ||
+      ["admin", "administrator", "super_admin", "superadmin"].includes(role),
+  );
+};
+
+const getPublicBilling = (item) => {
+  const creditsCharged = firstDefined(
+    item?.app_tokens_charged,
+    item?.credits_charged,
+    item?.billing?.app_tokens_charged,
+    item?.billing?.credits_charged,
+    item?.billing?.charged_tokens,
+    item?.result?.credits_charged,
+    item?.result?.billing?.app_tokens_charged,
+    item?.result?.billing?.credits_charged,
+  );
+  const billingMode = firstDefined(
+    item?.billing?.billing_mode,
+    item?.billing?.mode,
+    item?.billing_mode,
+    item?.result?.billing?.billing_mode,
+    item?.result?.billing?.mode,
+    item?.result?.billing_mode,
+  );
+  const skipped = firstDefined(
+    item?.billing?.skipped,
+    item?.result?.billing?.skipped,
+  );
+
+  const normalizedCredits = toFiniteOrNull(creditsCharged);
+  const normalizedSkipped = toBooleanOrNull(skipped);
+  const normalizedCharged = toBooleanOrNull(
+    firstDefined(item?.billing?.charged, item?.result?.billing?.charged),
+  );
+  const hasBilling =
+    normalizedCredits !== null ||
+    billingMode !== undefined ||
+    normalizedSkipped !== null ||
+    normalizedCharged !== null;
+
+  if (!hasBilling) return null;
+
+  return {
+    app_tokens_charged: normalizedCredits,
+    credits_charged: normalizedCredits,
+    billing_mode: billingMode,
+    mode: billingMode,
+    charged: firstDefined(
+      normalizedCharged,
+      normalizedCredits !== null ? normalizedCredits > 0 : null,
+    ),
+    skipped: firstDefined(
+      normalizedSkipped,
+      normalizedCredits !== null ? normalizedCredits === 0 : null,
+    ),
+  };
+};
 
 const TECHNICAL_OR_CONFLICTING_DETAIL = {
   VI: "Không đủ đồng thuận do tác tử kỹ thuật bị lỗi hoặc bằng chứng mâu thuẫn. Vui lòng kiểm tra thủ công hoặc thử lại.",
@@ -200,6 +348,7 @@ const normalizeInvalidConclusionDetail = (message, item, suggestedResult, lang) 
     item?.raw_backend?.result?.final_result?.consensus_reason,
   );
   const consensusPattern = firstDefined(
+    item?.consensus?.display_consensus_pattern,
     item?.consensus?.consensus_pattern,
     item?.raw_backend?.consensus_pattern,
     item?.raw_backend?.final_result?.consensus_pattern,
@@ -315,12 +464,15 @@ const getResultNotice = (status, errorMessage, consensus, lang) => {
   return null;
 };
 
+const markdownSymbolsToStrip = ["🤖", "🧠", "👁️", "⚖️", "✅", "🔬", "🔄", "📦", "🧾"];
+
 const stripMarkdownSymbols = (text) => {
   if (!text) return "";
-  return String(text)
-    .replace(/[🤖🧠👁️⚖️✅🔬🔄📦🧾]/g, "")
-    .replace(/`/g, "")
-    .trim();
+  let cleaned = String(text);
+  markdownSymbolsToStrip.forEach((symbol) => {
+    cleaned = cleaned.replaceAll(symbol, "");
+  });
+  return cleaned.replace(/`/g, "").trim();
 };
 
 const inferCurrencyFromDenomination = (denomination, fallback = null) => {
@@ -358,24 +510,14 @@ const getAgentReasoning = (agent) =>
       agent?.error,
   );
 
-const getAgentMethod = (agent, fallback) => {
-  const rawMethod = normalizeText(agent?.phuong_phap || agent?.method || fallback);
-  const looksLikeAg3 =
-    agent?.ag3_groq_formatter_used !== undefined ||
-    agent?.formatter_provider !== undefined ||
-    agent?.provider_trace?.formatter_provider !== undefined ||
-    /google lens|serpapi|visual search/i.test(rawMethod);
-  return looksLikeAg3 ? getAg3MethodLabel(agent, fallback) : rawMethod;
-};
-
 const getConsensusStatusLabel = (consensus, lang) => {
   const status = consensus?.status;
-  const matched = Number(consensus?.matched_agents || 0);
+  const matched = toFiniteOrNull(consensus?.matched_agents);
 
   // Multi-object partial: hiển thị X/Y Completed
   if (consensus?.partial) {
     const completed = consensus?.completed_objects ?? 0;
-    const total = consensus?.total_objects ?? matched;
+    const total = consensus?.total_objects ?? matched ?? (lang === "VI" ? "Chưa ghi nhận" : "Not recorded");
     return lang === "VI"
       ? `Hoàn thành ${completed}/${total}`
       : `${completed}/${total} Completed`;
@@ -395,6 +537,7 @@ const getConsensusStatusLabel = (consensus, lang) => {
   }
 
   if (matched >= 3) return lang === "VI" ? "Đồng thuận cao" : "High consensus";
+  if (matched === null) return lang === "VI" ? "Chưa ghi nhận" : "Not recorded";
   if (matched === 2)
     return lang === "VI" ? "Đạt đồng thuận" : "Consensus reached";
   if (status) return status;
@@ -404,7 +547,7 @@ const getConsensusStatusLabel = (consensus, lang) => {
 
 const getConsensusBadgeClass = (consensus) => {
   const label = String(consensus?.status || "").toLowerCase();
-  const matched = Number(consensus?.matched_agents || 0);
+  const matched = toFiniteOrNull(consensus?.matched_agents);
 
   // Partial multi-object: amber warning (không xanh dù có object Completed)
   if (consensus?.partial) {
@@ -425,7 +568,7 @@ const getConsensusBadgeClass = (consensus) => {
   }
 
   if (
-    matched >= 2 ||
+    (matched !== null && matched >= 2) ||
     label.includes("high") ||
     label.includes("reach") ||
     label.includes("complete") ||
@@ -456,7 +599,7 @@ const getAgentDataByName = (agentResults, keywords) => {
     return keywords.some((keyword) => name.includes(keyword));
   });
 
-  return found?.data || found?.result || null;
+  return found?.data || found?.result || found || null;
 };
 
 
@@ -465,150 +608,14 @@ const getAgentPayload = (agentItem) => {
   return agentItem?.data || agentItem?.result || agentItem;
 };
 
-const getAgentLabel = (agentItem, fallback = "Agent") => {
-  const raw = String(agentItem?.agent || agentItem?.agent_name || agentItem?.name || fallback);
-  const low = raw.toLowerCase();
-
-  if (low.includes("yolo") || low.includes("ml")) return "YOLO / ML";
-  if (low.includes("llm") || low.includes("gemini")) return "LLM";
-  if (low.includes("lens") || low.includes("visual")) return "Visual Search";
-  if (low.includes("aggregator")) return "Aggregator";
-
-  return raw;
-};
-
-const getObjectFinalData = (item) => item?.final_result || item?.summary || {};
-
-const getObjectDenomination = (item) => {
-  const final = getObjectFinalData(item);
-  return normalizeText(
-    final.final_denomination ||
-      final.menh_gia ||
-      final.denomination ||
-      final.denomination_label ||
-      item?.summary?.denomination,
-  );
-};
-
-const getObjectCountry = (item) => {
-  const final = getObjectFinalData(item);
-  return normalizeText(
-    final.quoc_gia ||
-      final.country ||
-      final.origin ||
-      item?.summary?.country,
-  );
-};
-
-const getObjectMatchedAgents = (item) => {
-  const final = getObjectFinalData(item);
-  if (final.matched_agents !== undefined && final.matched_agents !== null) {
-    return Number(final.matched_agents);
-  }
-  if (final.so_luong_dong_thuan !== undefined && final.so_luong_dong_thuan !== null) {
-    return Number(final.so_luong_dong_thuan);
-  }
-  return 0;
-};
-
-const getObjectRefereeText = (item) => {
-  const final = getObjectFinalData(item);
-  return stripMarkdownSymbols(
-    final.quan_diem_trong_tai ||
-      final.referee_view ||
-      final.reasoning ||
-      final.mo_ta ||
-      final.description ||
-      `Aggregator selected ${getObjectDenomination(item)} with ${getObjectMatchedAgents(item)}/3 agent agreement.`,
-  );
-};
-
-const buildMultiObjectDebateLog = (objects, lang = "EN") => {
-  if (!Array.isArray(objects) || objects.length === 0) {
-    return lang === "VI" ? "Không có nhật ký tranh biện." : "No debate log available.";
-  }
-
-  const lines = [];
-
-  lines.push(
-    lang === "VI"
-      ? `Hệ thống phát hiện ${objects.length} đối tượng tiền giấy. Mỗi đối tượng được crop riêng, sau đó YOLO/ML, LLM và Visual Search phân tích độc lập. Aggregator chỉ so sánh 3 agent trong cùng một đối tượng, không so sánh tờ này với tờ khác.`
-      : `The system detected ${objects.length} banknote objects. Each object was cropped and analyzed independently. The aggregator compares the 3 agents inside the same object only; it does not compare one banknote against another.`,
-  );
-
-  objects.forEach((item, index) => {
-    const objectNo = item?.object_index || index + 1;
-    const finalDenom = getObjectDenomination(item);
-    const country = getObjectCountry(item);
-    const matched = getObjectMatchedAgents(item);
-    const agents = Array.isArray(item?.agent_results) ? item.agent_results : [];
-    const finalData = getObjectFinalData(item);
-    const finalCanonical = buildMoneyCanonical({
-      denomination: finalDenom,
-      currency:
-        finalData.ma_tien_te ||
-        finalData.currency ||
-        finalData.currency_code ||
-        inferMoneyCurrency(finalDenom),
-      country,
-    });
-    const validVotes = finalData.valid_votes || item?.consensus?.valid_votes || [];
-
-    lines.push("");
-    lines.push(`## ${lang === "VI" ? "Đối tượng" : "Object"} #${objectNo}`);
-    lines.push(`- ${lang === "VI" ? "Kết luận" : "Final"}: ${finalDenom}`);
-    lines.push(`- ${lang === "VI" ? "Quốc gia" : "Country"}: ${country}`);
-    lines.push(`- ${lang === "VI" ? "Đồng thuận" : "Consensus"}: ${matched}/3 agents`);
-
-    if (item?.bbox) {
-      lines.push(`- bbox: [${item.bbox.join(", ")}]`);
-    }
-
-    lines.push("");
-    lines.push(lang === "VI" ? "### Phiếu của từng agent" : "### Agent votes");
-
-    agents.forEach((agentItem, agentIndex) => {
-      const payload = getAgentPayload(agentItem);
-      const agentName = getAgentLabel(agentItem, `Agent ${agentIndex + 1}`);
-      const denom = getAgentDenomination(payload);
-      const countryVote = getAgentCountry(payload);
-      const reasoning = stripMarkdownSymbols(getAgentReasoning(payload));
-      const normalizedVote = normalizeAgentVote(
-        agentItem,
-        finalCanonical,
-        validVotes,
-        getAgentConsensusKey(agentItem),
-      );
-      const status = normalizedVote.voteStatus === "matched"
-        ? lang === "VI" ? "đồng thuận" : "agreed"
-        : normalizedVote.voteStatus === "different"
-          ? lang === "VI" ? "khác biệt" : "differed"
-          : lang === "VI" ? "không tính phiếu" : "not counted";
-
-      lines.push(`- ${agentName}: ${denom} / ${countryVote} (${status})`);
-      if (reasoning && reasoning !== "N/A") {
-        lines.push(`  - ${lang === "VI" ? "Lý do" : "Reason"}: ${reasoning}`);
-      }
-    });
-
-    lines.push("");
-    lines.push(lang === "VI" ? "### Kết luận Aggregator" : "### Aggregator conclusion");
-    lines.push(getObjectRefereeText(item));
-  });
-
-  return lines.join("\n");
-};
-
 // --- PHASE 1: Helper Functions ---
 const safeText = (text, fallback = "N/A") => {
   if (text === null || text === undefined || text === "") return fallback;
   return String(text);
 };
 
-const formatCountry = (country) => {
-  const c = safeText(country, "Không xác định").trim();
-  if (c === "Không xác định" || c === "N/A" || c === "Multiple") return c;
-  return c.charAt(0).toUpperCase() + c.slice(1);
+const formatCountry = (country, lang = "EN") => {
+  return formatCountryDisplay(country, lang);
 };
 
 const formatCurrency = (currency) => {
@@ -617,11 +624,11 @@ const formatCurrency = (currency) => {
   return c.toUpperCase();
 };
 
-const formatDenomination = (denom) => {
-  const d = safeText(denom, "N/A").trim();
-  if (d === "N/A" || d.includes("banknotes") || d.includes("tờ tiền")) return d;
+const formatDenomination = (denom, currency = null, fallback = "Not recorded") => {
+  const d = formatDenominationLabel(denom, currency, fallback).trim();
+  if (d === fallback || d.includes("banknotes") || d.includes("tờ tiền")) return d;
 
-  const currency = inferMoneyCurrency(d);
+  const inferredCurrency = inferMoneyCurrency(d);
   const malformedVndGrouping = d.match(
     /^\s*(\d{1,3})[.,](\d{2})\s*(VND|VNĐ|ĐỒNG)?\s*$/i,
   );
@@ -636,7 +643,7 @@ const formatDenomination = (denom) => {
   ]);
   const shouldRepairMalformedVnd =
     malformedVndGrouping &&
-    (!currency || currency === "VND") &&
+    (!inferredCurrency || inferredCurrency === "VND") &&
     standardVndDenominations.has(malformedCandidate);
   const amount = shouldRepairMalformedVnd
     ? malformedCandidate
@@ -644,7 +651,7 @@ const formatDenomination = (denom) => {
 
   if (amount !== null) {
     const formattedAmount = amount.toLocaleString("en-US");
-    return currency ? `${formattedAmount} ${currency}` : `${formattedAmount}`;
+    return inferredCurrency ? `${formattedAmount} ${inferredCurrency}` : `${formattedAmount}`;
   }
 
   return d;
@@ -702,34 +709,6 @@ const getAgentConsensusKey = (agentItem, fallbackKey) => {
   return null;
 };
 
-const getBackendValidVoteCanonical = (validVote) => {
-  if (!validVote || typeof validVote !== "object") return null;
-  const voteKey = Array.isArray(validVote.vote_key) ? validVote.vote_key : [];
-  const agentData = validVote.agent_data || validVote.data || {};
-  const agentDenomination = getAgentDenomination(agentData);
-  const country =
-    validVote.country ||
-    validVote.raw_country ||
-    voteKey[0] ||
-    getAgentCountry(agentData);
-  const currency =
-    validVote.currency_code ||
-    validVote.currency ||
-    voteKey[1] ||
-    agentData.ma_tien_te ||
-    agentData.currency ||
-    agentData.currency_code;
-  const amount = validVote.amount ?? voteKey[2];
-  const denomination =
-    validVote.raw_denomination ||
-    validVote.denomination ||
-    validVote.menh_gia ||
-    (agentDenomination !== "N/A" ? agentDenomination : null) ||
-    (amount !== null && amount !== undefined ? `${amount} ${currency || ""}` : null);
-
-  return buildMoneyCanonical({ denomination, currency, country });
-};
-
 const isNonVotingAgent = (payload) => {
   if (!payload || typeof payload !== "object") return true;
   if (payload.not_counted_in_consensus === true) return true;
@@ -757,8 +736,7 @@ const isNonVotingAgent = (payload) => {
 
 const getNonVotingAgentMessage = (vote, lang) => {
   const payload = vote?.payload || {};
-  const trace = payload?.promotion_trace || {};
-  const reason = String(trace.reason || payload.reason || "").trim().toLowerCase();
+  const reason = String(payload.reason || vote?.reason || "").trim().toLowerCase();
   const weakEvidenceReasons = new Set([
     "insufficient_support_signals",
     "insufficient_independent_evidence",
@@ -771,7 +749,7 @@ const getNonVotingAgentMessage = (vote, lang) => {
   ]);
   const hasLensEvidence =
     vote?.agentKey === "visual_search" &&
-    (vote?.hasEvidence || Number(trace.page_text_support_count || 0) > 0);
+    vote?.hasEvidence;
 
   if (hasLensEvidence && weakEvidenceReasons.has(reason)) {
     return lang === "VI"
@@ -790,66 +768,184 @@ const getNonVotingAgentMessage = (vote, lang) => {
     : "No valid result to count";
 };
 
+const getPublicVoteBoolean = (...values) => {
+  for (const value of values) {
+    if (value === true || value === false) return value;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["true", "yes", "1", "matched", "agreed", "counted"].includes(normalized)) return true;
+      if (["false", "no", "0", "different", "not_counted", "not counted"].includes(normalized)) return false;
+    }
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  return null;
+};
+
 const normalizeAgentVote = (
   agentItem,
-  finalCanonical,
-  consensusValidVotes = [],
   fallbackAgentKey = null,
+  validVoteKeys = null,
+  finalDecision = null,
+  consensusPattern = null,
 ) => {
   const payload = getAgentPayload(agentItem);
   const isErr = isTechnicalError(payload);
   const agentDenomination = getAgentDenomination(payload);
-  const country = getAgentCountry(payload);
 
-  const rawStatus = String(payload?.status || "").toLowerCase();
+  const rawStatus = String(payload?.status || agentItem?.status || "").toLowerCase();
   const isDisabled = rawStatus === "disabled";
-  const hasEvidence = Array.isArray(payload?.evidence) && payload?.evidence.length > 0;
+  const evidenceList = payload?.evidence || agentItem?.evidence;
+  const hasEvidence = Array.isArray(evidenceList) && evidenceList.length > 0;
   const agentKey = getAgentConsensusKey(agentItem, fallbackAgentKey);
-  const backendValidVote = findBackendValidVote(consensusValidVotes, agentKey);
-  const backendVoteKey = Array.isArray(backendValidVote?.vote_key)
-    ? backendValidVote.vote_key
-    : [];
-  const backendCurrency =
-    backendValidVote?.currency_code ||
-    backendValidVote?.currency ||
-    backendVoteKey[1] ||
-    null;
-  const backendAmount = backendValidVote?.amount ?? backendVoteKey[2];
-  const backendDenomination =
-    backendValidVote?.raw_denomination ||
-    backendValidVote?.denomination ||
-    backendValidVote?.menh_gia ||
-    (backendAmount !== null && backendAmount !== undefined
-      ? `${backendAmount} ${backendCurrency || ""}`.trim()
-      : null);
-  const denom =
-    agentDenomination !== "N/A" ? agentDenomination : backendDenomination || "N/A";
+  const denom = agentDenomination !== "N/A" ? agentDenomination : "N/A";
 
   const rawCurrency =
-    payload?.ma_tien_te || payload?.currency_code || payload?.currency || null;
-  const agentCurrency = inferMoneyCurrency(denom, rawCurrency || backendCurrency);
-  const displayCurrency = agentCurrency || finalCanonical?.currency;
+    payload?.ma_tien_te || payload?.currency_code || payload?.currency || agentItem?.currency || null;
+  const displayCurrency = inferMoneyCurrency(denom, rawCurrency) || rawCurrency;
   const hasResult = Boolean(
     denom && denom !== "N/A" && !denom.toLowerCase().includes("không"),
   );
 
-  const agentCanonical = buildMoneyCanonical({
-    denomination: denom,
-    currency: agentCurrency,
-    country,
-  });
+  const explicitMatched = getPublicVoteBoolean(
+    agentItem?.matched,
+    agentItem?.agreed,
+    agentItem?.agreed_with_final,
+    agentItem?.matches_final,
+    payload?.matched,
+    payload?.agreed,
+    payload?.agreed_with_final,
+    payload?.matches_final,
+  );
+  const explicitCounted = getPublicVoteBoolean(
+    agentItem?.counting,
+    agentItem?.counted,
+    agentItem?.counted_in_consensus,
+    agentItem?.counted_by_backend,
+    payload?.counting,
+    payload?.counted,
+    payload?.counted_in_consensus,
+    payload?.counted_by_backend,
+  );
 
-  const fallbackMatchesFinal = isSameMoneyVote(agentCanonical, finalCanonical);
-  const backendVoteCanonical = getBackendValidVoteCanonical(backendValidVote);
-  const backendVoteMatchesFinal = isSameMoneyVote(backendVoteCanonical, finalCanonical);
-  const nonVoting = isNonVotingAgent(payload) || !hasResult;
+  let finalMatched = explicitMatched;
+  let finalCounted = explicitCounted;
+  const ag3Trace = payload?.ag3_verification_summary || payload?.promotion_trace || {};
+  const hasStructuredAg3Fields = agentKey === "visual_search" && [
+    payload?.vote_eligible,
+    payload?.ag3_vote_eligible,
+    payload?.vote_created,
+    payload?.valid_vote,
+    payload?.counted_in_consensus,
+    payload?.not_counted_in_consensus,
+    payload?.raw_lens_result_count,
+    ag3Trace?.vote_eligible,
+    ag3Trace?.ag3_vote_eligible,
+    ag3Trace?.vote_created,
+    ag3Trace?.valid_vote,
+    ag3Trace?.counted_in_consensus,
+    ag3Trace?.not_counted_in_consensus,
+    ag3Trace?.raw_lens_result_count,
+  ].some((value) => value !== undefined && value !== null);
 
-  const voteStatus = resolveAgentVoteStatus({
-    nonVoting,
-    rawStatus,
-    backendVoteMatchesFinal,
-    fallbackMatchesFinal,
-  });
+  if (hasStructuredAg3Fields) {
+    const voteEligible = Boolean(getPublicVoteBoolean(
+      payload?.vote_eligible,
+      payload?.ag3_vote_eligible,
+      agentItem?.vote_eligible,
+      agentItem?.ag3_vote_eligible,
+      payload?.valid_vote,
+      agentItem?.valid_vote,
+      ag3Trace?.vote_eligible,
+      ag3Trace?.ag3_vote_eligible,
+      ag3Trace?.valid_vote,
+    ));
+    const countedSignal = getPublicVoteBoolean(
+      payload?.counted_in_consensus,
+      agentItem?.counted_in_consensus,
+      payload?.counted_by_backend,
+      agentItem?.counted_by_backend,
+      payload?.counted,
+      agentItem?.counted,
+      payload?.not_counted_in_consensus === false ? true : null,
+      agentItem?.not_counted_in_consensus === false ? true : null,
+      payload?.not_counted_in_consensus === true ? false : null,
+      agentItem?.not_counted_in_consensus === true ? false : null,
+      ag3Trace?.counted_in_consensus,
+      ag3Trace?.counted_by_backend,
+      ag3Trace?.counted,
+      ag3Trace?.not_counted_in_consensus === false ? true : null,
+      ag3Trace?.not_counted_in_consensus === true ? false : null,
+    );
+    const matchedSignal = getPublicVoteBoolean(
+      payload?.matched,
+      agentItem?.matched,
+      payload?.agreed_with_final,
+      agentItem?.agreed_with_final,
+      payload?.matches_final,
+      agentItem?.matches_final,
+      ag3Trace?.matched,
+      ag3Trace?.agreed_with_final,
+      ag3Trace?.matches_final,
+    );
+    finalCounted = Boolean(voteEligible && countedSignal === true);
+    finalMatched = Boolean(finalCounted && matchedSignal === true);
+  }
+
+  if (!hasStructuredAg3Fields && finalMatched === null) {
+    if (validVoteKeys && agentKey && validVoteKeys.has(agentKey)) {
+      finalMatched = true;
+    } else if (finalDecision && finalDecision.denomination && denom && denom !== "N/A") {
+      const voteAmount = parseAmountFromDenomination(denom);
+      const decisionAmount = parseAmountFromDenomination(finalDecision.denomination);
+      const voteCurr = displayCurrency || inferMoneyCurrency(denom);
+      const decisionCurr = finalDecision.currency || inferMoneyCurrency(finalDecision.denomination);
+      if (
+        voteAmount > 0 &&
+        decisionAmount > 0 &&
+        voteAmount === decisionAmount &&
+        voteCurr &&
+        decisionCurr &&
+        voteCurr === decisionCurr
+      ) {
+        finalMatched = true;
+      }
+    }
+    if (
+      finalMatched === null &&
+      consensusPattern &&
+      (String(consensusPattern).includes("3/3") || String(consensusPattern) === "3/3") &&
+      !isErr &&
+      !isDisabled &&
+      rawStatus !== "failed"
+    ) {
+      finalMatched = true;
+    }
+  }
+
+  if (!hasStructuredAg3Fields && finalCounted === null) {
+    if (finalMatched === true || (validVoteKeys && agentKey && validVoteKeys.has(agentKey))) {
+      finalCounted = true;
+    } else if (!isErr && !isDisabled && rawStatus !== "failed" && hasResult) {
+      finalCounted = true;
+    } else {
+      finalCounted = false;
+    }
+  }
+
+  const countedByBackend = finalCounted === true;
+  const nonVoting =
+    finalCounted === false ||
+    (finalMatched !== true && (isNonVotingAgent(payload) || !hasResult));
+
+  const voteStatus =
+    finalMatched === true
+      ? "matched"
+      : finalMatched === false && countedByBackend
+        ? "different"
+        : finalCounted === false || isErr || isDisabled || rawStatus === "failed"
+          ? "not_counted"
+          : "not_recorded";
 
   return {
     isError: isErr,
@@ -858,14 +954,22 @@ const normalizeAgentVote = (
     hasResult,
     hasEvidence,
     agentKey,
-    countedByBackend: Boolean(backendValidVote),
+    matched: finalMatched,
+    counted: finalCounted,
+    countedByBackend,
     voteStatus,
-    denom: formatDenomination(denom),
+    denom: formatDenomination(denom, displayCurrency),
     country: formatCountry(getAgentCountry(payload)),
     currency: formatCurrency(displayCurrency),
     reasoning: stripMarkdownSymbols(getAgentReasoning(payload)),
-    confidence: formatConfidence(payload?.confidence || payload?.do_tin_cay),
-    payload: payload
+    public_summary: payload?.public_summary || agentItem?.public_summary || null,
+    public_explanation: payload?.public_explanation || agentItem?.public_explanation || null,
+    explanation: payload?.explanation || agentItem?.explanation || null,
+    reason: payload?.reason || agentItem?.reason || null,
+    confidence: formatConfidence(payload?.confidence || payload?.do_tin_cay || agentItem?.confidence),
+    payload: payload,
+    provider: agentItem?.provider || payload?.provider || null,
+    formatter: agentItem?.formatter || payload?.formatter || null,
   };
 };
 
@@ -907,14 +1011,55 @@ const normalizeLensSources = (payload) => {
         }
       }
 
-      return {
+      const normalizedSource = {
         title: safeText(item.title || item.name || item.text, domain || "Source"),
         snippet: item.snippet || item.description || item.matchedText || item.matched_text || "",
         url,
         domain,
-        thumbnail: item.thumbnail || item.thumbnail_url || item.image || item.image_url || "",
-        confidence: firstDefined(item.confidence, item.score),
+        raw_rank: item.raw_rank ?? item.rank ?? item.position ?? item.selected_rank ?? null,
+        rank: item.rank ?? item.raw_rank ?? item.position ?? item.selected_rank ?? null,
+        confidence: item.confidence ?? null,
+        ranker_score: item.ranker_score ?? item.raw_lens_score ?? item.score ?? null,
+        raw_lens_score: item.raw_lens_score ?? item.ranker_score ?? item.score ?? null,
+        source_trust_level: item.source_trust_level ?? item.source_class ?? "UNKNOWN",
+        source_class: item.source_class ?? item.source_trust_level ?? "UNKNOWN",
+        canonical_domain: item.canonical_domain || domain || "",
+        canonical_url: item.canonical_url || url || "",
+        independent_domain: item.independent_domain ?? item.is_independent ?? item.domain_first ?? null,
+        qualified_source: item.qualified_source ?? null,
+        eligible: item.eligible ?? null,
+        page_fetch_status: item.page_fetch_status || item.fetch_status || item.page_text_checked || "",
+        fetch_status: item.fetch_status || item.page_fetch_status || item.page_text_checked || "",
+        object_type: item.object_type || item.detected_object_type || "",
+        complete_identity: item.complete_identity ?? item.identity_complete ?? null,
+        evidence_disposition: item.final_disposition || item.evidence_disposition || null,
+        evidence_reason: item.final_reason || item.evidence_reason || item.excluded_reason || null,
+        final_disposition: item.final_disposition || item.evidence_disposition || null,
+        final_reason: item.final_reason || item.evidence_reason || item.excluded_reason || null,
+        badge: item.badge || null,
+        detected_amounts: item.detected_amounts || item.extracted_denomination || [],
+        detected_currency: item.detected_currency || item.extracted_currency || "",
+        detected_country: item.detected_country || item.extracted_country || "",
+        extracted_denomination: item.extracted_denomination || item.detected_amounts || [],
+        extracted_currency: item.extracted_currency || item.detected_currency || "",
+        extracted_country: item.extracted_country || item.detected_country || "",
+        web_page_text_excerpt: item.web_page_text_excerpt || item.page_text_excerpt || "",
+        selected_for_ag3_internal_vote: item.selected_for_ag3_internal_vote ?? item.selected_for_ag3_vote ?? item.selected ?? false,
+        selected_for_ag3_vote: item.selected_for_ag3_vote ?? item.selected_for_ag3_internal_vote ?? item.selected ?? false,
+        selected_rank: item.selected_rank ?? null,
       };
+
+      if (
+        normalizedSource.web_page_text_excerpt &&
+        ["", "not_attempted", "skipped", "none", "null"].includes(
+          String(normalizedSource.page_fetch_status || normalizedSource.fetch_status || "").toLowerCase(),
+        )
+      ) {
+        normalizedSource.page_fetch_status = "success";
+        normalizedSource.fetch_status = "success";
+      }
+
+      return normalizedSource;
     });
 
   return normalized.filter(
@@ -926,36 +1071,57 @@ const normalizeLensSources = (payload) => {
   );
 };
 
+const normalizeDisplayTextList = (value) =>
+  (Array.isArray(value) ? value : value ? [value] : [])
+    .flatMap((item) => (Array.isArray(item) ? item : [item]))
+    .map((item) => {
+      if (item && typeof item === "object") {
+        return String(
+          item.text ||
+            item.label ||
+            item.value ||
+            "",
+        ).trim();
+      }
+      return String(item || "").trim();
+    })
+    .filter(Boolean);
+
+const formatRecordedScore = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "Not recorded";
+  return formatScore(value);
+};
+
 const normalizeCropEvidence = (payload) => {
   if (!payload) return null;
+  const quality = payload.crop_quality || payload.cropQuality || null;
   const checker =
+    quality ||
     payload.crop_checker ||
     payload.cropChecker ||
     payload.crop_validation ||
     payload.cropValidation ||
     payload;
-  const rejectedBoxes =
-    payload.rejected_boxes ||
-    payload.rejectedBoxes ||
-    checker.rejected_boxes ||
-    checker.rejectedBoxes ||
-    [];
-  const trace =
-    payload.box_selection_trace ||
-    payload.boxSelectionTrace ||
-    checker.box_selection_trace ||
-    checker.trace ||
-    null;
-  const metrics = checker.metrics || checker.technical_metrics || null;
-  const action = checker.action || checker.decision || "UNKNOWN";
+  const metrics = quality ? null : checker.metrics || checker.technical_metrics || null;
+  const fallback = firstDefined(quality?.fallback, checker.fallback);
+  const action =
+    checker.action ||
+    checker.decision ||
+    payload.ag0_action ||
+    (fallback === true ? "REVIEW" : checker.confidence ? "VALID" : "UNKNOWN");
+  const agentEligible = getPublicVoteBoolean(
+    checker.agent_eligible,
+    checker.eligible_for_agents,
+    payload.agent_eligible,
+  );
 
   if (
     action === "UNKNOWN" &&
     !payload.selected_box_reason &&
+    !quality?.source &&
     !checker.reason &&
-    !metrics &&
-    !trace &&
-    rejectedBoxes.length === 0
+    !metrics
   ) {
     return null;
   }
@@ -966,15 +1132,35 @@ const normalizeCropEvidence = (payload) => {
       payload.selected_box_reason ||
       payload.selectedBoxReason ||
       checker.selected_box_reason ||
+      quality?.source ||
       "",
     reason: checker.reason || checker.message || "",
-    rejectedBoxes: Array.isArray(rejectedBoxes) ? rejectedBoxes : [],
-    trace,
+    rejectedBoxes: [],
+    trace: null,
     confidence: firstDefined(
+      quality?.confidence,
       checker.confidence,
       payload.crop_confidence,
       payload.confidence,
     ),
+    banknote_score: firstDefined(
+      checker.banknote_score,
+      checker.banknote_like_score,
+      payload.banknote_score,
+    ),
+    document_score: firstDefined(
+      checker.document_score,
+      checker.document_like_score,
+      payload.document_score,
+    ),
+    agent_eligible: agentEligible,
+    source: firstDefined(
+      checker.source,
+      quality?.source,
+      payload.crop_source,
+      payload.source,
+    ),
+    bbox: firstDefined(payload.bbox, checker.bbox),
     metrics: metrics && typeof metrics === "object" ? metrics : null,
   };
 };
@@ -984,8 +1170,7 @@ const normalizeConsensusTrace = (...payloads) => {
     if (!payload) continue;
     if (Array.isArray(payload)) return payload;
     const trace =
-      payload.consensus_trace ||
-      payload.retry_timeline ||
+      payload.public_timeline ||
       payload.timeline;
     if (Array.isArray(trace) && trace.length > 0) return trace;
   }
@@ -1090,13 +1275,14 @@ const formatTimelinePattern = (pattern, lang) => {
   const normalized = String(pattern || "").toLowerCase();
   const labels = {
     "3/3": lang === "VI" ? "Cả 3 AI đồng thuận" : "All 3 AI agents agreed",
-    "2/3": lang === "VI" ? "Đạt đồng thuận 2/3" : "Reached 2/3 consensus",
+    "2/3": lang === "VI" ? "Đạt đồng thuận đa số" : "Reached majority consensus",
+    "2/2": lang === "VI" ? "Đồng thuận 2/2 phiếu hợp lệ" : "2/2 valid votes agreed",
     "1-valid-only": lang === "VI" ? "Chỉ có 1 kết quả hợp lệ" : "Only one valid result",
     transient_error: lang === "VI" ? "Lỗi dịch vụ tạm thời" : "Temporary service error",
     zero_evidence: lang === "VI" ? "Không có bằng chứng hợp lệ" : "No valid evidence",
     not_banknote_or_unclear: lang === "VI" ? "Ảnh chưa rõ hoặc không phải tiền giấy" : "Unclear image or not a banknote",
     conflict: lang === "VI" ? "Các AI đưa ra kết quả khác nhau" : "AI agents disagreed",
-    "1-1-1": lang === "VI" ? "Ba kết quả khác nhau" : "Three different results",
+    "1-1-1": lang === "VI" ? "Ba phiếu khác nhau" : "Three different votes",
   };
   return labels[normalized] || pattern || (lang === "VI" ? "Đang tổng hợp" : "Aggregating");
 };
@@ -1115,6 +1301,14 @@ const getCropImageUrl = (object) => {
 const normalizeBackendResult = (rawResult, session) => {
   if (!rawResult) return null;
 
+  const publicResult = normalizeUserResultResponse(rawResult, {
+    previewUrl: session?.previewUrl,
+    taskId: session?.taskId,
+  });
+  if (publicResult?.publicContract) {
+    return publicResult;
+  }
+
   if (rawResult.data || rawResult.agents || rawResult.consensus) {
     const formattedFinal =
       rawResult.final_result ||
@@ -1125,6 +1319,13 @@ const normalizeBackendResult = (rawResult, session) => {
       formattedFinal.detected_objects ||
       rawResult.result?.detected_objects ||
       [];
+    const formattedAgentVotes =
+      rawResult.agent_votes ||
+      rawResult.result?.agent_votes ||
+      rawResult.agent_results ||
+      rawResult.result?.agent_results ||
+      [];
+    const publicBilling = getPublicBilling(rawResult);
     const formattedConfidence = firstDefined(
       rawResult.data?.confidence,
       rawResult.confidence,
@@ -1138,6 +1339,9 @@ const normalizeBackendResult = (rawResult, session) => {
         ...(rawResult.data || {}),
         confidence: formattedConfidence,
       },
+      agent_votes: formattedAgentVotes,
+      billing: publicBilling,
+      credits_charged: publicBilling?.credits_charged ?? null,
       detected_objects: formattedObjects,
       rejected_objects:
         rawResult.rejected_objects ||
@@ -1169,7 +1373,11 @@ const normalizeBackendResult = (rawResult, session) => {
 
   const final = rawResult.final_result || rawResult.result?.final_result || {};
   const agentResults =
-    rawResult.agent_results || rawResult.result?.agent_results || [];
+    rawResult.agent_votes ||
+    rawResult.result?.agent_votes ||
+    rawResult.agent_results ||
+    rawResult.result?.agent_results ||
+    [];
 
   const detectedObjects =
     final.detected_objects ||
@@ -1195,6 +1403,12 @@ const normalizeBackendResult = (rawResult, session) => {
       firstSummary.confidence,
       rawResult.confidence,
     );
+    const firstObjectAgentResults =
+      firstObject.agent_votes ||
+      firstObject.agent_results ||
+      agentResults ||
+      [];
+    const publicBilling = getPublicBilling(rawResult);
 
     const denomination =
       detectedObjects.length > 1
@@ -1250,22 +1464,32 @@ const normalizeBackendResult = (rawResult, session) => {
             : `Detected ${detectedObjects.length} banknotes.`),
         estimated_usd: "N/A",
       },
+      agent_votes: agentResults,
       agents: {
-        ml_dl: firstObject.agent_results?.find((item) =>
-          ["openai", "agent_1", "gpt"].some((name) =>
-            String(item?.agent || "").toLowerCase().includes(name),
-          ),
-        )?.data,
-        llm_api: firstObject.agent_results?.find((item) =>
-          String(item?.agent || "").toLowerCase().includes("llm"),
-        )?.data,
-        visual_search: firstObject.agent_results?.find((item) =>
-          String(item?.agent || "").toLowerCase().includes("lens"),
-        )?.data,
+        ml_dl: getAgentDataByName(firstObjectAgentResults, [
+          "openai",
+          "agent_1",
+          "gpt",
+          "ml_dl",
+          "yolo",
+        ]),
+        llm_api: getAgentDataByName(firstObjectAgentResults, [
+          "llm",
+          "gemini",
+          "agent_2",
+          "llm_api",
+        ]),
+        visual_search: getAgentDataByName(firstObjectAgentResults, [
+          "lens",
+          "visual",
+          "agent_3",
+          "visual_search",
+        ]),
       },
       consensus: {
         method: final.method || (isActuallyMulti ? "multi_object_pipeline" : "majority_vote"),
-        matched_agents: Number(final.matched_agents || 0),
+        matched_agents: toFiniteOrNull(final.matched_agents),
+        total_agents: toFiniteOrNull(final.total_agents),
         status: final.status || "Completed",
         partial: Boolean(final.partial),
         completed_objects: final.completed_objects ?? null,
@@ -1283,10 +1507,6 @@ const normalizeBackendResult = (rawResult, session) => {
         valid_votes: final.valid_votes || [],
         suggested_result_from_valid_agent:
           final.suggested_result_from_valid_agent || null,
-        debate_log:
-          final.debate_log ||
-          final.quan_diem_trong_tai ||
-          buildMultiObjectDebateLog(detectedObjects, "EN"),
       },
       multi_object: isActuallyMulti,
       detected_objects: detectedObjects,
@@ -1300,15 +1520,8 @@ const normalizeBackendResult = (rawResult, session) => {
         rawResult.result?.detected_count ??
         detectedObjects.length,
       confidence: detectedObjects.length > 1 ? null : firstConfidence,
-      crop_checker: firstObject.crop_checker || rawResult.crop_checker,
-      selected_box_reason:
-        firstObject.selected_box_reason || rawResult.selected_box_reason,
-      box_selection_trace:
-        firstObject.box_selection_trace || rawResult.box_selection_trace,
-      rejected_boxes:
-        firstObject.rejected_boxes || rawResult.rejected_boxes || [],
-      consensus_trace:
-        firstObject.consensus_trace || rawResult.consensus_trace || [],
+      crop_quality:
+        firstObject.crop_quality || rawResult.crop_quality || null,
       conversion_result:
         rawResult.conversion_result || rawResult.result?.conversion_result || null,
       processing_time_ms:
@@ -1319,39 +1532,8 @@ const normalizeBackendResult = (rawResult, session) => {
         rawResult.created_at || rawResult.result?.created_at || null,
       updated_at:
         rawResult.updated_at || rawResult.result?.updated_at || null,
-      token_usage: rawResult.token_usage || rawResult.result?.token_usage || {},
-      system_tokens_charged:
-        firstDefined(
-          rawResult.system_tokens_charged,
-          rawResult.result?.system_tokens_charged,
-        ),
-      input_tokens: firstDefined(
-        rawResult.input_tokens,
-        rawResult.result?.input_tokens,
-      ),
-      output_tokens:
-        firstDefined(
-          rawResult.output_tokens,
-          rawResult.result?.output_tokens,
-        ),
-      total_ai_tokens:
-        firstDefined(
-          rawResult.total_ai_tokens,
-          rawResult.result?.total_ai_tokens,
-        ),
-      billable_ai_tokens:
-        firstDefined(
-          rawResult.billable_ai_tokens,
-          rawResult.result?.billable_ai_tokens,
-        ),
-      billing_mode:
-        firstDefined(
-          rawResult.billing_mode,
-          rawResult.result?.billing_mode,
-        ),
-      balance_before:
-        rawResult.balance_before ?? rawResult.result?.balance_before,
-      balance_after: rawResult.balance_after ?? rawResult.result?.balance_after,
+      credits_charged: publicBilling?.credits_charged ?? null,
+      billing: publicBilling,
       raw_backend: rawResult,
     };
   }
@@ -1389,12 +1571,18 @@ const normalizeBackendResult = (rawResult, session) => {
     final.referee_view ||
     "";
 
-  let matchedAgents = 0;
+  let matchedAgents = null;
   if (final.matched_agents !== undefined && final.matched_agents !== null) {
     matchedAgents = Number(final.matched_agents);
   } else if (final.so_luong_dong_thuan !== undefined && final.so_luong_dong_thuan !== null) {
     matchedAgents = Number(final.so_luong_dong_thuan);
   }
+  const totalAgents = toFiniteOrNull(firstDefined(final.total_agents, final.agent_count, agentResults.length || null));
+  const consensusPattern = firstDefined(
+    final.pattern,
+    final.consensus_pattern,
+    matchedAgents !== null && totalAgents !== null ? `${matchedAgents}/${totalAgents}` : null,
+  );
 
   const status =
     final.status || rawResult.status || rawResult.result?.status || "Completed";
@@ -1405,17 +1593,26 @@ const normalizeBackendResult = (rawResult, session) => {
     rawResult.result?.confidence,
   );
 
-  const mlData = getAgentDataByName(agentResults, ["openai", "gpt", "agent_1"]);
+  const mlData = getAgentDataByName(agentResults, [
+    "openai",
+    "gpt",
+    "agent_1",
+    "ml_dl",
+    "yolo",
+  ]);
   const llmData = getAgentDataByName(agentResults, [
     "llm",
     "gemini",
     "agent_2",
+    "llm_api",
   ]);
   const lensData = getAgentDataByName(agentResults, [
     "lens",
     "visual",
     "agent_3",
+    "visual_search",
   ]);
+  const publicBilling = getPublicBilling(rawResult);
 
   return {
     id: rawResult.id || rawResult._id || rawResult.result_id,
@@ -1446,11 +1643,14 @@ const normalizeBackendResult = (rawResult, session) => {
       llm_api: llmData,
       visual_search: lensData,
     },
+    agent_votes: agentResults,
     consensus: {
       method: final.method || "majority_vote",
-      matched_agents: Number(matchedAgents || 0),
+      matched_agents: toFiniteOrNull(matchedAgents),
+      total_agents: totalAgents,
+      pattern: consensusPattern,
       status,
-      consensus_pattern: final.consensus_pattern || null,
+      consensus_pattern: consensusPattern,
       consensus_reason: final.consensus_reason || null,
       referee_view:
         final.quan_diem_trong_tai ||
@@ -1460,12 +1660,6 @@ const normalizeBackendResult = (rawResult, session) => {
       valid_votes: final.valid_votes || [],
       suggested_result_from_valid_agent:
         final.suggested_result_from_valid_agent || null,
-      debate_log:
-        final.debate_log ||
-        final.quan_diem_trong_tai ||
-        final.referee_view ||
-        description ||
-        "No debate log available.",
     },
     multi_object: false,
     detected_objects: detectedObjects,
@@ -1479,24 +1673,8 @@ const normalizeBackendResult = (rawResult, session) => {
       rawResult.result?.detected_count ??
       detectedObjects.length,
     confidence: finalConfidence,
-    crop_checker:
-      rawResult.crop_checker || rawResult.result?.crop_checker || null,
-    selected_box_reason:
-      rawResult.selected_box_reason ||
-      rawResult.result?.selected_box_reason ||
-      null,
-    box_selection_trace:
-      rawResult.box_selection_trace ||
-      rawResult.result?.box_selection_trace ||
-      null,
-    rejected_boxes:
-      rawResult.rejected_boxes ||
-      rawResult.result?.rejected_boxes ||
-      [],
-    consensus_trace:
-      rawResult.consensus_trace ||
-      rawResult.result?.consensus_trace ||
-      [],
+    crop_quality:
+      rawResult.crop_quality || rawResult.result?.crop_quality || null,
     conversion_result:
       rawResult.conversion_result || rawResult.result?.conversion_result || null,
     processing_time_ms:
@@ -1507,40 +1685,55 @@ const normalizeBackendResult = (rawResult, session) => {
       rawResult.created_at || rawResult.result?.created_at || null,
     updated_at:
       rawResult.updated_at || rawResult.result?.updated_at || null,
-    token_usage: rawResult.token_usage || rawResult.result?.token_usage || {},
-    system_tokens_charged:
-      firstDefined(
-        rawResult.system_tokens_charged,
-        rawResult.result?.system_tokens_charged,
-      ),
-    input_tokens: firstDefined(
-      rawResult.input_tokens,
-      rawResult.result?.input_tokens,
-    ),
-    output_tokens:
-      firstDefined(
-        rawResult.output_tokens,
-        rawResult.result?.output_tokens,
-      ),
-    total_ai_tokens:
-      firstDefined(
-        rawResult.total_ai_tokens,
-        rawResult.result?.total_ai_tokens,
-      ),
-    billable_ai_tokens:
-      firstDefined(
-        rawResult.billable_ai_tokens,
-        rawResult.result?.billable_ai_tokens,
-      ),
-    billing_mode:
-      firstDefined(
-        rawResult.billing_mode,
-        rawResult.result?.billing_mode,
-      ),
-    balance_before:
-      rawResult.balance_before ?? rawResult.result?.balance_before,
-    balance_after: rawResult.balance_after ?? rawResult.result?.balance_after,
+    credits_charged: publicBilling?.credits_charged ?? null,
+    billing: publicBilling,
     raw_backend: rawResult,
+  };
+};
+
+const buildFeedbackDraft = (item) => {
+  if (!item) return {};
+
+  const data = item.data || item.summary || {};
+  const denomination = formatDenominationLabel(data.denomination, data.currency, "");
+  const country = data.country || "";
+
+  return {
+    related_result_id:
+      item.feedback?.related_result_id ||
+      item.result_id ||
+      item.id ||
+      "",
+    actual_result:
+      denomination && country
+        ? `${denomination} - ${country}`
+        : denomination || country || "",
+    country,
+    confidence: firstDefined(data.confidence, item.confidence, null),
+    image_url:
+      item.image_url ||
+      item.input_image_url ||
+      item.uploaded_image_url ||
+      data.image_url ||
+      "",
+    scanSummary: {
+      id: item.result_id || item.id || "",
+      status: item.status || item.consensus?.status || "",
+      data: {
+        denomination,
+        country,
+        currency: data.currency || "",
+        confidence: firstDefined(data.confidence, item.confidence, null),
+      },
+      consensus: item.consensus || {},
+      agents: item.agents || {},
+      image_url:
+        item.image_url ||
+        item.input_image_url ||
+        item.uploaded_image_url ||
+        data.image_url ||
+        "",
+    },
   };
 };
 
@@ -1556,8 +1749,8 @@ export default function Result() {
   } = useRecognitionStore();
   const { ratesData, fetchRates } = useCurrencyStore();
   const { lang } = useLanguageStore();
+  const { user } = useAuthStore();
 
-  const [showRawLog, setShowRawLog] = useState(false);
   const [currentRateOverrideKey, setCurrentRateOverrideKey] = useState(null);
   const [activeTab, setActiveTab] = useState(0);
   const [imagePreview, setImagePreview] = useState(null);
@@ -1584,6 +1777,7 @@ export default function Result() {
       subtitle:
         "Review the final decision, agent outputs, and structured JSON result.",
       viewHistory: "View History",
+      adminDiagnostics: "Admin Diagnostics",
       scanAnother: "Scan Another",
       feedback: "Feedback",
       uploadTitle: "Uploaded Banknote",
@@ -1608,9 +1802,6 @@ export default function Result() {
         "Detailed reasoning is collapsed to keep the report readable.",
       hideLog: "Hide Log",
       viewLog: "View Full Log",
-      jsonTitle: "Structured JSON Output",
-      copy: "Copy",
-      download: "Download",
       continueTitle: "Continue scanning",
       continueDesc:
         "Start another scan or review saved results in your history.",
@@ -1624,7 +1815,7 @@ export default function Result() {
       final: "Final",
       noAgentData: "No agent data available.",
       showLess: "Show less",
-      readFull: "Read full reasoning",
+      readFull: "View full explanation",
       tokenUsageTitle: "Token Usage",
       tokenUsageDesc: "App token charge and AI usage statistics for this recognition result.",
       tokensCharged: "App tokens charged",
@@ -1670,61 +1861,62 @@ export default function Result() {
       analysisEvidence: "Analysis evidence",
       lblAggregator: "Referee",
       techError: "Technical error / Not counted",
-      advDebug: "Advanced Debug",
       whyChosen: "Why did the system choose this result?",
       consensusTimeline: "Consensus Timeline",
-      consensusMajority: "Majority consensus",
-      consensusMajorityDetail: "Majority consensus reached at 2/3. One agent returned a different result.",
-      consensusFullDetail: "Strong consensus reached: all 3 agents matched.",
+      consensusMajority: "Consensus reached",
+      consensusMajorityDetail: "Consensus reached reached. One vote returned a different result.",
+      consensusValidDetail: "Consensus of 2 valid votes. One analysis branch did not qualify to vote.",
+      consensusFullDetail: "Strong consensus reached: all 3 votes matched.",
       showMore: "Show more",
       showFewer: "Show fewer",
+      notRecorded: "Not recorded",
+      billingNotRecorded: "Billing was not recorded for this result.",
+      consensusNotRecorded: "Consensus details were not recorded.",
     },
     VI: {
       title: "Báo Cáo Phân Tích",
       subtitle:
-        "Xem lại quyết định cuối cùng, kết quả từ các đặc vụ và dữ liệu JSON.",
-      viewHistory: "Xem Lịch Sử",
-      scanAnother: "Quét Ảnh Khác",
+        "Xem lại quyết định cuối cùng, kết quả từ các tác tử và dữ liệu JSON.",
+      viewHistory: "Xem lịch sử",
+      adminDiagnostics: "Chẩn đoán Admin",
+      scanAnother: "Quét ảnh khác",
       feedback: "Góp ý / Báo lỗi",
-      uploadTitle: "Ảnh Đã Tải Lên",
-      finalDecision: "Quyết Định Cuối Cùng",
-      lblCountry: "Quốc Gia",
-      lblMaterial: "Chất Liệu",
-      lblCurrency: "Tiền Tệ",
-      lblConsensus: "Đồng Thuận",
-      lblReasoning: "Lập Luận",
-      agents: "đặc vụ",
-      referee: "Kết Luận Trọng Tài",
-      lblDenomination: "Mệnh Giá",
-      lblOrigin: "Nguồn Gốc",
+      uploadTitle: "Ảnh đã tải lên",
+      finalDecision: "Quyết định cuối cùng",
+      lblCountry: "Quốc gia",
+      lblMaterial: "Chất liệu",
+      lblCurrency: "Tiền tệ",
+      lblConsensus: "Đồng thuận",
+      lblReasoning: "Lập luận",
+      agents: "tác tử",
+      referee: "Kết luận trọng tài",
+      lblDenomination: "Mệnh giá",
+      lblOrigin: "Nguồn gốc",
       exchangeDesc: "Giá trị quy đổi dựa trên mệnh giá vừa quét.",
-      fullConverter: "Chuyển Đổi Chi Tiết",
-      aggDecision: "Quyết Định Tổng Hợp",
+      fullConverter: "Chuyển đổi chi tiết",
+      aggDecision: "Quyết định tổng hợp",
       aggDesc:
-        "Hệ thống tổng hợp đối chiếu kết quả từ các đặc vụ và chọn ra kết quả đa số.",
-      agentCompare: "So Sánh Các Đặc Vụ",
-      fullLogTitle: "Nhật Ký Tranh Biện",
+        "Hệ thống tổng hợp đối chiếu kết quả từ các tác tử và chọn ra kết quả đa số.",
+      agentCompare: "So sánh các tác tử",
+      fullLogTitle: "Nhật ký tranh biện",
       fullLogDesc: "Lý luận chi tiết được thu gọn để báo cáo dễ đọc hơn.",
-      hideLog: "Ẩn Nhật Ký",
-      viewLog: "Xem Toàn Bộ Nhật Ký",
-      jsonTitle: "Dữ Liệu JSON Cấu Trúc",
-      copy: "Sao chép",
-      download: "Tải xuống",
-      continueTitle: "Tiếp Tục",
+      hideLog: "Ẩn nhật ký",
+      viewLog: "Xem toàn bộ nhật ký",
+      continueTitle: "Tiếp tục",
       continueDesc:
         "Bắt đầu quét một ảnh khác hoặc xem lại kết quả trong lịch sử.",
-      btnScanAnother: "Quét Tờ Tiền Khác",
-      btnViewHistory: "Xem Lịch Sử Quét",
+      btnScanAnother: "Quét tờ tiền khác",
+      btnViewHistory: "Xem lịch sử quét",
       noResult: "Không có dữ liệu kết quả",
       noResultDesc:
         "Vui lòng thực hiện quét một tờ tiền mới từ không gian làm việc.",
-      backWorkspace: "Trở lại Không Gian Làm Việc",
-      matched: "Trùng Khớp",
-      different: "Khác Biệt",
-      final: "Chốt Kết Quả",
-      noAgentData: "Không có dữ liệu từ đặc vụ này.",
+      backWorkspace: "Trở lại không gian làm việc",
+      matched: "Trùng khớp",
+      different: "Khác biệt",
+      final: "Chốt kết quả",
+      noAgentData: "Không có dữ liệu từ tác tử này.",
       showLess: "Thu gọn",
-      readFull: "Xem toàn bộ lập luận",
+      readFull: "Xem giải thích đầy đủ",
       tokenUsageTitle: "Mức sử dụng token",
       tokenUsageDesc: "Token app đã trừ và thống kê mức sử dụng AI của lần nhận diện này.",
       tokensCharged: "Token app đã trừ",
@@ -1770,14 +1962,17 @@ export default function Result() {
       analysisEvidence: "Bằng chứng phân tích",
       lblAggregator: "Trọng tài tổng hợp",
       techError: "Lỗi kỹ thuật / Không tính",
-      advDebug: "Gỡ lỗi chuyên sâu",
       whyChosen: "Vì sao hệ thống chọn kết quả này?",
       consensusTimeline: "Tiến trình đồng thuận",
       consensusMajority: "Đồng thuận đa số",
-      consensusMajorityDetail: "Đạt đồng thuận đa số 2/3. Có 1 Agent khác kết quả.",
-      consensusFullDetail: "Đồng thuận cao 3/3. Cả 3 Agent cùng kết quả.",
+      consensusMajorityDetail: "Đạt đồng thuận đa số. Có 1 phiếu cho kết quả khác.",
+      consensusValidDetail: "Đồng thuận 2 phiếu hợp lệ. Một hướng phân tích không đủ điều kiện bỏ phiếu.",
+      consensusFullDetail: "Đồng thuận tuyệt đối 3 phiếu cùng kết quả.",
       showMore: "Xem thêm",
       showFewer: "Thu gọn",
+      notRecorded: "Chưa ghi nhận",
+      billingNotRecorded: "Chưa ghi nhận dữ liệu tính phí cho kết quả này.",
+      consensusNotRecorded: "Chưa ghi nhận chi tiết đồng thuận.",
     },
   };
 
@@ -1841,39 +2036,62 @@ export default function Result() {
       try {
         let fetchedData = null;
         let resolvedTaskId = targetTaskId;
+        let resolvedResultId = targetResultId;
 
         if (targetTaskId) {
           try {
-            const res = await getRecognitionTaskStatus(targetTaskId);
-            fetchedData = res?.data ?? res;
+            const res = await getRecognitionTaskLightStatus(targetTaskId);
+            const taskStatus = res?.data ?? res ?? {};
 
-            const status = String(fetchedData?.status || "").toLowerCase();
+            const status = String(taskStatus?.status || "").toLowerCase();
             const TERMINAL = new Set(["done", "completed", "complete", "success", "succeeded", "needs_review", "needs review", "completed_partial", "completed_with_limit", "no_banknote_detected", "needs_better_image", "failed", "failure", "error", "cancelled", "canceled", "timeout", "agent_error", "technical_error"]);
 
             if (!TERMINAL.has(status) && status !== "not_found" && status !== "stale") {
                navigate(`/processing?taskId=${targetTaskId}`, { replace: true });
                return;
             }
+
+            resolvedResultId =
+              taskStatus?.result_id ||
+              taskStatus?.recognition_id ||
+              taskStatus?.resultId ||
+              targetResultId;
+
+            if (resolvedResultId) {
+              // API interceptor already unwraps the {success,data} envelope.
+              // Use resultRes directly — resultRes?.data is the summary sub-object.
+              const resultRes = await getRecognitionResult(resolvedResultId);
+              fetchedData = resultRes;
+            }
           } catch (e) {
             console.warn("Restore by taskId failed", e);
           }
         }
 
-        if (!fetchedData && targetResultId) {
+        if (!fetchedData && resolvedResultId) {
           try {
-            const res = await getRecognitionResult(targetResultId);
-            fetchedData = res?.data ?? res;
-            resolvedTaskId = fetchedData?.task_id || targetResultId;
+            // API interceptor already unwraps the {success,data} envelope.
+            // Use res directly — res?.data would return the summary sub-object.
+            const res = await getRecognitionResult(resolvedResultId);
+            fetchedData = res;
+            resolvedTaskId = fetchedData?.task_id || targetTaskId;
           } catch (e) {
             console.warn("Restore by resultId failed", e);
           }
         }
 
         if (fetchedData) {
-          const payload = {
-             ...fetchedData,
-             input_image_url: fetchedData.input_image_url || fetchedData.image_url || fetchedData.uploaded_image_url || null,
-          };
+          const payload = normalizeUserResultResponse(
+            {
+              ...fetchedData,
+              input_image_url:
+                fetchedData.input_image_url ||
+                fetchedData.image_url ||
+                fetchedData.uploaded_image_url ||
+                null,
+            },
+            { taskId: resolvedTaskId, previewUrl: session?.previewUrl },
+          ) || fetchedData;
           setRestoredResult(payload);
           setScanSession(payload.input_image_url, payload, resolvedTaskId);
         } else {
@@ -1887,7 +2105,7 @@ export default function Result() {
     };
 
     restoreData();
-  }, [rawResult, targetTaskId, targetResultId, restoreKey, navigate, setScanSession, isRestoring, restoreError]);
+  }, [rawResult, targetTaskId, targetResultId, restoreKey, navigate, setScanSession, isRestoring, restoreError, session?.previewUrl]);
 
   const resultsArray = useMemo(() => {
     if (!rawResult) return [];
@@ -1902,7 +2120,6 @@ export default function Result() {
   const currentItem = resultsArray[activeTab] || null;
 
   const finalData = currentItem?.data || {};
-  const agents = currentItem?.agents || {};
   const consensus = currentItem?.consensus || {};
   const detectedObjects = Array.isArray(currentItem?.detected_objects)
     ? currentItem.detected_objects
@@ -1912,10 +2129,14 @@ export default function Result() {
     ? currentItem.rejected_objects
     : [];
   const fallbackAgentResults =
+    currentItem?.agent_votes ||
+    currentItem?.raw_backend?.agent_votes ||
+    currentItem?.raw_backend?.result?.agent_votes ||
     currentItem?.raw_backend?.agent_results ||
     currentItem?.raw_backend?.result?.agent_results ||
     [];
   const singleAgentResults =
+    primaryObject?.agent_votes ||
     primaryObject?.agent_results ||
     fallbackAgentResults;
 
@@ -1925,13 +2146,21 @@ export default function Result() {
 
   const isMulti = currentItem?.multi_object === true && detectedObjects.length > 1;
 
-  const finalDenomination = isMulti 
+  const finalDenomination = isMulti
     ? (lang === "VI" ? `Đã phát hiện ${currentItem.detected_objects.length} tờ tiền` : `Detected ${currentItem.detected_objects.length} banknotes`)
-    : formatDenomination(finalData.denomination);
+    : formatDenomination(finalData.denomination, finalData.currency, t.notRecorded);
 
-  const finalCountry = isMulti ? "Multiple" : formatCountry(finalData.country);
-  const finalCurrency = isMulti ? "Multiple" : formatCurrency(finalData.currency);
-  const finalMaterial = isMulti ? "Multiple" : safeText(finalData.material, "Không xác định");
+  const finalCountry = isMulti
+    ? "Multiple"
+    : finalData.country
+      ? formatCountry(finalData.country, lang)
+      : t.notRecorded;
+  const finalCurrency = isMulti
+    ? "Multiple"
+    : finalData.currency
+      ? formatCurrency(finalData.currency)
+      : t.notRecorded;
+  const finalMaterial = isMulti ? "Multiple" : safeText(finalData.material, t.notRecorded);
   const finalOrigin = finalCountry;
   const finalConfidence = formatConfidence(
     firstDefined(finalData.confidence, currentItem?.confidence),
@@ -1960,12 +2189,55 @@ export default function Result() {
   const primaryCropImage = getCropImageUrl(primaryObject);
   const primaryCropPreview = getCropPreviewSource(primaryObject, previewImage);
 
-  const matchedAgents = Number(consensus?.matched_agents || 0);
+  const normalizedConsensusState = getNormalizedConsensus({
+    consensus,
+    agent_votes: singleAgentResults,
+  });
+  const normalizedAg3Decision = getNormalizedAg3Decision({
+    consensus,
+    agent_votes: singleAgentResults,
+  });
+  const matchedAgents = getStrictConsensusMatchedCount(
+    normalizedConsensusState,
+    normalizedAg3Decision,
+    firstDefined(consensus?.display_matched_agents, consensus?.matched_agents),
+  );
+  const totalAgents = toFiniteOrNull(firstDefined(consensus?.display_total_agents, consensus?.total_agents, consensus?.agent_count));
+  const consensusScoreText = formatConsensusScoreText(
+    matchedAgents,
+    totalAgents,
+    t.notRecorded,
+    consensus?.display_consensus_pattern || (matchedAgents !== null && totalAgents !== null ? `${matchedAgents}/${totalAgents}` : null),
+  );
+  const allVotes = currentItem?.agent_votes || currentItem?.agentVotes || [];
+  const nonMatchingVote = allVotes.find((v) => !v.matched && !v.agreed_with_final);
+  const isNonMatchingEligible = nonMatchingVote
+    ? (nonMatchingVote.vote_eligible === true || (nonMatchingVote.status === "completed" && nonMatchingVote.denomination && nonMatchingVote.denomination !== "Không xác định" && nonMatchingVote.denomination !== "N/A"))
+    : false;
+
+  const hasTechnicalFailure = allVotes?.some(v => v.technical_error === true || String(v.status).toLowerCase() === "failed" || String(v.status).toLowerCase() === "error");
+
+  const consensusMajorityDetailText = matchedAgents === 2
+    ? (isNonMatchingEligible
+        ? (lang === "VI"
+            ? "Đồng thuận đa số. Một phiếu đưa ra kết quả khác."
+            : "Consensus reached. One vote returned a different result.")
+        : hasTechnicalFailure
+          ? (lang === "VI"
+              ? "Hai phiếu hợp lệ đã tham gia biểu quyết. Nhánh xác minh web gặp sự cố và không được tính phiếu."
+              : "Two AI agents completed the analysis; the web verification branch encountered a technical error and was not counted.")
+          : (lang === "VI"
+              ? "Đồng thuận 2 phiếu hợp lệ. Một hướng phân tích không đủ điều kiện bỏ phiếu."
+              : "Consensus of 2 valid votes. One analysis branch did not qualify to vote."))
+    : t.consensusMajorityDetail;
+
   const consensusSummary =
-    matchedAgents >= 3
+    matchedAgents === null || totalAgents === null
+      ? t.consensusNotRecorded
+      : matchedAgents >= 3
       ? t.consensusFullDetail
       : matchedAgents === 2
-        ? t.consensusMajorityDetail
+        ? consensusMajorityDetailText
         : stripMarkdownSymbols(
             consensus?.referee_view ||
               consensus?.quan_diem_trong_tai ||
@@ -1977,13 +2249,9 @@ export default function Result() {
   const consensusText =
     consensus?.referee_view ||
     consensus?.quan_diem_trong_tai ||
-    (matchedAgents
-      ? `Majority vote selected ${finalDenomination} with ${matchedAgents}/3 agents matched.`
+    (matchedAgents !== null && matchedAgents > 0
+      ? `Majority vote selected ${finalDenomination} with ${consensusScoreText} agents matched.`
       : "No conclusion provided.");
-
-  const safeDebateLog = currentItem?.multi_object
-    ? buildMultiObjectDebateLog(currentItem.detected_objects, lang || "EN")
-    : stripMarkdownSymbols(consensus?.debate_log || "No debate log available.");
 
   const currentRateResultKey = [
     activeTab,
@@ -1994,8 +2262,11 @@ export default function Result() {
     finalDenomination,
   ].join("|");
   const useCurrentRateForResult = currentRateOverrideKey === currentRateResultKey;
+  const showVndConversion = isValidRecognizedMoneyResult(currentItem) && !isMulti;
 
-  const exchangeResults = useMemo(() => {
+  const exchangeResults = (() => {
+    if (!showVndConversion) return null;
+
     const rates = ratesData?.rates || {};
     const amountNumber = parseAmountFromDenomination(finalDenomination);
     const backendVndValue = getBackendVndValue(currentItem?.conversion_result);
@@ -2058,7 +2329,7 @@ export default function Result() {
         lastUpdated: getRateTimestamp(ratesData),
       },
     ];
-  }, [currentItem?.conversion_result, finalDenomination, finalCurrency, lang, ratesData, useCurrentRateForResult]);
+  })();
   const originalAmount = parseAmountFromDenomination(finalDenomination);
   const originalValueText = originalAmount
     ? `${originalAmount.toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} ${finalCurrency}`
@@ -2067,7 +2338,7 @@ export default function Result() {
     exchangeResults?.find((item) => item.code === "VND") || null;
   const vndValueText =
     vndExchangeItem?.value === null || vndExchangeItem?.value === undefined
-      ? "—"
+      ? t.notRecorded
       : `${new Intl.NumberFormat(lang === "VI" ? "vi-VN" : "en-US", {
           maximumFractionDigits: 0,
         }).format(vndExchangeItem.value)} VND`;
@@ -2089,34 +2360,13 @@ export default function Result() {
     vndExchangeItem?.provider ? `${t.lblProvider}: ${vndExchangeItem.provider}` : "",
     rateTimestampText ? `${t.rateUpdated}: ${rateTimestampText}` : "",
   ].filter(Boolean).join(" · ");
-
-  const handleCopyJSON = async () => {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(currentItem, null, 2));
-      toast.success(lang === "VI" ? "Đã chép JSON" : "JSON copied.");
-    } catch {
-      toast.error(lang === "VI" ? "Lỗi khi sao chép" : "Unable to copy JSON.");
-    }
-  };
-
-  const handleDownloadJSON = () => {
-    const blob = new Blob([JSON.stringify(currentItem, null, 2)], {
-      type: "application/json",
-    });
-
-    const objectUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-
-    a.href = objectUrl;
-    a.download = `banknote_result_${activeTab + 1}.json`;
-
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-
-    URL.revokeObjectURL(objectUrl);
-  };
-
+  const canViewAdminDiagnostics = hasAdminResultAccess(user);
+  const adminDiagnosticsResultId =
+    currentItem?.resultId ||
+    currentItem?.result_id ||
+    currentItem?.id ||
+    targetResultId ||
+    null;
   if (isRestoring) {
     return (
       <div className="max-w-3xl mx-auto font-sans py-12">
@@ -2173,10 +2423,6 @@ export default function Result() {
         t={t}
         lang={lang}
         onScanAnother={handleScanAnother}
-        showRawLog={showRawLog}
-        setShowRawLog={setShowRawLog}
-        handleCopyJSON={handleCopyJSON}
-        handleDownloadJSON={handleDownloadJSON}
       />
     );
   }
@@ -2240,8 +2486,21 @@ export default function Result() {
               </div>
 
               <div className="flex flex-wrap gap-2">
+                {canViewAdminDiagnostics && adminDiagnosticsResultId && (
+                  <button
+                    onClick={() => navigate(`/admin/results/${adminDiagnosticsResultId}`)}
+                    className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/90 px-3.5 py-2 text-sm font-bold text-indigo-700 transition hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:border-cyan-400/25 dark:bg-cyan-400/10 dark:text-cyan-200 dark:hover:bg-cyan-400/15"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    {t.adminDiagnostics}
+                  </button>
+                )}
                 <button
-                  onClick={() => navigate("/feedback", { state: { scanResult: currentItem } })}
+                  onClick={() =>
+                    navigate("/feedback", {
+                      state: { feedbackDraft: buildFeedbackDraft(currentItem) },
+                    })
+                  }
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2 text-sm font-bold text-slate-700 transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-cyan-400 dark:border-white/15 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10"
                 >
                   <MessageSquare className="h-4 w-4" />
@@ -2276,7 +2535,9 @@ export default function Result() {
                     ? lang === "VI"
                       ? `${detectedObjects.length} tờ tiền`
                       : `${detectedObjects.length} banknotes`
-                    : `${matchedAgents}/3 ${t.agents}`}
+                    : consensusScoreText === t.notRecorded
+                      ? t.notRecorded
+                      : `${consensusScoreText} ${t.agents}`}
                 </span>
               </div>
               <p className="text-sm font-bold text-indigo-600 dark:text-cyan-300">{t.finalDecision}</p>
@@ -2296,7 +2557,7 @@ export default function Result() {
               <HeroMetric label={t.lblConfidence} value={finalConfidence} accent />
               <HeroMetric
                 label={t.lblConsensus}
-                value={isMulti ? getConsensusStatusLabel(consensus, lang) : `${matchedAgents}/3`}
+                value={isMulti ? getConsensusStatusLabel(consensus, lang) : consensusScoreText}
                 accent
               />
             </div>
@@ -2323,143 +2584,6 @@ export default function Result() {
           </div>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-12">
-          <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:col-span-5">
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
-              <div>
-                <p className="text-sm font-black text-slate-900 dark:text-slate-100">{t.originalImage}</p>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{t.uploadTitle}</p>
-              </div>
-              <ImageIcon className="h-5 w-5 text-slate-400" />
-            </div>
-
-            <div className="space-y-4 p-4">
-              <ImagePreviewButton
-                src={previewImage}
-                alt={t.originalImage}
-                emptyText={lang === "VI" ? "Không có ảnh gốc" : "Original image unavailable"}
-                onPreview={() => previewImage && setImagePreview({ src: previewImage, alt: t.originalImage })}
-                label={t.viewImage}
-                heightClass="h-[300px] sm:h-[380px]"
-              />
-
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-black uppercase text-slate-500 dark:text-slate-400">{t.cropPreview}</p>
-                  {primaryObject?.crop_source && (
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      {primaryObject.crop_source}
-                    </span>
-                  )}
-                </div>
-                <CropPreviewButton
-                  preview={primaryCropPreview}
-                  alt={t.cropPreview}
-                  emptyText={
-                    primaryObject?.bbox
-                      ? t.cropUnavailable
-                      : lang === "VI" ? "Không có vùng crop" : "No crop region"
-                  }
-                  onPreview={() => primaryCropPreview && setImagePreview({ cropPreview: primaryCropPreview, alt: t.cropPreview })}
-                  label={t.viewImage}
-                  heightClass="h-36 sm:h-44"
-                />
-              </div>
-            </div>
-          </section>
-
-          <div className="space-y-6 lg:col-span-7">
-            <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-400">{t.resultOverview}</p>
-                  <h2 className="mt-2 text-3xl font-black text-slate-950 dark:text-white">{finalDenomination}</h2>
-                  <p className="mt-1 text-sm font-semibold text-slate-500 dark:text-slate-400">
-                    {finalCountry} · {finalCurrency}
-                  </p>
-                </div>
-                <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 text-left dark:border-cyan-500/30 dark:bg-cyan-500/10 sm:text-right">
-                  <p className="text-xs font-black uppercase text-cyan-700 dark:text-cyan-300">{t.lblConfidence}</p>
-                  <p className="mt-1 text-2xl font-black text-cyan-950 dark:text-cyan-100">{finalConfidence}</p>
-                </div>
-              </div>
-
-              <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <OverviewMetric icon={<Globe />} label={t.lblCountry} value={finalCountry} />
-                <OverviewMetric icon={<Coins />} label={t.lblCurrency} value={finalCurrency} />
-                <OverviewMetric icon={<ShieldCheck />} label={t.lblMaterial} value={finalMaterial} />
-                <OverviewMetric
-                  icon={<Gauge />}
-                  label={t.lblConsensus}
-                  value={isMulti ? `${detectedObjects.length}` : `${matchedAgents}/3`}
-                />
-              </div>
-
-              <div className="mt-5 border-t border-slate-200 pt-5 dark:border-slate-800">
-                <p className="text-xs font-black uppercase text-slate-400">{t.referee}</p>
-                <div className="prose prose-sm mt-2 max-w-none text-slate-600 dark:prose-invert dark:text-slate-300">
-                  <ReactMarkdown>{stripMarkdownSymbols(consensusText)}</ReactMarkdown>
-                </div>
-              </div>
-            </section>
-
-            {isValidRecognizedMoneyResult(currentItem) && !isMulti && (
-              <section className="overflow-hidden rounded-lg border border-emerald-200 bg-emerald-50 shadow-sm dark:border-emerald-500/25 dark:bg-emerald-500/10">
-                <div className="flex flex-col gap-5 p-5 sm:p-6">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-black uppercase text-emerald-700 dark:text-emerald-300">{t.conversionTitle}</p>
-                      <p className="mt-1 text-sm text-emerald-800/75 dark:text-emerald-100/70">{t.exchangeDesc}</p>
-                    </div>
-                    <TrendingUp className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-300" />
-                  </div>
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg border border-emerald-200 bg-white/75 p-4 dark:border-emerald-500/20 dark:bg-slate-950/30">
-                      <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">{t.originalValue}</p>
-                      <p className="mt-1 break-words text-xl font-black text-slate-950 dark:text-white">{originalValueText}</p>
-                    </div>
-                    <div className="rounded-lg border border-emerald-300 bg-white p-4 dark:border-emerald-400/30 dark:bg-slate-950/50">
-                      <p className="text-xs font-bold text-emerald-700 dark:text-emerald-300">{t.approximateValue}</p>
-                      <p className="mt-1 break-words text-2xl font-black text-emerald-800 dark:text-emerald-200">{vndValueText}</p>
-                      {rateMetaText && (
-                        <p className="mt-2 text-xs font-semibold text-emerald-700/80 dark:text-emerald-100/70">
-                          {rateMetaText}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className={`text-xs font-semibold ${hasVndRate ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}`}>
-                      {hasVndRate ? t.rateAvailable : t.rateUnavailable}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-3">
-                      {canRecalculateWithCurrentRate && (
-                        <button
-                          type="button"
-                          onClick={() => setCurrentRateOverrideKey(currentRateResultKey)}
-                          disabled={useCurrentRateForResult}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 px-3 py-1.5 text-xs font-black text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-default disabled:opacity-70 dark:border-emerald-400/30 dark:text-emerald-100 dark:hover:bg-emerald-400/10"
-                        >
-                          {useCurrentRateForResult ? t.showingCurrentRate : t.recalculateCurrentRate}
-                        </button>
-                      )}
-                      <Link
-                        to="/exchange"
-                        className="inline-flex items-center gap-1.5 text-sm font-black text-emerald-800 hover:underline dark:text-emerald-200"
-                      >
-                        {t.openConverter}
-                        <ExternalLink className="h-4 w-4" />
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            )}
-          </div>
-        </div>
-
         {isMulti ? (
           <MultiObjectResults currentItem={currentItem} t={t} lang={lang} ratesData={ratesData} />
         ) : (
@@ -2471,6 +2595,7 @@ export default function Result() {
             material={finalMaterial}
             origin={finalOrigin}
             matchedAgents={matchedAgents}
+            totalAgents={totalAgents}
             confidence={finalConfidence}
             status={normalizeStatusLabel(currentItem?.status, lang)}
             image={primaryCropImage || previewImage}
@@ -2481,14 +2606,14 @@ export default function Result() {
               primaryObject?.final_result?.valid_votes ||
               []
             }
+            consensusData={currentItem?.consensus || {}}
             refereeView={stripMarkdownSymbols(consensusText)}
             lensPayload={getAgentDataByName(singleAgentResults, ["lens", "visual", "agent_3"])}
             lensSources={normalizeLensSources(getAgentDataByName(singleAgentResults, ["lens", "visual", "agent_3"]))}
             cropEvidence={normalizeCropEvidence(primaryObject || currentItem)}
             consensusTrace={normalizeConsensusTrace(
-              primaryObject,
-              currentItem,
-              currentItem?.raw_backend?.final_result,
+              primaryObject?.consensus,
+              currentItem?.consensus,
             )}
             conversionResult={currentItem?.conversion_result}
             originalObjectData={primaryObject || currentItem}
@@ -2497,79 +2622,18 @@ export default function Result() {
             ratesData={ratesData}
             parseAmountFromDenomination={parseAmountFromDenomination}
             isSingleObject
+            showVndConversion={showVndConversion}
+            originalValueText={originalValueText}
+            vndValueText={vndValueText}
+            hasVndRate={hasVndRate}
+            rateMetaText={rateMetaText}
+            canRecalculateWithCurrentRate={canRecalculateWithCurrentRate}
+            useCurrentRateForResult={useCurrentRateForResult}
+            onRecalculateRate={() => setCurrentRateOverrideKey(currentRateResultKey)}
+            handleScanAnother={handleScanAnother}
+            navigate={navigate}
           />
         )}
-
-        <TokenUsageCard currentItem={currentItem} t={t} />
-
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <button
-            onClick={() => setShowRawLog(!showRawLog)}
-            className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 dark:hover:bg-slate-800"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                <Zap className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="font-black text-slate-900 dark:text-white">{t.advDebug || "Advanced Debug"}</h2>
-                <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                  {lang === "VI" ? "Nhật ký đồng thuận và JSON dành cho kiểm tra kỹ thuật" : "Consensus log and raw JSON for technical review"}
-                </p>
-              </div>
-            </div>
-            {showRawLog ? <ChevronUp className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" /> : <ChevronDown className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" />}
-          </button>
-
-          {showRawLog && (
-            <div className="space-y-5 border-t border-slate-200 p-5 dark:border-slate-800">
-              {(currentItem?.final_result?.resize_debug || currentItem?.final_result?.models_used) && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {currentItem?.final_result?.resize_debug && (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                      <p className="mb-2 text-xs font-black uppercase text-slate-500">Resize Debug</p>
-                      <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap break-words text-xs text-sky-700 dark:text-sky-300">
-                        {JSON.stringify(currentItem.final_result.resize_debug, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  {currentItem?.final_result?.models_used && (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-                      <p className="mb-2 text-xs font-black uppercase text-slate-500">Models Used</p>
-                      <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap break-words text-xs text-fuchsia-700 dark:text-fuchsia-300">
-                        {JSON.stringify(currentItem.final_result.models_used, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                </div>
-              )}
-              <div>
-                <p className="mb-2 text-xs font-black uppercase text-slate-500">{t.fullLogTitle}</p>
-                <div className="max-h-[420px] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-emerald-700 dark:border-slate-800 dark:bg-slate-950 dark:text-emerald-300">
-                  <ReactMarkdown>{safeDebateLog}</ReactMarkdown>
-                </div>
-              </div>
-              <div>
-                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs font-black uppercase text-slate-500">{t.jsonTitle}</p>
-                  <div className="flex gap-2">
-                    <button onClick={handleCopyJSON} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
-                      <Copy className="h-3.5 w-3.5" />
-                      {t.copy}
-                    </button>
-                    <button onClick={handleDownloadJSON} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-indigo-500">
-                      <Download className="h-3.5 w-3.5" />
-                      {t.download}
-                    </button>
-                  </div>
-                </div>
-                <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs text-emerald-700 dark:border-slate-800 dark:bg-slate-950 dark:text-emerald-300">
-                  {JSON.stringify(currentItem, null, 2)}
-                </pre>
-              </div>
-            </div>
-          )}
-        </section>
 
         {overflowObjects && overflowObjects.length > 0 && (
           <section className="overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm dark:border-amber-900/50 dark:bg-slate-900">
@@ -2606,11 +2670,11 @@ export default function Result() {
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       <InfoRow
                         label={lang === "VI" ? "Điểm giấy tờ" : "Document Score"}
-                        value={checker?.document_score ? parseFloat(checker.document_score).toFixed(2) : "N/A"}
+                        value={formatRecordedScore(checker?.document_score)}
                       />
                       <InfoRow
                         label={lang === "VI" ? "Điểm tiền giấy" : "Banknote Score"}
-                        value={checker?.banknote_score ? parseFloat(checker.banknote_score).toFixed(2) : "N/A"}
+                        value={formatRecordedScore(checker?.banknote_score)}
                       />
                       {bbox && (
                         <InfoRow
@@ -2700,20 +2764,6 @@ function HeroMetric({ label, value, accent = false }) {
           ? "text-indigo-700 dark:text-cyan-200"
           : "text-slate-950 dark:text-white"
       }`}>
-        {normalizeText(value)}
-      </p>
-    </div>
-  );
-}
-
-function OverviewMetric({ icon, label, value }) {
-  return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60">
-      <div className="flex items-center gap-2 text-slate-400">
-        {React.cloneElement(icon, { className: "h-4 w-4" })}
-        <p className="truncate text-[11px] font-bold uppercase">{label}</p>
-      </div>
-      <p className="mt-2 break-words text-sm font-black text-slate-900 dark:text-slate-100">
         {normalizeText(value)}
       </p>
     </div>
@@ -2851,476 +2901,1779 @@ function InfoRow({ label, value }) {
   );
 }
 
-function SummaryCard({ label, value, icon, accent = "slate" }) {
-  const accentMap = {
-    teal: "text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-500/20",
-    indigo: "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/20",
-    emerald: "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/20",
-    violet: "text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-500/20",
-    slate: "text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800",
-  };
-  const iconClass = accentMap[accent] || accentMap.slate;
+function VerificationSummaryCard({ matchedAgents, totalAgents, cropEvidence, ag3Decision, lang }) {
+  const hasMatched = matchedAgents !== null && totalAgents !== null;
+  const hasCrop = Boolean(cropEvidence?.action);
+  const hasLens = Boolean(ag3Decision?.rawCount || ag3Decision?.candidateSourceCount);
+
+  if (!hasMatched && !hasCrop && !hasLens) return null;
 
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 transition-all hover:-translate-y-0.5 hover:shadow-md group">
-      {icon && (
-        <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-3 ${iconClass}`}>
-          {icon}
-        </div>
-      )}
-      <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-        {label}
-      </p>
-      <p className="mt-1 text-base font-black text-slate-900 dark:text-slate-100 leading-tight">
-        {normalizeText(value)}
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h4 className="mb-3 flex items-center gap-2 text-sm font-black text-slate-900 dark:text-slate-100">
+        <ShieldCheck className="h-4 w-4 text-emerald-500" />
+        {lang === "VI" ? "Tóm tắt kiểm tra" : "Verification summary"}
+      </h4>
+      <ul className="space-y-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        {hasMatched && (
+          <li className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+            <span>
+              {lang === "VI"
+                ? `${matchedAgents}/${totalAgents} tác tử đồng thuận`
+                : `${matchedAgents}/${totalAgents} agents matched`}
+            </span>
+          </li>
+        )}
+        {hasCrop && (
+          <li className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+            <span>
+              {lang === "VI"
+                ? "Vùng cắt đã vượt qua kiểm tra"
+                : "Crop passed validation"}
+            </span>
+          </li>
+        )}
+        {hasLens && (
+          <li className="flex items-center gap-2">
+            <CheckCircle2 className={`h-4 w-4 shrink-0 ${ag3Decision?.counted ? "text-emerald-500" : "text-amber-500"}`} />
+            <span>{getAg3DecisionMessage(ag3Decision, lang)}</span>
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+function CompactTokenUsageCard({ billing, t, lang }) {
+  const credits = billing?.credits_charged ?? billing?.creditsCharged;
+  const billingText =
+    credits !== undefined && credits !== null
+      ? lang === "VI"
+        ? `Đã trừ ${credits} token ứng dụng · Cố định theo lượt`
+        : `${credits} app token charged · Fixed per scan`
+      : t?.notRecorded || (lang === "VI" ? "Chưa ghi nhận" : "Not recorded");
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          {lang === "VI" ? "Mức sử dụng" : "Usage"}
+        </span>
+        <Coins className="h-4 w-4 text-amber-500" />
+      </div>
+      <p className="mt-1 text-xs font-bold text-slate-800 dark:text-slate-200">
+        {billingText}
       </p>
     </div>
   );
 }
-function PerObjectResult({ 
-  objectNo,
-  finalDenomination,
-  country,
-  currency,
-  material,
-  origin,
-  matchedAgents,
-  confidence,
-  status,
-  image,
-  cropPreview,
-  agentResults,
-  consensusValidVotes = [],
-  refereeView,
-  lensPayload,
-  lensSources,
-  cropEvidence,
-  consensusTrace,
-  conversionResult,
-  originalObjectData = null,
+
+function CurrencyConversionCard({
+  showVndConversion,
+  originalValueText,
+  vndValueText,
+  hasVndRate,
+  rateMetaText,
+  canRecalculateWithCurrentRate,
+  useCurrentRateForResult,
+  onRecalculateRate,
   t,
   lang,
-  ratesData,
-  parseAmountFromDenomination,
-  isSingleObject
 }) {
-  const [openSections, setOpenSections] = React.useState({
-    details: false,
-    crop: false,
-    agents: true,
-    lens: false,
-    why: true,
-    timeline: false
-  });
-  const [objectImagePreview, setObjectImagePreview] = React.useState(false);
-  const [showAllLensSources, setShowAllLensSources] = React.useState(false);
+  if (!showVndConversion) return null;
 
-  const toggleSection = (key) => setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+  const isVndNative = String(originalValueText || "").toUpperCase().includes("VND");
 
-  // Helper for VND
-  const getVndText = () => {
-    const amount = parseAmountFromDenomination(finalDenomination);
-    if (!amount) return "N/A";
-    const backendVndValue = getBackendVndValue(conversionResult);
-    if (backendVndValue !== null) {
-      return `~ ${Math.round(backendVndValue).toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} VND`;
-    }
-    const cur = String(currency || "").toUpperCase();
-    if (cur === "VND") return `${amount.toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} VND`;
-    const rate = Number(ratesData?.rates?.[cur] || 0);
-    if (rate <= 0) {
-      return lang === "VI"
-        ? `${amount.toLocaleString("vi-VN")} ${cur} · chưa có tỷ giá VND`
-        : `${amount.toLocaleString("en-US")} ${cur} · VND rate unavailable`;
-    }
-    return `~ ${Math.round(amount * rate).toLocaleString(lang === "VI" ? "vi-VN" : "en-US")} VND`;
-  };
-
-  const finalCanonical = buildMoneyCanonical({
-    denomination: finalDenomination,
-    currency: currency,
-    country: country,
-  });
-
-  const getVoteData = (agentItem, agentName, agentKey) => {
-    const norm = normalizeAgentVote(
-      agentItem,
-      finalCanonical,
-      consensusValidVotes,
-      agentKey,
+  if (isVndNative) {
+    return (
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/60 sm:p-5">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-black uppercase text-slate-500 dark:text-slate-400">
+            {t?.conversionTitle || (lang === "VI" ? "Quy đổi tiền tệ" : "Currency Conversion")}
+          </p>
+          <Coins className="h-4 w-4 text-slate-400" />
+        </div>
+        <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
+          {lang === "VI" ? "Không cần quy đổi." : "No conversion is required."}
+        </p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          {lang === "VI" ? `Giá trị nhận diện: ${originalValueText}` : `Recognized value: ${originalValueText}`}
+        </p>
+      </div>
     );
-    return { ...norm, name: getAgentDisplayName(agentItem?.agent || agentItem?.agent_name || agentName) };
-  };
-
-  // Ensure we have exactly 3 cards for AG1, AG2, AG3
-  const ag1 = getAgentDataByName(agentResults, ["agent_1", "openai", "gpt", "vision", "ag1"]) || {};
-  const ag2 = getAgentDataByName(agentResults, ["agent_2", "llm", "gemini", "ag2"]) || {};
-  const ag3 = getAgentDataByName(agentResults, ["agent_3", "lens", "visual", "ag3"]) || {};
-  const lensState = getLensEvidenceState(lensPayload || ag3, lensSources || [], lang);
-  const cropMetrics = cropEvidence?.metrics
-    ? [
-        ["Area", cropEvidence.metrics.area_ratio],
-        ["Aspect", cropEvidence.metrics.aspect_ratio],
-        ["Texture", cropEvidence.metrics.texture_variance],
-        ["Edge", cropEvidence.metrics.edge_density],
-        ["Brightness", cropEvidence.metrics.brightness],
-        ["Contrast", cropEvidence.metrics.contrast],
-        ["Background", cropEvidence.metrics.background_score],
-      ].filter(([, value]) => value !== undefined && value !== null)
-    : [];
-
-  const votes = [
-    getVoteData({ agent: "AG1 OpenAI/GPT Vision", data: ag1 }, "AG1", "ml_dl"),
-    getVoteData({ agent: "AG2 Gemini/LLM", data: ag2 }, "AG2", "llm_api"),
-    getVoteData({ agent: "AG3 Google Lens/Visual Search", data: ag3 }, "AG3", "visual_search")
-  ];
+  }
 
   return (
-    <section className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 ${!isSingleObject ? "mt-4" : ""}`}>
-      {/* HEADER */}
-      <div className="flex flex-col justify-between gap-4 border-b border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-800/50 md:flex-row md:items-center">
-        <div className="flex items-center gap-4">
-          {!isSingleObject && (cropPreview || image) && (
-            <button
-              type="button"
-              onClick={() => setObjectImagePreview(true)}
-              className="group relative h-20 w-28 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950"
-              aria-label={lang === "VI" ? "Xem ảnh crop" : "View crop image"}
-            >
-              {cropPreview ? (
-                <CropPreviewContent preview={cropPreview} alt="Crop" />
-              ) : (
-                <img src={image} alt="Crop" className="h-full w-full object-cover" />
-              )}
-              <span className="absolute inset-0 flex items-center justify-center bg-slate-950/45 text-white opacity-0 transition group-hover:opacity-100 group-focus:opacity-100">
-                <Maximize2 className="h-4 w-4" />
-              </span>
-            </button>
-          )}
-          <div>
-            <p className="mb-1 text-xs font-black uppercase text-indigo-600 dark:text-indigo-400">
-              {isSingleObject
-                ? t.analysisEvidence
-                : lang === "VI"
-                  ? `Tờ tiền #${objectNo}`
-                  : `Banknote #${objectNo}`}
-            </p>
-            <h3 className="text-xl font-black text-slate-900 dark:text-slate-100">{finalDenomination}</h3>
-            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{status}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 md:text-right">
-          <div>
-            <p className="text-[10px] font-black uppercase text-slate-400">{t.lblConfidence}</p>
-            <p className="mt-1 text-sm font-black text-slate-900 dark:text-slate-100">{confidence}</p>
-          </div>
-          <div className="h-8 w-px bg-slate-200 dark:bg-slate-700" />
-          <div>
-            <p className="text-[10px] font-black uppercase text-slate-400">{t.lblConsensus}</p>
-            <div className="mt-1 flex items-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">{matchedAgents}/3</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* A. DETAILS */}
-      <div className="p-6 border-b border-slate-100 dark:border-slate-800">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <DetailItem label={t.lblCountry} value={country} />
-          <DetailItem label={t.lblCurrency} value={currency} />
-          <DetailItem label={t.lblMaterial} value={material} />
-          <DetailItem label={t.lblConfidence} value={confidence} />
-          {!isSingleObject && (
-            <DetailItem label={t.vndEquivalent || "VND Equivalent"} value={getVndText()} />
-          )}
-        </div>
-      </div>
-
-      {/* B. AGENT VOTES */}
-      <CollapsibleSection title={`B. ${t.agentVotes || "AI Agent Votes"}`} isOpen={openSections.agents} toggle={() => toggleSection('agents')}>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {votes.map((vote, i) => (
-             <AgentVoteCard key={i} vote={vote} t={t} lang={lang} />
-          ))}
-        </div>
-      </CollapsibleSection>
-
-      {/* C. CROP GATE */}
-      <CollapsibleSection title={`C. ${t.lblCropEvidence || "Crop Gate / AG0 Evidence"}`} isOpen={openSections.crop} toggle={() => toggleSection('crop')}>
-        <div className="rounded-lg bg-slate-50 p-4 dark:bg-slate-800/30">
-          <p className="mb-3 text-sm text-slate-700 dark:text-slate-300">
-            {lang === "VI" ? "YOLO tìm vùng nghi là tiền giấy, AG0 kiểm tra vùng crop hợp lệ." : "YOLO detects banknote regions, AG0 validates crop suitability."}
+    <div className="overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50/80 shadow-sm dark:border-emerald-500/25 dark:bg-emerald-500/10">
+      <div className="p-4 sm:p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-xs font-black uppercase text-emerald-700 dark:text-emerald-300">
+            {t?.conversionTitle || (lang === "VI" ? "Quy đổi tiền tệ" : "Currency Conversion")}
           </p>
-          {cropEvidence ? (
-            <div className="space-y-4">
-              <div className="flex items-start gap-2">
-                {cropEvidence.action === "KEEP" || cropEvidence.action === "VALID" ? <CheckCircle2 className="w-5 h-5 text-emerald-500 mt-0.5" /> : cropEvidence.action === "REVIEW" ? <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5" /> : <AlertCircle className="w-5 h-5 text-rose-500 mt-0.5" />}
-                <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                    {cropEvidence.action === "KEEP" || cropEvidence.action === "VALID" ? (lang === "VI" ? "AG0 đã chấp nhận vùng cắt này là vùng tiền giấy hợp lệ." : "AG0 accepted this crop as a valid banknote.") :
-                     cropEvidence.action === "REVIEW" ? (lang === "VI" ? "Vùng cắt có vẻ là tiền giấy nhưng cần kiểm tra chéo." : "Crop looks like a banknote but requires cross-validation.") :
-                     (lang === "VI" ? "Vùng cắt không đủ điều kiện nhận diện." : "Crop is not suitable for recognition.")}
-                  </p>
-                  {cropEvidence.selectedReason && (
-                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-2">
-                      {lang === "VI" ? "Lý do chọn vùng: " : "Selected region: "}
-                      {cropEvidence.selectedReason}
-                    </p>
-                  )}
-                  {cropEvidence.reason && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      {cropEvidence.reason}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-slate-300">
-                {cropEvidence.confidence !== null && cropEvidence.confidence !== undefined && (
-                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 dark:border-slate-700 dark:bg-slate-900">
-                    AG0: {formatConfidence(cropEvidence.confidence)}
-                  </span>
-                )}
-                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 dark:border-slate-700 dark:bg-slate-900">
-                  {lang === "VI" ? "Box bị loại" : "Rejected boxes"}: {cropEvidence.rejectedBoxes.length}
-                </span>
-              </div>
-              {(cropMetrics.length > 0 || cropEvidence.trace || cropEvidence.rejectedBoxes.length > 0) && (
-                <details className="rounded-lg border border-slate-200 bg-white p-3 text-xs dark:border-slate-700 dark:bg-slate-900">
-                  <summary className="cursor-pointer font-bold text-slate-700 dark:text-slate-200">
-                    {lang === "VI" ? "Metrics và chi tiết chọn box" : "Metrics and box selection details"}
-                  </summary>
-                  {cropMetrics.length > 0 && (
-                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      {cropMetrics.map(([label, value]) => (
-                        <div key={label} className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
-                          <p className="text-[10px] font-bold uppercase text-slate-400">{label}</p>
-                          <p className="mt-1 text-xs font-black text-slate-800 dark:text-slate-100">{String(value)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap text-[11px] text-slate-600 dark:text-slate-300">
-                    {JSON.stringify(
-                      {
-                        box_selection_trace: cropEvidence.trace,
-                        rejected_boxes: cropEvidence.rejectedBoxes,
-                      },
-                      null,
-                      2,
-                    )}
-                  </pre>
-                </details>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500 italic">{lang === "VI" ? "Không có dữ liệu crop evidence." : "No AG0 crop evidence data available."}</p>
-          )}
+          <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
         </div>
-      </CollapsibleSection>
 
-      {/* D. GOOGLE LENS EVIDENCE */}
-      <CollapsibleSection title={`D. ${t.lensEvidence || "Google Lens Evidence"}`} isOpen={openSections.lens} toggle={() => toggleSection('lens')}>
-        {lensSources && lensSources.length > 0 ? (
-          <div className="space-y-3">
-            {(showAllLensSources ? lensSources : lensSources.slice(0, 5)).map((src, i) => {
-              const SourceElement = src.url ? "a" : "div";
-              const sourceScore = Number(src.confidence);
-              return (
-                <SourceElement
-                  key={`${src.url || src.title}-${i}`}
-                  {...(src.url
-                    ? { href: src.url, target: "_blank", rel: "noreferrer" }
-                    : {})}
-                  className="group block rounded-lg border border-slate-200 bg-white p-4 transition hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-500/40 dark:hover:bg-indigo-500/5"
-                >
-                  <div className="flex min-w-0 gap-3">
-                    {src.thumbnail && <img src={src.thumbnail} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover" />}
-                    <div className="min-w-0">
-                      <div className="flex items-start justify-between gap-3">
-                        <h4 className="line-clamp-2 break-words text-sm font-black text-slate-900 group-hover:text-indigo-700 dark:text-slate-100 dark:group-hover:text-indigo-300">{src.title}</h4>
-                        {src.url && <ExternalLink className="h-4 w-4 shrink-0 text-slate-400 group-hover:text-indigo-500" />}
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <p className="break-all text-xs font-semibold text-indigo-600 dark:text-indigo-400">{src.domain || "—"}</p>
-                        {Number.isFinite(sourceScore) && (
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-                            {lang === "VI" ? "điểm" : "score"} {sourceScore.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                      {src.snippet && <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600 dark:text-slate-300">{src.snippet}</p>}
-                    </div>
-                  </div>
-                </SourceElement>
-              );
-            })}
-            {lensSources.length > 5 && (
-              <button
-                type="button"
-                onClick={() => setShowAllLensSources((current) => !current)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-indigo-700 transition hover:bg-indigo-50 dark:border-slate-700 dark:bg-slate-900 dark:text-indigo-300 dark:hover:bg-slate-800"
-              >
-                {showAllLensSources ? t.showFewer : `${t.showMore} (${lensSources.length - 5})`}
-                {showAllLensSources ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-              </button>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          <div className="rounded-lg border border-emerald-200/80 bg-white/80 p-3 dark:border-emerald-500/20 dark:bg-slate-950/40">
+            <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">{t?.originalValue}</p>
+            <p className="mt-0.5 text-base font-black text-slate-900 dark:text-white">{originalValueText}</p>
+          </div>
+          <div className="rounded-lg border border-emerald-300/80 bg-white p-3 dark:border-emerald-400/30 dark:bg-slate-950/60">
+            <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">{t?.approximateValue}</p>
+            <p className="mt-0.5 text-lg font-black text-emerald-800 dark:text-emerald-200">{vndValueText}</p>
+            {rateMetaText && (
+              <p className="mt-1 text-[11px] font-semibold text-emerald-700/80 dark:text-emerald-100/70">
+                {rateMetaText}
+              </p>
             )}
           </div>
-        ) : (
-          <div
-            className={`rounded-lg border p-4 text-sm ${
-              lensState.tone === "error"
-                ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300"
-                : lensState.tone === "warning"
-                  ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
-                  : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300"
-            }`}
-          >
-            {lensState.message}
-          </div>
-        )}
-      </CollapsibleSection>
+        </div>
 
-      {/* E. WHY CHOSEN */}
-      <CollapsibleSection title={`E. ${t.whyChosen || "Why did the system choose this result?"}`} isOpen={openSections.why} toggle={() => toggleSection('why')}>
-        <div className="space-y-4 rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-cyan-50 p-5 shadow-sm dark:border-indigo-500/30 dark:from-indigo-500/10 dark:to-cyan-500/5">
-          {/* Crop Evidence */}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-1">
+          <span className="text-[11px] font-semibold text-emerald-700/90 dark:text-emerald-200/90">
+            {hasVndRate ? t?.rateAvailable : t?.rateUnavailable}
+          </span>
+          <div className="flex items-center gap-3">
+            {canRecalculateWithCurrentRate && (
+              <button
+                type="button"
+                onClick={onRecalculateRate}
+                disabled={useCurrentRateForResult}
+                className="inline-flex items-center gap-1 rounded-md border border-emerald-300 px-2 py-1 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60 dark:border-emerald-400/30 dark:text-emerald-100"
+              >
+                {useCurrentRateForResult ? t?.showingCurrentRate : t?.recalculateCurrentRate}
+              </button>
+            )}
+            <Link
+              to="/exchange"
+              className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 hover:underline dark:text-emerald-200"
+            >
+              {t?.openConverter}
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ImagesCard({
+  previewImage,
+  cropPreview,
+  cropSource,
+  hasBbox,
+  t,
+  lang,
+  onPreviewImage,
+  onPreviewCrop,
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h3 className="mb-4 flex items-center gap-2 text-base font-black text-slate-900 dark:text-slate-100">
+        <ImageIcon className="h-5 w-5 text-indigo-500" />
+        {lang === "VI" ? "Hình ảnh nhận diện" : "Banknote Images"}
+      </h3>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {/* Original Image Panel */}
+        <div className="flex flex-col justify-between rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-black text-slate-700 dark:text-slate-300">
+              {t?.originalImage || (lang === "VI" ? "Ảnh gốc" : "Original image")}
+            </span>
+            <span className="text-[10px] font-bold text-slate-400">
+              {lang === "VI" ? "Ảnh chụp" : "Input"}
+            </span>
+          </div>
+          <ImagePreviewButton
+            src={previewImage}
+            alt={t?.originalImage || "Original image"}
+            emptyText={lang === "VI" ? "Không có ảnh gốc" : "Original image unavailable"}
+            onPreview={onPreviewImage}
+            label={t?.viewImage || "View image"}
+            heightClass="h-60 sm:h-72"
+          />
+        </div>
+
+        {/* Selected Crop Panel */}
+        <div className="flex flex-col justify-between rounded-xl border border-slate-100 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-black text-slate-700 dark:text-slate-300">
+              {t?.cropPreview || (lang === "VI" ? "Vùng cắt chọn" : "Selected crop")}
+            </span>
+            {cropSource && (
+              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">
+                {cropSource}
+              </span>
+            )}
+          </div>
+          <CropPreviewButton
+            preview={cropPreview}
+            alt={t?.cropPreview || "Selected crop"}
+            emptyText={
+              hasBbox
+                ? (t?.cropUnavailable || (lang === "VI" ? "Vùng cắt không khả dụng" : "Crop preview unavailable"))
+                : (lang === "VI" ? "Vùng cắt không khả dụng" : "Crop preview unavailable")
+            }
+            onPreview={onPreviewCrop}
+            label={t?.viewImage || "View crop"}
+            heightClass="h-60 sm:h-72"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChipList({ items, maxDefault = 6, lang, label }) {
+  const [showAll, setShowAll] = React.useState(false);
+
+  if (!items || items.length === 0) return null;
+
+  const displayItems = showAll ? items : items.slice(0, maxDefault);
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+      <h5 className="mb-3 text-xs font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        {label}
+      </h5>
+      <div className="flex flex-wrap gap-1.5">
+        {displayItems.map((item, i) => (
+          <span
+            key={i}
+            className="rounded-lg border border-slate-200/80 bg-white px-2.5 py-1 text-xs font-bold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          >
+            {item}
+          </span>
+        ))}
+      </div>
+      {items.length > maxDefault && (
+        <button
+          type="button"
+          onClick={() => setShowAll((prev) => !prev)}
+          className="mt-3 text-xs font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          {showAll
+            ? (lang === "VI" ? "Thu gọn" : "Show less")
+            : (lang === "VI" ? `Xem thêm +${items.length - maxDefault}` : `Show +${items.length - maxDefault} more`)}
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function WhyThisResultCard({
+  matchedAgents,
+  totalAgents,
+  isNonMatchingEligible,
+  finalDenomination,
+  cropEvidence,
+  originalObjectData,
+  ag3Decision,
+  refereeView,
+  t,
+  lang,
+}) {
+  const allVotes = originalObjectData?.agent_votes || originalObjectData?.agentVotes || [];
+  const validVoteCount = allVotes?.filter(v => v.vote_created !== false && v.vote_eligible !== false && v.counted_in_consensus !== false).length || allVotes.length;
+  const hasTechnicalFailure = allVotes?.some(v => v.technical_error === true || String(v.status).toLowerCase() === "failed" || String(v.status).toLowerCase() === "error");
+  const [showTechnicalExplanation, setShowTechnicalExplanation] = React.useState(false);
+  const lensStatusText = getAg3DecisionMessage(ag3Decision, lang);
+  const lensStatusIconColor = ag3Decision?.counted ? "text-emerald-500" : "text-amber-500";
+
+  return (
+    <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50/70 to-cyan-50/70 p-5 shadow-sm dark:border-indigo-500/30 dark:from-indigo-500/10 dark:to-cyan-500/5">
+      <h3 className="mb-4 flex items-center gap-2 text-base font-black text-slate-900 dark:text-slate-100">
+        <Brain className="h-5 w-5 text-indigo-500" />
+        {t?.whyChosen || (lang === "VI" ? "Vì sao chọn kết quả này?" : "Why This Result")}
+      </h3>
+
+      {/* User-facing summary bullets */}
+      <div className="rounded-xl bg-white/80 p-4 shadow-sm backdrop-blur dark:bg-slate-900/60">
+        <ul className="space-y-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+          <li className="flex items-start gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+            <span>
+              {matchedAgents >= 3
+                ? (lang === "VI" ? `Cả 3 tác tử AI đều độc lập đồng thuận ${finalDenomination}.` : `All 3 AI agents independently matched on ${finalDenomination}.`)
+                : matchedAgents >= 2
+                  ? (validVoteCount < 3
+                      ? (lang === "VI" ? `Đồng thuận 2/2 phiếu hợp lệ trên ${finalDenomination}.` : `2 of 2 valid agents reached consensus on ${finalDenomination}.`)
+                      : (lang === "VI" ? `Đa số phiếu đồng thuận ${finalDenomination}.` : `A majority of valid votes reached consensus on ${finalDenomination}.`))
+                  : (lang === "VI" ? `Hệ thống ghi nhận kết quả từ tác tử hợp lệ.` : `System recorded decision from valid agent votes.`)}
+            </span>
+          </li>
+          <li className="flex items-start gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+            <span>
+              {lang === "VI"
+                ? "Vùng ảnh cắt đã vượt qua kiểm tra chất lượng tiền giấy."
+                : "Crop region passed banknote suitability quality checks."}
+            </span>
+          </li>
+          <li className="flex items-start gap-2">
+            <CheckCircle2 className={`h-4 w-4 shrink-0 mt-0.5 ${lensStatusIconColor}`} />
+            <span data-testid="why-lens-status">{lensStatusText}</span>
+          </li>
+        </ul>
+
+        <div className="mt-4 border-t border-slate-200/60 pt-3 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={() => setShowTechnicalExplanation((prev) => !prev)}
+            className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            {showTechnicalExplanation
+              ? (lang === "VI" ? "Ẩn chi tiết kỹ thuật" : "Hide technical explanation")
+              : (lang === "VI" ? "Xem chi tiết kỹ thuật" : "Show technical explanation")}
+            {showTechnicalExplanation ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Collapsed Technical Details */}
+      {showTechnicalExplanation && (
+        <div className="mt-4 space-y-3 pt-1">
+          {/* Crop Evidence (AG0) */}
           {(() => {
             const objectData = originalObjectData || {};
             const cropChecker = objectData?.crop_checker || cropEvidence || {};
             const action = objectData?.ag0_action || cropChecker?.ag0_action || cropChecker?.action;
             if (!action) return null;
-            const bScore = formatScore(objectData?.banknote_score ?? cropChecker?.banknote_score);
-            const dScore = formatScore(objectData?.document_score ?? cropChecker?.document_score);
-            const pEvidences = objectData?.positive_evidence || cropChecker?.positive_evidence || [];
-            const boxReason = objectData?.selected_box_reason || cropChecker?.selected_box_reason;
+            const bScore = formatRecordedScore(
+              objectData?.banknote_score ?? cropChecker?.banknote_score,
+            );
+            const dScore = formatRecordedScore(
+              objectData?.document_score ?? cropChecker?.document_score,
+            );
             const eligible = objectData?.agent_eligible ?? cropChecker?.agent_eligible;
+            const eligibleLabel = formatRecordedBoolean(eligible, "Not recorded");
 
             return (
-              <div className="rounded-xl bg-white/60 p-4 shadow-sm dark:bg-slate-900/40">
-                <h5 className="mb-3 flex items-center gap-2 font-black text-slate-900 dark:text-slate-100">
-                  <ScanLine className="h-4 w-4 text-indigo-500" />
-                  {lang === "VI" ? "Kiểm tra vùng ảnh" : "Crop evidence"}
+              <div className="rounded-xl bg-white/60 p-3.5 text-xs shadow-sm dark:bg-slate-900/40">
+                <h5 className="mb-2 font-black text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                  <ScanLine className="h-3.5 w-3.5 text-indigo-500" />
+                  AG0 Crop Check
                 </h5>
-                <ul className="list-inside list-disc space-y-1.5 text-sm text-slate-700 dark:text-slate-300">
-                  <li><span className="font-semibold text-slate-900 dark:text-slate-200">AG0 action:</span> {action}</li>
-                  <li><span className="font-semibold text-slate-900 dark:text-slate-200">banknote_score:</span> {bScore}</li>
-                  <li><span className="font-semibold text-slate-900 dark:text-slate-200">document_score:</span> {dScore}</li>
-                  <li><span className="font-semibold text-slate-900 dark:text-slate-200">agent_eligible:</span> {eligible ? "true" : "false"}</li>
-                  {pEvidences.length > 0 && (
-                    <li><span className="font-semibold text-slate-900 dark:text-slate-200">positive_evidence:</span> {pEvidences.join(", ")}</li>
-                  )}
-                  {boxReason && (
-                    <li><span className="font-semibold text-slate-900 dark:text-slate-200">selected_box_reason:</span> {boxReason}</li>
-                  )}
+                <ul className="space-y-1 text-slate-700 dark:text-slate-300">
+                  <li><span className="font-semibold">Action:</span> {action}</li>
+                  <li><span className="font-semibold">banknote_score:</span> {bScore}</li>
+                  <li><span className="font-semibold">document_score:</span> {dScore}</li>
+                  <li><span className="font-semibold">agent_eligible:</span> {eligibleLabel}</li>
                 </ul>
               </div>
             );
           })()}
 
-          {/* Agent Agreement */}
-          <div className="rounded-xl bg-white/60 p-4 shadow-sm dark:bg-slate-900/40">
-            <h5 className="mb-3 flex items-center gap-2 font-black text-slate-900 dark:text-slate-100">
-              <Brain className="h-4 w-4 text-emerald-500" />
-              {lang === "VI" ? "Đồng thuận AI" : "Agent agreement"}
+          {/* Aggregator Conclusion */}
+          <div className="rounded-xl bg-white/60 p-3.5 text-xs shadow-sm dark:bg-slate-900/40">
+            <h5 className="mb-2 font-black text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+              <Gavel className="h-3.5 w-3.5 text-purple-500" />
+              {lang === "VI" ? "Kết luận trọng tài" : "Aggregator conclusion"}
             </h5>
-            <ul className="mb-3 list-inside list-disc space-y-1.5 text-sm text-slate-700 dark:text-slate-300">
-              {votes.map((vote, i) => {
-                 let text = `${vote.name} ${lang === "VI" ? "chọn" : "selected"} `;
-                 const selectedValue = vote.hasResult
-                   ? vote.denom
-                   : lang === "VI" ? "Không xác định" : "Unknown";
-                 const voteLabel = vote.voteStatus === "matched"
-                   ? lang === "VI" ? "đồng thuận" : "agreed"
-                   : vote.voteStatus === "different"
-                     ? lang === "VI" ? "khác biệt" : "differed"
-                     : lang === "VI" ? "không tính phiếu" : "not counted";
-                 text += `${selectedValue} (${voteLabel})`;
-                 return <li key={i}>{text}</li>;
-              })}
-            </ul>
-            <div className="rounded-lg bg-emerald-100/50 p-3 text-sm text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-200">
-              <span className="font-bold">
-              {matchedAgents >= 3
-                ? (lang === "VI" ? `Cả 3 tác tử cùng đồng thuận ${finalDenomination}.` : `All 3 agents agreed on ${finalDenomination}.`)
-                : matchedAgents >= 2
-                  ? (lang === "VI" ? `2/3 tác tử đồng thuận ${finalDenomination}, tác tử còn lại lỗi kỹ thuật hoặc khác biệt.` : `2/3 agents agreed on ${finalDenomination}, the other had an error or differed.`)
-                  : matchedAgents === 1
-                    ? (lang === "VI" ? `Chỉ có 1 kết quả hợp lệ.` : `Only 1 valid result.`)
-                    : (lang === "VI" ? `Không có sự đồng thuận.` : `No consensus reached.`)}
-              </span>
+            <div className="prose prose-xs max-w-none text-slate-700 dark:prose-invert dark:text-slate-300">
+              <ReactMarkdown>
+                {refereeView || (lang === "VI" ? "Trọng tài chọn kết quả dựa trên đa số tác tử đồng thuận." : "Aggregator selected final decision based on majority consensus.")}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConsensusTimelineSection({ consensusTrace, t, lang }) {
+  if (!Array.isArray(consensusTrace) || consensusTrace.length === 0) return null;
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h3 className="mb-4 text-base font-black text-slate-900 dark:text-slate-100">
+        {t?.consensusTimeline || (lang === "VI" ? "Tiến trình đồng thuận" : "Consensus Timeline")}
+      </h3>
+      <div className="relative space-y-3 before:absolute before:bottom-3 before:left-2.5 before:top-3 before:w-px before:bg-slate-200 dark:before:bg-slate-700">
+        {consensusTrace.map((trace, i) => (
+          <div key={i} className="relative flex gap-4">
+            <div className="z-10 mt-3 h-5 w-5 shrink-0 rounded-full border-4 border-white bg-indigo-500 shadow-sm dark:border-slate-900" />
+            <div className="min-w-0 flex-1 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3.5 dark:border-slate-800 dark:bg-slate-950/40">
+              <p className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                {trace.step || `${lang === "VI" ? "Lần thử" : "Attempt"} ${trace.attempt || i + 1}`}
+              </p>
+              <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-300 mt-0.5">
+                {formatTimelinePattern(trace.pattern, lang)}
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                {trace.reason || trace.action || trace.decision || "—"}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const getLensDisposition = (src) => {
+  const value = String(src?.final_disposition || src?.evidence_disposition || src?.disposition || "").trim().toLowerCase();
+  return ["supporting", "conflicting", "partial", "excluded", "duplicate"].includes(value)
+    ? value
+    : "partial";
+};
+
+const dispositionLabels = {
+  supporting: { VI: "Ho tro", EN: "Supporting" },
+  conflicting: { VI: "Mau thuan", EN: "Conflicting" },
+  partial: { VI: "Chua du", EN: "Partial" },
+  excluded: { VI: "Bi loai", EN: "Excluded" },
+  duplicate: { VI: "Trung nguon", EN: "Duplicate" },
+};
+
+const dispositionTone = {
+  supporting: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300",
+  conflicting: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300",
+  partial: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300",
+  excluded: "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  duplicate: "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300",
+};
+
+const getDispositionLabel = (disposition, lang = "VI") =>
+  dispositionLabels[disposition]?.[lang] || dispositionLabels[disposition]?.EN || "Partial";
+
+const humanEvidenceReason = (reason, lang = "VI") => {
+  const key = String(reason || "").trim();
+  const copy = {
+    weak_source_or_skipped_page_text: {
+      VI: "Trang chua duoc xac minh day du hoac nguon co do tin cay thap.",
+      EN: "The page is not fully verified or the source has lower trust.",
+    },
+    supporting_but_insufficient: {
+      VI: "Nguon co thong tin phu hop nhung chua du dieu kien tham gia bieu quyet.",
+      EN: "The source is relevant but not enough to join the vote.",
+    },
+    duplicate_domain: {
+      VI: "Da co nguon tot hon tu cung website.",
+      EN: "A stronger source from the same website was already counted.",
+    },
+    trusted_source_conflict: {
+      VI: "Co nguon dang tin cay xac nhan menh gia khac.",
+      EN: "A trusted source confirms a different denomination.",
+    },
+    winning_complete_identity: {
+      VI: "Danh tinh khop cum AG3 dang dan dau.",
+      EN: "The identity matches AG3's winning cluster.",
+    },
+    conflicting_denomination: {
+      VI: "Nguon nay xac nhan menh gia khac voi cum AG3 dang dan dau.",
+      EN: "This source confirms a different denomination than AG3's winner.",
+    },
+    missing_complete_identity: {
+      VI: "Nguon chua xac nhan du quoc gia, tien te va menh gia.",
+      EN: "The source does not confirm country, currency, and denomination.",
+    },
+    missing_canonical_domain: {
+      VI: "Chua xac dinh duoc domain chuan cua nguon.",
+      EN: "The source canonical domain is missing.",
+    },
+    social_source: {
+      VI: "Nguon mang xa hoi khong du dieu kien lam bang chung.",
+      EN: "Social media sources are not eligible evidence.",
+    },
+    non_banknote_numismatic_object: {
+      VI: "Nguon noi ve vat the khong phai tien giay.",
+      EN: "The source is about a non-banknote object.",
+    },
+    invalid_banknote_context: {
+      VI: "Trang khong co du ngu canh tien giay.",
+      EN: "The page does not have enough banknote context.",
+    },
+    unrelated_noise: {
+      VI: "Nguon khong lien quan den danh tinh to tien.",
+      EN: "The source is unrelated to the banknote identity.",
+    },
+  };
+  return copy[key]?.[lang] || copy[key]?.EN || key || (lang === "VI" ? "Chua ghi nhan ly do." : "No reason recorded.");
+};
+
+const displayEvidenceValue = (value, fallback = "Unknown") => {
+  if (Array.isArray(value)) return value.length ? value.filter(Boolean).join(", ") : fallback;
+  if (value === true) return "Yes";
+  if (value === false) return "No";
+  if (value === null || value === undefined || value === "") return fallback;
+  return String(value);
+};
+
+const getEvidenceAmounts = (src) => {
+  const raw = src?.extracted_denomination || src?.detected_amounts || [];
+  return Array.isArray(raw) ? raw : [raw].filter(Boolean);
+};
+
+const formatEvidenceIdentity = (src) => {
+  const country = displayEvidenceValue(src?.extracted_country || src?.detected_country, "Unknown");
+  const currency = displayEvidenceValue(src?.extracted_currency || src?.detected_currency, "Unknown");
+  const amount = displayEvidenceValue(getEvidenceAmounts(src), "Unknown");
+  return `${country} / ${currency} / ${amount}`;
+};
+
+const formatAg3Identity = (identity) => {
+  if (!identity || typeof identity !== "object") return "Unknown";
+  if (identity.identityLabel) return identity.identityLabel;
+  const country = displayEvidenceValue(identity.country || identity.quoc_gia, "Unknown");
+  const currency = displayEvidenceValue(identity.currency || identity.ma_tien_te, "Unknown");
+  const amount = displayEvidenceValue(identity.amount || identity.denomination || identity.menh_gia, "Unknown");
+  return `${country} / ${currency} / ${amount}`;
+};
+
+const formatSourceClass = (value) => {
+  const text = String(value || "UNKNOWN").trim().toUpperCase();
+  return text && text !== "NONE" && text !== "NULL" ? text : "UNKNOWN";
+};
+
+function renderEvidenceBadge(src, lang) {
+  const badge = src?.badge;
+  const disposition = getLensDisposition(src);
+  const amounts = src?.detected_amounts || [];
+  const currency = src?.detected_currency || "";
+  const amountText = amounts.length > 0 ? `${amounts[0].toLocaleString()} ${currency}`.trim() : "";
+
+  if (disposition === "supporting" || badge === "Supporting" || badge === "Counted") {
+    const labelText = lang === "VI"
+      ? `Hỗ trợ${amountText ? ` (${amountText})` : ""}`
+      : `Supporting${amountText ? ` (${amountText})` : ""}`;
+    return (
+      <span className="inline-block rounded-md px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+        {labelText}
+      </span>
+    );
+  }
+
+  if (disposition === "conflicting" || badge === "Conflicting denomination") {
+    const labelText = lang === "VI"
+      ? `Mâu thuẫn${amountText ? ` (${amountText})` : " mệnh giá"}`
+      : `Conflicting${amountText ? ` (${amountText})` : " denomination"}`;
+    return (
+      <span className="inline-block rounded-md px-2 py-0.5 text-[10px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+        {labelText}
+      </span>
+    );
+  }
+
+  if (disposition === "partial" || disposition === "duplicate") {
+    const labelText = getDispositionLabel(disposition, lang);
+    return (
+      <span className={`inline-block rounded-md border px-2 py-0.5 text-[10px] font-bold ${dispositionTone[disposition]}`}>
+        {labelText}
+      </span>
+    );
+  }
+
+  let subReason = badge || "Excluded";
+  if (badge === "Duplicate domain") subReason = lang === "VI" ? "Trùng domain" : "Duplicate domain";
+  else if (badge === "Social source") subReason = lang === "VI" ? "Nguồn MXH" : "Social source";
+  else if (badge === "Commercial source") subReason = lang === "VI" ? "Nguồn thương mại" : "Commercial source";
+  else if (badge === "Noise") subReason = lang === "VI" ? "Nhiễu" : "Noise";
+  else if (badge === "Not banknote context") subReason = lang === "VI" ? "Không phải tiền" : "Not banknote";
+  else if (badge === "Non-banknote object" || src?.evidence_reason === "non_banknote_numismatic_object") subReason = lang === "VI" ? "Không phải tiền giấy (xu/medal)" : "Non-banknote object (coin/medal)";
+  else if (src?.evidence_reason) subReason = src.evidence_reason;
+
+  const excludedLabel = lang === "VI"
+    ? `Bị loại${subReason && subReason !== "Excluded" ? ` (${subReason})` : ""}`
+    : `Excluded${subReason && subReason !== "Excluded" ? ` (${subReason})` : ""}`;
+
+  return (
+    <span className="inline-block rounded-md px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+      {excludedLabel}
+    </span>
+  );
+}
+
+function LensEvidencePanel({
+  rawLensSources,
+  ag3,
+  decision,
+  lensState,
+  lang,
+  lensDispositionFilter,
+  setLensDispositionFilter,
+  showAllLensSources,
+  setShowAllLensSources,
+}) {
+  const compactSources = Array.isArray(rawLensSources) ? rawLensSources : [];
+  const compactDecision = decision || getNormalizedAg3Decision({
+    ...(ag3 || {}),
+    evidence: compactSources,
+  });
+  const compactIdentity = compactDecision.voteCreated
+    ? compactDecision.voteIdentity
+    : compactDecision.candidateIdentity;
+  const compactIdentityKnown = Boolean(
+    compactIdentity?.country || compactIdentity?.currency || compactIdentity?.denomination,
+  );
+  const compactDenomination = formatDenominationLabel(
+    compactIdentity?.denomination,
+    compactIdentity?.currency,
+    compactDecision.voteCreated
+      ? (lang === "VI" ? "Identity đã xác minh" : "Verified identity")
+      : (lang === "VI" ? "Chưa xác minh identity" : "Verification incomplete"),
+  );
+  const compactCountryCurrency = compactIdentityKnown
+    ? [compactIdentity?.country, compactIdentity?.currency].filter(Boolean).join(" · ")
+    : (lang === "VI" ? "Chưa xác nhận ứng viên" : "Candidate not confirmed");
+  const compactExplanation = getAg3DecisionMessage(compactDecision, lang);
+  const sourceKey = (source = {}) =>
+    `${source.url || ""}|${source.domain || ""}|${source.title || ""}`.toLowerCase();
+  const selectedEvidenceSources = Array.isArray(compactDecision.selectedSources) && compactDecision.selectedSources.length
+    ? compactDecision.selectedSources
+    : compactDecision.articlePreview.filter((source) =>
+        source.selected === true ||
+        source.previewStatus === "supporting" ||
+        source.votingStatusLabel === "SELECTED FOR VOTING",
+      );
+  const selectedEvidenceKeys = new Set(selectedEvidenceSources.map(sourceKey));
+  const otherReviewedSources = compactDecision.articlePreview.filter((source) => !selectedEvidenceKeys.has(sourceKey(source)));
+  const effectiveSetCount = selectedEvidenceSources.length || compactDecision.selectedSourceCount || (compactDecision.selectedSetValid ? 3 : 0);
+  const isSetFormed = compactDecision.selectedSetValid || (effectiveSetCount >= 3 && effectiveSetCount <= 5);
+  const selectedSetLabel = isSetFormed
+    ? `${effectiveSetCount || 3} ${lang === "VI" ? "nguồn" : "sources"}`
+    : (lang === "VI" ? "Chưa hình thành" : "Not formed");
+  const voteStatusLabel = compactDecision.counted
+    ? (compactDecision.matched ? "AG3 VOTE VALID / MATCHED" : "AG3 VOTE VALID")
+    : "NOT COUNTED";
+  const compactStats = [
+    {
+      label: lang === "VI" ? "Kết quả đã xem" : "Results reviewed",
+      value: compactDecision.rawCount || compactSources.length || 0,
+      icon: Search,
+    },
+    {
+      label: lang === "VI" ? "Nguồn phù hợp" : "Suitable sources found",
+      value: compactDecision.candidateSourceCount || 0,
+      icon: Globe,
+    },
+    {
+      label: lang === "VI" ? "Đã chọn" : "Selected",
+      value: selectedSetLabel,
+      icon: Globe,
+    },
+    {
+      label: lang === "VI" ? "Mức đồng thuận" : "Agreement",
+      value: compactDecision.agreementPattern || (lang === "VI" ? "Chưa đánh giá" : "Not evaluated"),
+      icon: CheckCircle2,
+    },
+    {
+      label: lang === "VI" ? "Trạng thái phiếu" : "Vote status",
+      value: compactDecision.counted
+        ? (compactDecision.matched ? (lang === "VI" ? "Hợp lệ / khớp" : "Valid / matched") : (lang === "VI" ? "Hợp lệ" : "Valid"))
+        : (lang === "VI" ? "Không tính" : "Not counted"),
+      icon: compactDecision.voteCreated ? ShieldCheck : AlertTriangle,
+    },
+  ];
+  const getPreviewStatusLabel = (status) => {
+    const labels = {
+      supporting: "SELECTED FOR VOTING",
+      reviewed_only: "REVIEWED ONLY",
+      candidate: "Candidate source",
+      excluded: "Excluded",
+      duplicate: "Duplicate",
+      partial: "Partial",
+    };
+    return labels[status] || "REVIEWED ONLY";
+  };
+
+  const getCompactBadge = (source = {}) => {
+    const label = source.classificationLabel || getPreviewStatusLabel(source.previewStatus);
+    if (label === "DUPLICATE DOMAIN") return "DUPLICATE";
+    if (label === "MULTI-DENOMINATION") return "PARTIAL";
+    if (label === "REVIEWED ONLY") return "PARTIAL";
+    if (label === "SELECTED FOR VOTING") return "EXACT";
+    return label || "PARTIAL";
+  };
+  const getBadgeTone = (label) => {
+    if (label === "EXACT") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300";
+    if (label === "CONFLICTING") return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300";
+    if (label === "DUPLICATE") return "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300";
+    if (label === "NOISE" || label === "SOCIAL") return "border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400";
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300";
+  };
+  const renderCompactSourceCard = (source, index) => {
+    const safeUrl = /^https?:\/\//i.test(source.url || "") ? source.url : "";
+    const sourceTitle = source.title || source.domain || (lang === "VI" ? "Nguồn không có tiêu đề" : "Source without title");
+    const badgeLabel = getCompactBadge(source);
+
+    return (
+      <li
+        key={`${source.domain}-${safeUrl || sourceTitle}-${index}`}
+        className="flex min-h-[8.5rem] min-w-0 flex-col rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/50"
+      >
+        <div className="flex min-w-0 items-start justify-between gap-2">
+          <p className="min-w-0 truncate text-[11px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            {source.domain || (lang === "VI" ? "Không rõ nguồn" : "Unknown source")}
+          </p>
+          {safeUrl && (
+            <a
+              href={safeUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label={lang === "VI" ? "Mở nguồn ngoài" : "Open external source"}
+              className="shrink-0 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          )}
+        </div>
+        <p className="mt-2 line-clamp-2 min-h-[2.5rem] break-words text-sm font-black leading-5 text-slate-900 dark:text-slate-100">
+          {sourceTitle}
+        </p>
+        <p className="mt-2 truncate text-xs font-semibold text-slate-500 dark:text-slate-400">
+          {formatAg3Identity(source.identity).replaceAll(" / ", " · ")}
+        </p>
+        <div className="mt-auto pt-3">
+          <span className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-black ${getBadgeTone(badgeLabel)}`}>
+            {badgeLabel}
+          </span>
+        </div>
+      </li>
+    );
+  };
+
+  if (compactSources.length || ag3 || compactDecision.rawCount || lensState) {
+    return (
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/40">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h4 className="flex items-center gap-2 text-sm font-black text-slate-900 dark:text-slate-100">
+              <Search className="h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+              Google Lens Verification
+            </h4>
+            <p className="mt-3 break-words text-2xl font-black text-slate-950 dark:text-white">
+              {compactDenomination}
+            </p>
+            <p className="mt-1 break-words text-xs font-bold text-slate-500 dark:text-slate-400">
+              {compactCountryCurrency}
+            </p>
+          </div>
+          <span className={`inline-flex w-fit items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-black ${
+            compactDecision.counted
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300"
+              : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
+          }`}>
+            {compactDecision.counted ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            {voteStatusLabel}
+          </span>
+        </div>
+
+        <p className="mt-3 max-w-4xl text-sm font-semibold leading-6 text-slate-700 dark:text-slate-300">
+          {compactDecision.counted
+            ? (lang === "VI" ? "Google Lens xác minh danh tính này bằng các nguồn web độc lập." : "Google Lens verified this identity using independent web sources.")
+            : compactExplanation}
+        </p>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          {compactStats.map(({ label, value, icon: Icon }) => (
+            <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 dark:border-slate-800 dark:bg-slate-900/60">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{label}</span>
+              </div>
+              <div className="mt-1 text-base font-black text-slate-900 dark:text-slate-100">
+                {displayEvidenceValue(value, "0")}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+          {lang === "VI" ? `Cần ít nhất ${compactDecision.requiredSourceCount || 3} nguồn khớp chính xác để tạo phiếu AG3.` : `Requires at least ${compactDecision.requiredSourceCount || 3} exact supporting sources to create an AG3 vote.`}
+        </p>
+
+        <div className="mt-5">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <p className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              {lang === "VI" ? "Bằng chứng đã chọn" : "Selected evidence"}
+            </p>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+              {selectedEvidenceSources.length || effectiveSetCount || 0} {lang === "VI" ? "nguồn" : "sources"}
+            </span>
+          </div>
+          {selectedEvidenceSources.length > 0 ? (
+            <ol className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {selectedEvidenceSources.map((source, index) => renderCompactSourceCard(source, index))}
+            </ol>
+          ) : (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-500 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400">
+              {lang === "VI" ? "Chưa ghi nhận tập nguồn đã chọn." : "No selected evidence set was recorded."}
+            </p>
+          )}
+        </div>
+
+        {otherReviewedSources.length > 0 && (
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => setShowAllLensSources((prev) => !prev)}
+              className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-black text-slate-700 transition hover:border-indigo-300 hover:text-indigo-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:border-indigo-500/40 dark:hover:text-indigo-300"
+            >
+              {showAllLensSources ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              {showAllLensSources
+                ? (lang === "VI" ? "Ẩn nguồn đã xem khác" : "Hide other reviewed sources")
+                : (lang === "VI" ? `Xem ${otherReviewedSources.length} nguồn đã xem khác` : `View ${otherReviewedSources.length} other reviewed sources`)}
+            </button>
+            {showAllLensSources && (
+              <ol className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {otherReviewedSources.map((source, index) => renderCompactSourceCard(source, index))}
+              </ol>
+            )}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  if (compactSources.length || ag3 || compactDecision.rawCount || lensState) {
+    return (
+      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950/40">
+        <div className="mb-4 flex items-center gap-2">
+          <Search className="h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+          <h4 className="line-clamp-2 text-sm font-black text-slate-900 dark:text-slate-100">
+            Google Lens Verification
+          </h4>
+        </div>
+
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.8fr)_minmax(220px,0.9fr)]">
+          <div className="min-w-0 space-y-4">
+            <div>
+              <div className={`mb-2 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-black ${
+                compactDecision.voteCreated
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300"
+                  : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"
+              }`}
+              >
+                {compactDecision.voteCreated ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+                {compactDecision.voteCreated
+                  ? (lang === "VI" ? "Phiếu AG3 hợp lệ" : "AG3 vote valid")
+                  : (lang === "VI" ? "AG3 chưa tạo phiếu" : "AG3 vote not created")}
+              </div>
+              <p className="break-words text-xl font-black text-slate-950 dark:text-white">
+                {compactDenomination}
+              </p>
+              <p className="mt-1 break-words text-xs font-bold text-slate-500 dark:text-slate-400">
+                {compactCountryCurrency}
+              </p>
+              <p className="mt-3 text-sm font-semibold leading-6 text-slate-700 dark:text-slate-300">
+                {compactExplanation}
+              </p>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                {lang === "VI" ? "Nguồn đã xem" : "Sources reviewed"}
+              </p>
+              {compactDecision.articlePreview.length > 0 ? (
+                <ol className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {compactDecision.articlePreview.map((source, index) => {
+                    const safeUrl = /^https?:\/\//i.test(source.url || "") ? source.url : "";
+                    const sourceTitle = source.title || source.domain || (lang === "VI" ? "Nguồn không có tiêu đề" : "Source without title");
+                    const classificationLabel = source.classificationLabel || "PARTIAL";
+                    const votingStatusLabel = source.votingStatusLabel || getPreviewStatusLabel(source.previewStatus);
+                    const reviewReason = votingStatusLabel === "SELECTED FOR VOTING" ? "" : source.reviewReasonLabel;
+                    return (
+                      <li
+                        key={`${source.domain}-${safeUrl || sourceTitle}-${index}`}
+                        className="min-w-0 rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/60"
+                      >
+                        <div className="flex min-w-0 items-start justify-between gap-2">
+                          <p className="min-w-0 truncate text-[11px] font-black text-slate-500 dark:text-slate-400">
+                            <span className="mr-1 text-slate-400 dark:text-slate-500">DOMAIN</span>
+                            {source.domain || (lang === "VI" ? "Không rõ nguồn" : "Unknown source")}
+                          </p>
+                          {safeUrl && (
+                            <a
+                              href={safeUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label={lang === "VI" ? "Mở nguồn ngoài" : "Open external source"}
+                              className="shrink-0 text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                        </div>
+                        <p className="mt-1 line-clamp-2 break-words text-xs font-black leading-5 text-slate-900 dark:text-slate-100">
+                          <span className="mr-1 text-[10px] text-slate-400 dark:text-slate-500">TITLE</span>
+                          {sourceTitle}
+                        </p>
+                        <p className="mt-1 truncate text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                          <span className="mr-1 text-slate-400 dark:text-slate-500">IDENTITY</span>
+                          {formatAg3Identity(source.identity).replaceAll(" / ", " · ")}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-black text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+                            {classificationLabel}
+                          </span>
+                          <span className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-black text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
+                            {votingStatusLabel}
+                          </span>
+                        </div>
+                        {reviewReason && (
+                          <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-5 text-slate-500 dark:text-slate-400">
+                            {reviewReason}
+                          </p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                  {lang === "VI" ? "Chưa có bài viết đủ dữ liệu để hiển thị." : "No article details are available yet."}
+                </p>
+              )}
             </div>
           </div>
 
-          {/* Visual/Lens Evidence */}
-          {(() => {
-             const objectData = originalObjectData || {};
-             const visibleText = objectData?.visible_text || objectData?.agent_results?.find(a => a.agent === 'gpt_vision')?.result?.visible_text;
-             const keyFeatures = objectData?.key_features || objectData?.agent_results?.find(a => a.agent === 'gpt_vision')?.result?.key_features;
-             const lensEvidences = objectData?.lens_evidence || objectData?.agent_results?.find(a => a.agent === 'google_lens')?.result?.evidence || [];
-             if (!visibleText && !keyFeatures && lensEvidences.length === 0) return null;
-
-             return (
-               <div className="rounded-xl bg-white/60 p-4 shadow-sm dark:bg-slate-900/40">
-                 <h5 className="mb-3 flex items-center gap-2 font-black text-slate-900 dark:text-slate-100">
-                   <Globe className="h-4 w-4 text-blue-500" />
-                   {lang === "VI" ? "Bằng chứng thị giác và Lens" : "Visual and Lens evidence"}
-                 </h5>
-                 <ul className="list-inside list-disc space-y-1.5 text-sm text-slate-700 dark:text-slate-300">
-                   {visibleText && (
-                     <li><span className="font-semibold text-slate-900 dark:text-slate-200">Visible text:</span> {visibleText}</li>
-                   )}
-                   {keyFeatures && (
-                     <li><span className="font-semibold text-slate-900 dark:text-slate-200">Key features:</span> {keyFeatures}</li>
-                   )}
-                   {lensEvidences.length > 0 && (
-                     <li><span className="font-semibold text-slate-900 dark:text-slate-200">Google Lens Evidence:</span> {lensEvidences.slice(0, 3).map(e => e.title || e.source).join(", ")}</li>
-                   )}
-                 </ul>
-               </div>
-             );
-          })()}
-
-          {/* Aggregator Conclusion */}
-          <div className="rounded-xl bg-white/60 p-4 shadow-sm dark:bg-slate-900/40">
-             <h5 className="mb-3 flex items-center gap-2 font-black text-slate-900 dark:text-slate-100">
-               <Gavel className="h-4 w-4 text-purple-500" />
-               {lang === "VI" ? "Kết luận trọng tài" : "Aggregator conclusion"}
-             </h5>
-             <div className="prose prose-sm max-w-none text-slate-700 dark:prose-invert dark:text-slate-300">
-                <ReactMarkdown>{refereeView || (lang === "VI" ? "Aggregator chọn kết quả cuối vì đa số tác tử đồng thuận cùng mệnh giá/quốc gia/tiền tệ." : "Aggregator selected the final result because the majority of agents agreed on the same denomination/country/currency.")}</ReactMarkdown>
-             </div>
+          <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+            {compactStats.map(({ label, value, icon: Icon }) => (
+              <div key={label} className="flex items-center justify-between gap-3 text-xs">
+                <span className="inline-flex min-w-0 items-center gap-2 font-bold text-slate-500 dark:text-slate-400">
+                  <Icon className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{label}</span>
+                </span>
+                <span className="shrink-0 font-black text-slate-900 dark:text-slate-100">
+                  {displayEvidenceValue(value, "0")}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
-      </CollapsibleSection>
+      </section>
+    );
+  }
 
-      {/* F. TIMELINE */}
-      <CollapsibleSection title={`F. ${t.consensusTimeline || "Consensus Timeline"}`} isOpen={openSections.timeline} toggle={() => toggleSection('timeline')}>
-        {consensusTrace && consensusTrace.length > 0 ? (
-          <div className="relative space-y-3 before:absolute before:bottom-3 before:left-2.5 before:top-3 before:w-px before:bg-slate-200 dark:before:bg-slate-700">
-             {consensusTrace.map((trace, i) => (
-                <div key={i} className="relative flex gap-4">
-                   <div className="z-10 mt-4 h-5 w-5 shrink-0 rounded-full border-4 border-white bg-indigo-500 shadow-sm dark:border-slate-900" />
-                   <div className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
-                      <p className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                        {trace.step ||
-                          `${lang === "VI" ? "Lần thử" : "Attempt"} ${trace.attempt || i + 1}`}
-                      </p>
-                      <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-300 mt-1">
-                        {formatTimelinePattern(trace.pattern, lang)}
-                      </p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                        {trace.reason || trace.action || trace.decision || "—"}
-                      </p>
-                   </div>
-                </div>
-             ))}
+  const summary =
+    ag3?.ag3_verification_summary && typeof ag3.ag3_verification_summary === "object"
+      ? ag3.ag3_verification_summary
+      : {};
+  const dispositionCounts = summary.disposition_counts || ag3?.disposition_counts || {};
+  const sources = Array.isArray(rawLensSources) ? rawLensSources : [];
+  const sourceCountByDisposition = (disposition) =>
+    sources.filter((src) => getLensDisposition(src) === disposition).length;
+  const countValue = (key, fallback = 0) => {
+    const value = ag3?.[key] ?? summary?.[key];
+    return value === undefined || value === null || value === "" ? fallback : value;
+  };
+  const supportingCount = countValue("supporting_evidence_count", dispositionCounts.supporting ?? sourceCountByDisposition("supporting"));
+  const conflictingCount = countValue("conflicting_evidence_count", dispositionCounts.conflicting ?? sourceCountByDisposition("conflicting"));
+  const partialCount = countValue("partial_evidence_count", dispositionCounts.partial ?? sourceCountByDisposition("partial"));
+  const excludedCount = countValue("excluded_evidence_count", dispositionCounts.excluded ?? sourceCountByDisposition("excluded"));
+  const duplicateCount = countValue("duplicate_evidence_count", dispositionCounts.duplicate ?? sourceCountByDisposition("duplicate"));
+  const qualifiedCount = countValue(
+    "qualified_source_count",
+    countValue("eligible_evidence_count", sources.filter((src) => src.qualified_source === true || src.eligible === true).length),
+  );
+  const independentDomainCount = countValue(
+    "qualified_independent_domain_count",
+    countValue("eligible_independent_domain_count", 0),
+  );
+  const rawCount = countValue("total_raw_evidence_count", countValue("raw_lens_result_count", sources.length));
+  const selectedSet = Array.isArray(summary.selected_voting_set || ag3?.selected_voting_set)
+    ? (summary.selected_voting_set || ag3.selected_voting_set)
+    : [];
+  const selectedFallback = sources
+    .filter((src) => src.selected_for_ag3_internal_vote === true || src.selected_for_ag3_vote === true || src.selected_rank)
+    .map((src, index) => ({
+      selected_rank: src.selected_rank || index + 1,
+      domain: src.domain,
+      canonical_domain: src.canonical_domain,
+      source_class: src.source_class || src.source_trust_level,
+      disposition: getLensDisposition(src),
+      identity: {
+        country: src.detected_country || src.extracted_country,
+        currency: src.detected_currency || src.extracted_currency,
+        denomination: src.detected_amounts || src.extracted_denomination,
+      },
+    }));
+  const selectedRows = selectedSet.length ? selectedSet : selectedFallback;
+  const qualifiedRows = sources.filter(
+    (src) =>
+      src.qualified_source === true ||
+      src.eligible === true ||
+      (["supporting", "conflicting"].includes(getLensDisposition(src)) && src.complete_identity !== false),
+  );
+  const clusters = Array.isArray(summary.candidate_clusters || ag3?.candidate_clusters)
+    ? (summary.candidate_clusters || ag3.candidate_clusters)
+    : [];
+  const winningCluster = summary.winning_cluster || ag3?.winning_cluster || {};
+  const winningIdentity = summary.winning_identity || ag3?.winning_identity || {};
+  const formatterTrace = summary.ag3_formatter_decision_trace || ag3?.ag3_formatter_decision_trace || {};
+  const filteredSources = lensDispositionFilter === "all"
+    ? sources
+    : sources.filter((src) => getLensDisposition(src) === lensDispositionFilter);
+  const visibleSources = showAllLensSources ? filteredSources : filteredSources.slice(0, 10);
+  const filterOptions = [
+    { key: "all", label: lang === "VI" ? "Tat ca" : "All", count: rawCount },
+    { key: "supporting", label: lang === "VI" ? "Ho tro" : "Supporting", count: supportingCount },
+    { key: "conflicting", label: lang === "VI" ? "Mau thuan" : "Conflicting", count: conflictingCount },
+    { key: "partial", label: lang === "VI" ? "Chua du" : "Partial", count: partialCount },
+    { key: "excluded", label: lang === "VI" ? "Bi loai" : "Excluded", count: excludedCount },
+    { key: "duplicate", label: lang === "VI" ? "Trung nguon" : "Duplicate", count: duplicateCount },
+  ];
+  const metricCards = [
+    { label: "Raw", value: rawCount, icon: Search },
+    { label: "Qualified", value: qualifiedCount, icon: ShieldCheck },
+    { label: "Supporting", value: supportingCount, icon: CheckCircle2 },
+    { label: "Conflicting", value: conflictingCount, icon: AlertTriangle },
+    { label: "Partial", value: partialCount, icon: Clock },
+    { label: "Excluded", value: excludedCount, icon: X },
+    { label: "Duplicate", value: duplicateCount, icon: Hash },
+    { label: "Domains", value: independentDomainCount, icon: Globe },
+  ];
+  const winningClusterKey = String(winningCluster.cluster_key || "").toLowerCase();
+  const winningIdentityText = formatAg3Identity(winningIdentity);
+  const selectedSize = countValue("selected_voting_set_size", selectedRows.length);
+  const majorityRequired = countValue("majority_required", selectedSize >= 5 ? 3 : selectedSize >= 3 ? 2 : 0);
+  const agreement = countValue("agreement_achieved", selectedSize ? `${supportingCount}/${selectedSize}` : "0/0");
+  const voteEligible = ag3?.vote_eligible ?? summary.vote_eligible ?? false;
+  const counted = ag3?.counted_in_consensus ?? summary.counted_in_consensus ?? ag3?.counted ?? false;
+
+  if (!sources.length) {
+    return (
+      <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400">
+        {lensState.message}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
+        <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-950/30">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Evidence Summary</p>
+            <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+              {countValue("initial_lens_result_count", rawCount)} initial / {countValue("targeted_search_result_count", 0)} targeted
+            </span>
           </div>
-        ) : (
-          <p className="text-sm text-slate-500 italic">{lang === "VI" ? "Không có dữ liệu tiến trình." : "No timeline data available."}</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {metricCards.map(({ label, value, icon: Icon }) => (
+              <div key={label} className="rounded-lg border border-slate-200 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </div>
+                <div className="mt-1 text-lg font-black text-slate-900 dark:text-slate-100">{displayEvidenceValue(value, "0")}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/30">
+          <p className="mb-3 text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">AG3 Decision</p>
+          <div className="space-y-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <div className="flex justify-between gap-3"><span>Status</span><span>{displayEvidenceValue(ag3?.status, "Unknown")}</span></div>
+            <div className="flex justify-between gap-3"><span>Selected set</span><span>{displayEvidenceValue(selectedSize, "0")}</span></div>
+            <div className="flex justify-between gap-3"><span>Majority</span><span>{majorityRequired}/{selectedSize || 0}</span></div>
+            <div className="flex justify-between gap-3"><span>Agreement</span><span>{displayEvidenceValue(agreement, "0/0")}</span></div>
+            <div className="flex justify-between gap-3"><span>Vote eligible</span><span>{displayEvidenceValue(voteEligible)}</span></div>
+            <div className="flex justify-between gap-3"><span>Counted</span><span>{displayEvidenceValue(counted)}</span></div>
+            <div className="border-t border-slate-200 pt-2 dark:border-slate-800">
+              <span className="block text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Winning identity</span>
+              <span className="mt-1 block break-words font-black text-slate-900 dark:text-slate-100">{winningIdentityText}</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/30">
+          <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Qualified Independent Sources</p>
+          {qualifiedRows.length ? (
+            <div className="space-y-2">
+              {qualifiedRows.slice(0, 6).map((src, index) => (
+                <div key={`${src.url || src.title}-qualified-${index}`} className="flex min-w-0 items-center justify-between gap-3 text-xs">
+                  <span className="truncate font-bold text-slate-800 dark:text-slate-200">{src.canonical_domain || src.domain || "unknown"}</span>
+                  <span className="shrink-0 rounded-md border border-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-500 dark:border-slate-700 dark:text-slate-300">
+                    {formatSourceClass(src.source_class || src.source_trust_level)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">No qualified source recorded.</p>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/30">
+          <p className="mb-2 text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Selected Voting Set</p>
+          {selectedRows.length ? (
+            <div className="space-y-2">
+              {selectedRows.map((row, index) => (
+                <div key={`${row.canonical_domain || row.domain || "selected"}-${index}`} className="grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-2 text-xs">
+                  <span className="font-black text-slate-400">#{row.selected_rank || index + 1}</span>
+                  <span className="truncate font-semibold text-slate-800 dark:text-slate-200">{formatAg3Identity(row.identity)}</span>
+                  <span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${dispositionTone[getLensDisposition(row)] || dispositionTone.partial}`}>
+                    {getDispositionLabel(getLensDisposition(row), lang)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">No selected voting set recorded.</p>
+          )}
+        </section>
+      </div>
+
+      {clusters.length > 0 && (
+        <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/30">
+          <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Internal Majority</p>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+              Selected {selectedSize || 0}, required {majorityRequired || 0}, achieved {agreement}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px] text-left text-xs">
+              <thead className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <tr>
+                  <th className="py-2 pr-3">Identity</th>
+                  <th className="py-2 pr-3">Sources</th>
+                  <th className="py-2 pr-3">Domains</th>
+                  <th className="py-2">Result</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                {clusters.map((cluster, index) => {
+                  const identity = `${displayEvidenceValue(cluster.country, "Unknown")} / ${displayEvidenceValue(cluster.currency, "Unknown")} / ${displayEvidenceValue(cluster.amount, "Unknown")}`;
+                  const isWinner =
+                    String(cluster.cluster_key || "").toLowerCase() === winningClusterKey ||
+                    identity === winningIdentityText ||
+                    index === 0;
+                  return (
+                    <tr key={`${cluster.cluster_key || identity}-${index}`}>
+                      <td className="py-2 pr-3 font-semibold text-slate-800 dark:text-slate-200">{identity}</td>
+                      <td className="py-2 pr-3 text-slate-600 dark:text-slate-400">{displayEvidenceValue(cluster.support_count || cluster.supporting_count, "0")}</td>
+                      <td className="py-2 pr-3 text-slate-600 dark:text-slate-400">{displayEvidenceValue(cluster.independent_domain_count || cluster.independent_domains, "0")}</td>
+                      <td className="py-2">
+                        <span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${isWinner ? dispositionTone.supporting : dispositionTone.partial}`}>
+                          {isWinner ? "Winner" : "Minority"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+            <span>Promotion path: {displayEvidenceValue(summary.promotion_reason || summary.promotion_path || ag3?.promotion_reason, "None")}</span>
+            <span>Trusted conflict: {displayEvidenceValue(summary.trusted_conflict ?? ag3?.trusted_conflict)}</span>
+          </div>
+        </section>
+      )}
+
+      <details className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/30">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 [&::-webkit-details-marker]:hidden">
+          <span>Formatter</span>
+          <ChevronDown className="h-4 w-4" />
+        </summary>
+        <div className="mt-3 grid gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 sm:grid-cols-2">
+          <div>Selected formatter: {displayEvidenceValue(formatterTrace.selected_formatter || formatterTrace.formatter_selected, "Deterministic")}</div>
+          <div>Groq invoked: {displayEvidenceValue(formatterTrace.groq_invoked ?? formatterTrace.groq_called, "No")}</div>
+          <div>Formatter invoked: {displayEvidenceValue(formatterTrace.formatter_invoked)}</div>
+          <div>Completed: {displayEvidenceValue(formatterTrace.formatter_completed)}</div>
+          <div>Locked identity: {formatAg3Identity(formatterTrace.locked_identity_before_formatter)}</div>
+          <div>Output identity: {formatAg3Identity(formatterTrace.formatter_output_identity)}</div>
+          <div>Changed locked identity: {displayEvidenceValue(formatterTrace.formatter_changed_locked_identity)}</div>
+          {(formatterTrace.groq_invoked ?? formatterTrace.groq_called) !== true && (
+            <div className="sm:col-span-2 text-slate-500 dark:text-slate-400">Groq was not invoked for this result.</div>
+          )}
+        </div>
+      </details>
+
+      <div className="flex flex-wrap gap-2">
+        {filterOptions.map((option) => {
+          const active = lensDispositionFilter === option.key;
+          return (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setLensDispositionFilter(option.key)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-black transition ${
+                active
+                  ? "border-indigo-500 bg-indigo-600 text-white dark:border-cyan-400 dark:bg-cyan-400 dark:text-slate-950"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+              }`}
+            >
+              {option.label}
+              <span className={`rounded-md px-1.5 py-0.5 text-[10px] ${active ? "bg-white/20" : "bg-slate-100 dark:bg-slate-800"}`}>{displayEvidenceValue(option.count, "0")}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="space-y-2.5">
+        {visibleSources.map((src, index) => {
+          const disposition = getLensDisposition(src);
+          const detailId = `${src.url || src.title || "lens"}-${index}`;
+          return (
+            <details key={detailId} className="group rounded-xl border border-slate-200 bg-slate-50/70 p-3 transition hover:border-indigo-300 dark:border-slate-800 dark:bg-slate-950/40 dark:hover:border-indigo-500/40">
+              <summary className="flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-black text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                      #{displayEvidenceValue(src.raw_rank ?? src.rank ?? index + 1, index + 1)}
+                    </span>
+                    {renderEvidenceBadge(src, lang)}
+                    <span className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                      {formatSourceClass(src.source_class || src.source_trust_level)}
+                    </span>
+                    <span className="min-w-0 truncate text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                      {src.canonical_domain || src.domain || "unknown"}
+                    </span>
+                  </div>
+                  <p className="truncate text-xs font-black text-slate-900 group-hover:text-indigo-600 dark:text-slate-100 dark:group-hover:text-indigo-400">
+                    {displayEvidenceValue(src.title, "Untitled source")}
+                  </p>
+                  <p className="mt-1 truncate text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    {formatEvidenceIdentity(src)}
+                  </p>
+                  <p className="mt-1 line-clamp-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    {humanEvidenceReason(src.final_reason || src.evidence_reason, lang)}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {src.url && (
+                    <a
+                      href={src.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(event) => event.stopPropagation()}
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                      aria-label="Open source"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                  <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                    {lang === "VI" ? "Chi tiet" : "Details"}
+                    <ChevronDown className="h-3.5 w-3.5 transition group-open:rotate-180" />
+                  </span>
+                </div>
+              </summary>
+              <div className="mt-3 grid gap-2 border-t border-slate-200 pt-3 text-[11px] font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-400 sm:grid-cols-2">
+                <div>Page fetch: {displayEvidenceValue(src.page_fetch_status || src.fetch_status)}</div>
+                <div>Lens score: {displayEvidenceValue(src.raw_lens_score ?? src.ranker_score ?? src.confidence)}</div>
+                <div>Canonical domain: {displayEvidenceValue(src.canonical_domain || src.domain)}</div>
+                <div>Complete identity: {displayEvidenceValue(src.complete_identity)}</div>
+                <div>Object type: {displayEvidenceValue(src.object_type)}</div>
+                <div>Independent domain: {displayEvidenceValue(src.independent_domain)}</div>
+                <div>Selected vote: {displayEvidenceValue(src.selected_for_ag3_internal_vote || src.selected_for_ag3_vote)}</div>
+                <div>Selected rank: {displayEvidenceValue(src.selected_rank)}</div>
+                <div className="sm:col-span-2">Classification reason: {displayEvidenceValue(src.final_reason || src.evidence_reason)}</div>
+                {src.url && <div className="truncate sm:col-span-2">URL: {src.url}</div>}
+                {src.snippet && <p className="sm:col-span-2 line-clamp-2 font-normal">{src.snippet}</p>}
+                {src.web_page_text_excerpt && (
+                  <div className="sm:col-span-2 max-h-28 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 font-normal text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                    {src.web_page_text_excerpt}
+                  </div>
+                )}
+                <div className={`sm:col-span-2 rounded-lg border px-2 py-1 text-[11px] font-bold ${dispositionTone[disposition]}`}>
+                  {getDispositionLabel(disposition, lang)}
+                </div>
+              </div>
+            </details>
+          );
+        })}
+        {filteredSources.length > 10 && (
+          <button
+            type="button"
+            onClick={() => setShowAllLensSources((prev) => !prev)}
+            className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            {showAllLensSources ? "Show fewer sources" : `Show ${filteredSources.length - 10} more sources`}
+          </button>
         )}
-      </CollapsibleSection>
+      </div>
+    </div>
+  );
+}
+
+function PerObjectResult(props) {
+  const {
+    objectNo = 1,
+    finalDenomination,
+    country,
+    currency,
+    matchedAgents: recordedMatchedAgents,
+    totalAgents,
+    image,
+    previewImage,
+    cropPreview,
+    agentResults,
+    consensusValidVotes = [],
+    consensusData = {},
+    refereeView,
+    lensSources,
+    cropEvidence,
+    consensusTrace,
+    originalObjectData = null,
+    t,
+    lang,
+    showVndConversion,
+    originalValueText,
+    vndValueText,
+    hasVndRate,
+    rateMetaText,
+    canRecalculateWithCurrentRate,
+    useCurrentRateForResult,
+    onRecalculateRate,
+    handleScanAnother,
+    navigate,
+  } = props;
+  const [objectImagePreview, setObjectImagePreview] = React.useState(false);
+  const [showAllLensSources, setShowAllLensSources] = React.useState(false);
+  const [lensDispositionFilter, setLensDispositionFilter] = React.useState("all");
+
+  const objectData = originalObjectData || {};
+  const ag1 = getAgentDataByName(agentResults, ["agent_1", "openai", "gpt", "vision", "ag1"]) || {};
+  const ag2 = getAgentDataByName(agentResults, ["agent_2", "llm", "gemini", "ag2"]) || {};
+  const ag3 = getAgentDataByName(agentResults, ["agent_3", "lens", "visual", "ag3"]) || {};
+  const normalizedConsensus = getNormalizedConsensus({
+    consensus: {
+      ...consensusData,
+      valid_votes: consensusData?.valid_votes || consensusValidVotes,
+    },
+  });
+
+  const allVotes = originalObjectData?.agent_votes || originalObjectData?.agentVotes || [];
+  const hasTechnicalFailure = allVotes?.some(v => v.technical_error === true || String(v.status).toLowerCase() === "failed" || String(v.status).toLowerCase() === "error");
+  const ag3Decision = getNormalizedAg3Decision({
+    ...ag3,
+    consensus: {
+      ...consensusData,
+      valid_votes: consensusData?.valid_votes || consensusValidVotes,
+    },
+  });
+  const matchedAgents = getStrictConsensusMatchedCount(
+    normalizedConsensus,
+    ag3Decision,
+    recordedMatchedAgents,
+  );
+  const consensusScoreText = formatConsensusScoreText(
+    matchedAgents,
+    toFiniteOrNull(totalAgents),
+    t.notRecorded,
+    matchedAgents !== null && toFiniteOrNull(totalAgents) !== null
+      ? `${matchedAgents}/${toFiniteOrNull(totalAgents)}`
+      : null,
+  );
+
+  const validVoteKeysSet = new Set(
+    (Array.isArray(consensusValidVotes) ? consensusValidVotes : []).map((item) =>
+      getAgentConsensusKey(item, item?.agent_key || item?.agent || item?.source)
+    ).filter(Boolean)
+  );
+  const finalDecisionObj = { denomination: finalDenomination, currency, country };
+  const patternText = `${matchedAgents}/${totalAgents}`;
+
+  const getVoteData = (agentItem, agentName, agentKey) => {
+    const norm = normalizeAgentVote(
+      agentItem,
+      agentKey,
+      validVoteKeysSet,
+      finalDecisionObj,
+      patternText,
+    );
+    return { ...norm, name: getAgentDisplayName(agentItem?.agent || agentItem?.agent_name || agentName) };
+  };
+
+  const lensState = getLensEvidenceState(ag3, lensSources || [], lang);
+
+  const normalizedAg3Vote = getVoteData(
+    { agent: "AG3 Google Lens/Visual Search", data: ag3 },
+    "AG3",
+    "visual_search",
+  );
+  const ag3DisplayIdentity = ag3Decision.voteCreated
+    ? ag3Decision.voteIdentity
+    : ag3Decision.candidateIdentity;
+  const ag3HasDisplayIdentity = Boolean(
+    ag3DisplayIdentity?.country ||
+    ag3DisplayIdentity?.currency ||
+    ag3DisplayIdentity?.denomination !== undefined,
+  );
+  const votes = [
+    getVoteData({ agent: "AG1 OpenAI/GPT Vision", data: ag1 }, "AG1", "ml_dl"),
+    getVoteData({ agent: "AG2 Gemini/LLM", data: ag2 }, "AG2", "llm_api"),
+    {
+      ...normalizedAg3Vote,
+      denom: ag3HasDisplayIdentity
+        ? formatDenominationLabel(
+            ag3DisplayIdentity.denomination,
+            ag3DisplayIdentity.currency,
+            normalizedAg3Vote.denom,
+          )
+        : normalizedAg3Vote.denom,
+      country: ag3DisplayIdentity?.country || normalizedAg3Vote.country,
+      currency: ag3DisplayIdentity?.currency || normalizedAg3Vote.currency,
+      hasResult: ag3HasDisplayIdentity || normalizedAg3Vote.hasResult,
+      hasEvidence: ag3Decision.rawCount > 0 || ag3Decision.articlePreview.length > 0,
+      matched: ag3Decision.matched,
+      counted: ag3Decision.counted,
+      countedByBackend: ag3Decision.counted,
+      isNonVoting: !ag3Decision.counted,
+      voteStatus: ag3Decision.matched
+        ? "matched"
+        : ag3Decision.counted
+          ? "different"
+          : "not_counted",
+      ag3Decision,
+    },
+  ];
+
+  const publicEvidence = objectData?.public_evidence || {};
+  const visibleTextChips = normalizeDisplayTextList(publicEvidence.visible_text);
+  const keyFeaturesChips = normalizeDisplayTextList(publicEvidence.key_features);
+  const rawLensSources = Array.isArray(lensSources) ? lensSources : [];
+  const showLegacyLensEvidence = false;
+  const qualifiedLensSources = rawLensSources.filter(
+    (src) =>
+      (src.qualified_source === true || src.eligible === true || getLensDisposition(src) === "supporting") &&
+      src.complete_identity !== false &&
+      src.independent_domain !== false,
+  );
+  const selectedLensSources = rawLensSources.filter(
+    (src) => src.selected_for_ag3_internal_vote === true || src.selected_for_ag3_vote === true || src.selected_rank,
+  );
+  const visibleLensSources = showAllLensSources ? rawLensSources : rawLensSources.slice(0, 10);
+  const lensSummary = ag3?.ag3_verification_summary || {};
+  const lensDispositionCounts = lensSummary.disposition_counts || ag3?.disposition_counts || {};
+  const lensSupportingCount = lensSummary.supporting_evidence_count ?? ag3?.supporting_evidence_count ?? lensDispositionCounts.supporting ?? rawLensSources.filter((src) => getLensDisposition(src) === "supporting").length;
+  const lensPartialCount = lensSummary.partial_evidence_count ?? ag3?.partial_evidence_count ?? lensDispositionCounts.partial ?? rawLensSources.filter((src) => getLensDisposition(src) === "partial").length;
+  const lensExcludedCount = lensSummary.excluded_evidence_count ?? ag3?.excluded_evidence_count ?? lensDispositionCounts.excluded ?? rawLensSources.filter((src) => getLensDisposition(src) === "excluded").length;
+  const lensDuplicateCount = lensSummary.duplicate_evidence_count ?? ag3?.duplicate_evidence_count ?? lensDispositionCounts.duplicate ?? rawLensSources.filter((src) => getLensDisposition(src) === "duplicate").length;
+  const formatBool = (value) => (value === true ? "Yes" : value === false ? "No" : "Unknown");
+  const formatMetaValue = (value) => {
+    if (Array.isArray(value)) return value.filter(Boolean).join(", ") || "None";
+    if (value === true || value === false) return formatBool(value);
+    if (value === null || value === undefined || value === "") return "None";
+    return String(value);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* 1. AI AGENT AGREEMENT (AGENT VOTES) - FULL WIDTH MOVED UP RIGHT AFTER HERO */}
+      <section className="space-y-3">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-xl font-black text-slate-900 dark:text-slate-100">
+              {lang === "VI" ? "Đồng thuận của các tác tử AI" : "AI Agent Agreement"}
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {normalizedConsensus?.validVoteCount < 3
+                ? (lang === "VI" ? "Hai phiếu hợp lệ đã tham gia biểu quyết." : "Two valid votes participated in consensus.")
+                : (lang === "VI" ? "Ba phiếu hợp lệ đã tham gia biểu quyết." : "Three valid votes participated in consensus.")}
+            </p>
+          </div>
+          <span className="w-fit rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+            {consensusScoreText} {lang === "VI" ? (normalizedConsensus?.validVoteCount < 3 ? "phiếu hợp lệ khớp" : "tác tử khớp") : "agents matched"}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {votes.map((vote, i) => (
+            <AgentVoteCard
+              key={i}
+              vote={vote}
+              publicEvidence={publicEvidence}
+              lensSources={lensSources}
+              t={t}
+              lang={lang}
+            />
+          ))}
+        </div>
+      </section>
+
+      {/* 2. MAIN DETAILS GRID (12-column grid items-start) */}
+      <div className="grid grid-cols-1 gap-6 items-start lg:grid-cols-12">
+        {/* LEFT col-span-7: IMAGES CARD */}
+        <div className="lg:col-span-7">
+          <ImagesCard
+            previewImage={previewImage || image}
+            cropPreview={cropPreview}
+            cropSource={cropEvidence?.source || objectData?.crop_source}
+            hasBbox={Boolean(objectData?.bbox || cropEvidence?.bbox)}
+            t={t}
+            lang={lang}
+            onPreviewImage={() => (previewImage || image) && setObjectImagePreview(true)}
+            onPreviewCrop={() => cropPreview && setObjectImagePreview(true)}
+          />
+        </div>
+
+        {/* RIGHT col-span-5: CONVERSION, VERIFICATION SUMMARY, TOKEN USAGE */}
+        <div className="space-y-4 lg:col-span-5">
+          {/* Currency Conversion Card */}
+          <CurrencyConversionCard
+            showVndConversion={showVndConversion}
+            originalValueText={originalValueText}
+            vndValueText={vndValueText}
+            hasVndRate={hasVndRate}
+            rateMetaText={rateMetaText}
+            canRecalculateWithCurrentRate={canRecalculateWithCurrentRate}
+            useCurrentRateForResult={useCurrentRateForResult}
+            onRecalculateRate={onRecalculateRate}
+            t={t}
+            lang={lang}
+          />
+
+          {/* Verification Summary Card */}
+          <VerificationSummaryCard
+            matchedAgents={matchedAgents}
+            totalAgents={totalAgents}
+            cropEvidence={cropEvidence}
+            ag3Decision={ag3Decision}
+            lang={lang}
+          />
+
+          {/* Token Usage Card */}
+          <CompactTokenUsageCard
+            billing={objectData?.billing}
+            t={t}
+            lang={lang}
+          />
+        </div>
+      </div>
+
+      <WhyThisResultCard
+        matchedAgents={matchedAgents}
+        finalDenomination={finalDenomination}
+        cropEvidence={cropEvidence}
+        originalObjectData={originalObjectData}
+        ag3Decision={ag3Decision}
+        refereeView={refereeView}
+        t={t}
+        lang={lang}
+      />
+
+      {/* 3. SUPPORTING INFORMATION GRID */}
+      <div className="grid grid-cols-1 gap-6 items-start">
+        {/* SUPPORTING EVIDENCE */}
+        <div className="min-w-0">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <h3 className="mb-4 flex items-center gap-2 text-base font-black text-slate-900 dark:text-slate-100">
+              <Globe className="h-5 w-5 text-blue-500" />
+              {t?.analysisEvidence || (lang === "VI" ? "Bằng chứng hỗ trợ" : "Supporting Evidence")}
+            </h3>
+
+            <div className="space-y-4">
+              {/* Google Lens Sources */}
+              <LensEvidencePanel
+                rawLensSources={rawLensSources}
+                ag3={ag3}
+                decision={ag3Decision}
+                lensState={lensState}
+                lang={lang}
+                lensDispositionFilter={lensDispositionFilter}
+                setLensDispositionFilter={setLensDispositionFilter}
+                showAllLensSources={showAllLensSources}
+                setShowAllLensSources={setShowAllLensSources}
+              />
+              {showLegacyLensEvidence && (rawLensSources.length > 0 ? (
+                <div>
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Raw Lens Results ({ag3.raw_lens_result_count ?? rawLensSources.length})
+                    </p>
+                    <span className="text-[10px] font-bold text-slate-400">
+                      {lang === "VI" ? "Độc lập sau lọc" : "Verified independent"}: {ag3.eligible_independent_domain_count ?? 0}
+                    </span>
+                  </div>
+
+                  {/* Verification Summary Breakdown */}
+                  <div className="mb-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 text-xs dark:border-slate-800 dark:bg-slate-950/40">
+                    <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      <div className="flex items-center gap-1.5"><Search className="h-3.5 w-3.5 text-slate-400 shrink-0" /> {ag3.raw_lens_result_count ?? rawLensSources.length} raw</div>
+                      <div className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" /> {lensSupportingCount} supporting</div>
+                      <div className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-amber-500 shrink-0" /> {lensPartialCount} partial</div>
+                      <div className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-slate-400 shrink-0" /> {lensExcludedCount} excluded / {lensDuplicateCount} duplicate</div>
+                      <div className="flex items-center gap-1.5"><Globe className="h-3.5 w-3.5 text-indigo-500 shrink-0" /> {ag3.eligible_independent_domain_count ?? 0} {lang === "VI" ? "domain độc lập" : "independent verified domains"}</div>
+                      <div className={ag3.counted_in_consensus === true ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-amber-600 dark:text-amber-400 font-bold"}>
+                        {ag3.counted_in_consensus === true
+                          ? (lang === "VI" ? "AG3 được tính vào đồng thuận" : "AG3 counted in consensus")
+                          : (lang === "VI" ? "AG3 không được tính vào đồng thuận" : "AG3 not counted in consensus")}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Source List or Targeted Message */}
+                  {ag3?.eligible_independent_domain_count < 3 && (
+                    <div className="mb-3 rounded-xl border border-amber-100 bg-amber-50/60 p-3.5 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-400">
+                      {ag3?.mode === "targeted_candidate_verification"
+                        ? (lang === "VI" ? "Đang tìm kiếm các nguồn bổ sung qua văn bản để đối chiếu..." : "Searching specific sources for verification...")
+                        : (lang === "VI" ? "Không đủ bằng chứng độc lập hợp lệ." : "Insufficient valid independent evidence.")}
+                    </div>
+                  )}
+
+                  <div className="mb-3 grid gap-2 md:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200/80 bg-white/70 p-3 text-xs dark:border-slate-800 dark:bg-slate-950/40">
+                      <div className="mb-1 font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Qualified Independent Sources</div>
+                      {qualifiedLensSources.length > 0 ? qualifiedLensSources.map((src, i) => (
+                        <div key={`${src.url || src.title}-qualified-${i}`} className="truncate font-semibold text-slate-700 dark:text-slate-300">
+                          {src.canonical_domain || src.domain || "unknown"} - {src.title}
+                        </div>
+                      )) : (
+                        <div className="font-semibold text-slate-500 dark:text-slate-400">None</div>
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-slate-200/80 bg-white/70 p-3 text-xs dark:border-slate-800 dark:bg-slate-950/40">
+                      <div className="mb-1 font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">Selected Voting Set</div>
+                      {selectedLensSources.length > 0 ? selectedLensSources.map((src, i) => (
+                        <div key={`${src.url || src.title}-selected-${i}`} className="truncate font-semibold text-slate-700 dark:text-slate-300">
+                          #{src.selected_rank || i + 1} {src.canonical_domain || src.domain || "unknown"} - {src.final_disposition || src.evidence_disposition || "unknown"}
+                        </div>
+                      )) : (
+                        <div className="font-semibold text-slate-500 dark:text-slate-400">None</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                      {visibleLensSources.map((src, i) => (
+                        <a
+                          key={`${src.url || src.title}-${i}`}
+                          href={src.url || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="group flex items-start justify-between gap-3 rounded-xl border border-slate-200/80 bg-slate-50/70 p-3 transition hover:border-indigo-300 hover:bg-indigo-50/40 dark:border-slate-800 dark:bg-slate-950/40 dark:hover:border-indigo-500/40"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="mb-1 flex items-center gap-2 flex-wrap">
+                              {renderEvidenceBadge(src, lang)}
+                              <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                                {src.domain || src.canonical_domain || "—"}
+                              </span>
+                            </div>
+                            <p className="line-clamp-1 text-xs font-bold text-slate-900 group-hover:text-indigo-600 dark:text-slate-100 dark:group-hover:text-indigo-400">
+                              {src.title}
+                            </p>
+                            {src.url && (
+                              <p className="mt-1 truncate text-[10px] font-semibold text-slate-400">{src.url}</p>
+                            )}
+                            <div className="mt-2 grid gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-400 sm:grid-cols-2">
+                              <div><span className="text-slate-400">Raw rank: </span>{formatMetaValue(src.raw_rank ?? src.rank ?? i + 1)}</div>
+                              <div><span className="text-slate-400">Lens score: </span>{formatMetaValue(src.raw_lens_score ?? src.ranker_score ?? src.confidence)}</div>
+                              <div><span className="text-slate-400">Page fetch: </span>{formatMetaValue(src.page_fetch_status || src.fetch_status)}</div>
+                              <div><span className="text-slate-400">Source class: </span>{formatMetaValue(src.source_class || src.source_trust_level)}</div>
+                              <div><span className="text-slate-400">Country: </span>{formatMetaValue(src.extracted_country || src.detected_country)}</div>
+                              <div><span className="text-slate-400">Currency: </span>{formatMetaValue(src.extracted_currency || src.detected_currency)}</div>
+                              <div><span className="text-slate-400">Denomination: </span>{formatMetaValue(src.extracted_denomination || src.detected_amounts)}</div>
+                              <div><span className="text-slate-400">Object type: </span>{formatMetaValue(src.object_type)}</div>
+                              <div><span className="text-slate-400">Complete identity: </span>{formatMetaValue(src.complete_identity)}</div>
+                              <div><span className="text-slate-400">Canonical domain: </span>{formatMetaValue(src.canonical_domain || src.domain)}</div>
+                              <div><span className="text-slate-400">Independent domain: </span>{formatMetaValue(src.independent_domain)}</div>
+                              <div><span className="text-slate-400">Disposition: </span>{formatMetaValue(src.final_disposition || src.evidence_disposition)}</div>
+                              <div><span className="text-slate-400">Reason: </span>{formatMetaValue(src.final_reason || src.evidence_reason)}</div>
+                              <div><span className="text-slate-400">Selected vote: </span>{formatMetaValue(src.selected_for_ag3_internal_vote || src.selected_for_ag3_vote)}</div>
+                              <div><span className="text-slate-400">Selected rank: </span>{formatMetaValue(src.selected_rank)}</div>
+                            </div>
+                            {src.snippet && (
+                              <p className="mt-2 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">{src.snippet}</p>
+                            )}
+                            {src.web_page_text_excerpt && (
+                              <p className="mt-2 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">{src.web_page_text_excerpt}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <ExternalLink className="h-3.5 w-3.5 text-slate-400 group-hover:text-indigo-500" />
+                          </div>
+                        </a>
+                      ))}
+                      {rawLensSources.length > 10 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllLensSources((prev) => !prev)}
+                          className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+                        >
+                          {showAllLensSources ? "Show less" : `Show +${rawLensSources.length - 10} raw results`}
+                        </button>
+                      )}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400">
+                  {lensState.message}
+                </div>
+              ))}
+
+              {/* Visible Text Chips */}
+              {visibleTextChips.length > 0 && (
+                <ChipList
+                  items={visibleTextChips}
+                  maxDefault={6}
+                  lang={lang}
+                  label={lang === "VI" ? "Văn bản trên tờ tiền" : "Visible Text"}
+                />
+              )}
+
+              {/* Key Features Chips */}
+              {keyFeaturesChips.length > 0 && (
+                <ChipList
+                  items={keyFeaturesChips}
+                  maxDefault={6}
+                  lang={lang}
+                  label={lang === "VI" ? "Đặc điểm chính" : "Key Features"}
+                />
+              )}
+
+              {/* Crop Evidence (AG0) collapsed */}
+              {cropEvidence && (
+                <details className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 text-xs dark:border-slate-800 dark:bg-slate-950/40">
+                  <summary className="cursor-pointer font-bold text-slate-700 dark:text-slate-300">
+                    {lang === "VI" ? "Kiểm tra AG0: Vùng cắt hợp lệ" : "AG0 Crop Check: Accepted"}
+                  </summary>
+                  <div className="mt-2 space-y-1.5 text-slate-600 dark:text-slate-400">
+                    <p><span className="font-semibold">Action:</span> {cropEvidence.action}</p>
+                    {cropEvidence.selectedReason && (
+                      <p><span className="font-semibold">Reason:</span> {cropEvidence.selectedReason}</p>
+                    )}
+                  </div>
+                </details>
+              )}
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* 4. CONSENSUS TIMELINE (ONLY if array has items) */}
+      {Array.isArray(consensusTrace) && consensusTrace.length > 0 && (
+        <ConsensusTimelineSection
+          consensusTrace={consensusTrace}
+          t={t}
+          lang={lang}
+        />
+      )}
+
+      {/* 5. BOTTOM ACTIONS */}
+      <div className="mt-8 flex flex-col justify-center gap-3 border-t border-slate-200/80 pt-6 dark:border-slate-800 sm:flex-row sm:items-center">
+        <button
+          type="button"
+          onClick={() => navigate && navigate("/history")}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          <History className="h-4 w-4" />
+          {t?.viewHistory || (lang === "VI" ? "Xem lịch sử nhận diện" : "View Scan History")}
+        </button>
+        <button
+          type="button"
+          onClick={handleScanAnother}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-indigo-500 dark:bg-cyan-400 dark:text-slate-950 dark:hover:bg-cyan-300"
+        >
+          <RotateCcw className="h-4 w-4" />
+          {t?.scanAnother || (lang === "VI" ? "Nhận diện tờ tiền khác" : "Scan Another Banknote")}
+        </button>
+      </div>
+
+      {/* Image Lightbox Modal */}
       {objectImagePreview && (cropPreview || image) && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm"
@@ -3347,139 +4700,164 @@ function PerObjectResult({
               />
             </div>
           ) : (
-          <img
-            src={image}
-            alt={lang === "VI" ? `Ảnh crop tờ tiền ${objectNo}` : `Banknote crop ${objectNo}`}
-            className="max-h-[88vh] max-w-[94vw] object-contain"
-            onClick={(event) => event.stopPropagation()}
-          />
+            <img
+              src={image}
+              alt={lang === "VI" ? `Ảnh crop tờ tiền ${objectNo}` : `Banknote crop ${objectNo}`}
+              className="max-h-[88vh] max-w-[94vw] object-contain"
+              onClick={(event) => event.stopPropagation()}
+            />
           )}
         </div>
       )}
-    </section>
-  );
-}
-
-function DetailItem({ label, value }) {
-  return (
-    <div>
-      <p className="text-[10px] font-black uppercase text-slate-400 dark:text-slate-500 mb-1">{label}</p>
-      <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{value}</p>
     </div>
   );
 }
 
-function CollapsibleSection({ title, isOpen, toggle, children }) {
-  return (
-    <div className="border-b border-slate-200 last:border-0 dark:border-slate-800">
-      <button
-        type="button"
-        onClick={toggle}
-        className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 dark:hover:bg-slate-800/30"
-      >
-        <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">{title}</h4>
-        {isOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-      </button>
-      {isOpen && <div className="px-5 pb-5">{children}</div>}
-    </div>
-  );
-}
 
-function AgentVoteCard({ vote, t, lang }) {
+
+function AgentVoteCard({ vote, publicEvidence, lensSources, t, lang }) {
   const [isExpanded, setIsExpanded] = React.useState(false);
-  const { voteStatus, denom, country, currency, reasoning, confidence, isError, isDisabled, isNonVoting, hasResult, hasEvidence, name } = vote;
+  const {
+    voteStatus,
+    denom,
+    country,
+    currency,
+    confidence,
+    isError,
+    isDisabled,
+    isNonVoting,
+    hasResult,
+    hasEvidence,
+    name,
+  } = vote;
+
   const isMatched = voteStatus === "matched";
   const isDifferent = voteStatus === "different";
+  const isNotRecorded = voteStatus === "not_recorded";
   const isNotCounted = isNonVoting || voteStatus === "not_counted";
 
   const statusColor = isMatched
-    ? "border-emerald-200 bg-emerald-50 dark:border-emerald-500/20 dark:bg-emerald-500/10"
+    ? "border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/20 dark:bg-emerald-500/10"
     : isDifferent
-      ? "border-amber-200 bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/10"
-      : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50";
+      ? "border-amber-200 bg-amber-50/60 dark:border-amber-500/20 dark:bg-amber-500/10"
+      : "border-slate-200 bg-slate-50/70 dark:border-slate-700/60 dark:bg-slate-800/40";
+
   const textColor = isMatched
     ? "text-emerald-700 dark:text-emerald-300"
     : isDifferent
       ? "text-amber-700 dark:text-amber-300"
       : "text-slate-600 dark:text-slate-300";
+
   const displayStatus = isMatched
     ? t.matched || (lang === "VI" ? "Khớp" : "Matched")
     : isDifferent
       ? t.different || (lang === "VI" ? "Khác biệt" : "Different")
-      : lang === "VI" ? "Không tính phiếu" : "Not counted";
+      : isNotRecorded
+        ? t.notRecorded
+        : lang === "VI" ? "Không tính phiếu" : "Not counted";
 
   const showAg3Trace =
     vote?.agentKey === "visual_search" ||
     /ag3|lens|visual search/i.test(String(name || ""));
 
+  const localizedCountry = formatCountryDisplay(country, lang);
+  const providerLabel = getAg3ProviderLabel(vote?.payload);
+  const formatterLabel = getAg3FormatterLabel(vote?.payload);
+  const publicExplanation = showAg3Trace && vote?.ag3Decision
+    ? getAg3DecisionMessage(vote.ag3Decision, lang)
+    : getPublicAgentExplanation(
+        vote,
+        { publicEvidence, lensSources },
+        lang,
+      );
+
   return (
-    <article className={`flex h-full min-h-[260px] flex-col rounded-2xl border p-4 shadow-sm ${statusColor}`}>
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <p className="text-sm font-black text-slate-900 dark:text-slate-100">{name}</p>
-        <span className={`max-w-[120px] rounded-full bg-white/65 px-2.5 py-1 text-center text-[10px] font-black uppercase leading-tight dark:bg-slate-950/30 ${textColor}`}>
-          {displayStatus}
-        </span>
-      </div>
-      {showAg3Trace && (
-        <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg border border-current/10 bg-white/55 p-2 text-[10px] font-bold uppercase leading-tight text-slate-500 dark:bg-slate-950/20 dark:text-slate-400">
+    <article className={`flex flex-col justify-between rounded-2xl border p-4 sm:p-5 shadow-sm transition hover:shadow-md ${statusColor}`}>
+      <div>
+        <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <span className="block">{t.lblProvider || "Provider"}</span>
-            <span className={`mt-1 block text-xs normal-case ${textColor}`}>{getAg3ProviderLabel(vote?.payload)}</span>
+            <p className="text-sm font-black text-slate-900 dark:text-slate-100">{name}</p>
+            {showAg3Trace && (
+              <p className="mt-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                {t.lblProvider || "Provider"}: {providerLabel} · {t.lblFormatter || "Formatter"}: {formatterLabel}
+              </p>
+            )}
           </div>
-          <div>
-            <span className="block">{t.lblFormatter || "Formatter"}</span>
-            <span className={`mt-1 block text-xs normal-case ${textColor}`}>{getAg3FormatterLabel(vote?.payload)}</span>
-          </div>
+          <span className={`shrink-0 rounded-full bg-white/80 px-2.5 py-1 text-center text-[10px] font-black uppercase leading-tight backdrop-blur dark:bg-slate-950/40 ${textColor}`}>
+            {displayStatus}
+          </span>
         </div>
-      )}
-      <div className="mb-4 space-y-1">
-        {isNotCounted && !hasResult ? (
-          <>
-          <p className={`text-sm font-semibold ${textColor}`}>
-            {hasEvidence
-              ? lang === "VI" ? "Không đủ chắc để tính phiếu" : "Not confident enough to count"
-              : lang === "VI" ? "Không có kết quả hợp lệ để tính phiếu" : "No valid result to count"}
-          </p>
-          {getNonVotingAgentMessage(vote, lang) !== (
-            hasEvidence
-              ? lang === "VI" ? "Không đủ chắc để tính phiếu" : "Not confident enough to count"
-              : lang === "VI" ? "Không có kết quả hợp lệ để tính phiếu" : "No valid result to count"
-          ) && (
-            <p className="mt-2 text-xs font-semibold leading-5 text-slate-500 dark:text-slate-400">
-              {getNonVotingAgentMessage(vote, lang)}
+
+        <div className="mb-3">
+          {isNotRecorded ? (
+            <p className={`text-sm font-semibold ${textColor}`}>{t.notRecorded}</p>
+          ) : isNotCounted && !hasResult ? (
+            <div>
+              <p className={`text-sm font-semibold ${textColor}`}>
+                {hasEvidence
+                  ? lang === "VI" ? "Không đủ chắc để tính phiếu" : "Not confident enough to count"
+                  : lang === "VI" ? "Không có kết quả hợp lệ để tính phiếu" : "No valid result to count"}
+              </p>
+              {getNonVotingAgentMessage(vote, lang) !== (
+                hasEvidence
+                  ? lang === "VI" ? "Không đủ chắc để tính phiếu" : "Not confident enough to count"
+                  : lang === "VI" ? "Không có kết quả hợp lệ để tính phiếu" : "No valid result to count"
+              ) && (
+                <p className="mt-1 text-xs font-semibold leading-5 text-slate-500 dark:text-slate-400">
+                  {getNonVotingAgentMessage(vote, lang)}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div>
+              <p className={`text-2xl font-black tracking-tight ${textColor}`}>
+                {hasResult && !isError ? denom : "—"}
+              </p>
+              {hasResult && !isError && (
+                <p className="mt-0.5 text-xs font-bold text-slate-600 dark:text-slate-300">
+                  {localizedCountry} · {currency}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mb-2">
+          {publicExplanation ? (
+            <div>
+              <p className={`${isExpanded ? "" : "line-clamp-3"} text-xs leading-5 text-slate-600 dark:text-slate-300`}>
+                {publicExplanation}
+              </p>
+              {publicExplanation.length > 130 && (
+                <button
+                  type="button"
+                  onClick={() => setIsExpanded((current) => !current)}
+                  className="mt-1.5 inline-flex items-center gap-1 text-xs font-black text-indigo-600 hover:underline dark:text-indigo-300"
+                >
+                  {isExpanded ? t.showLess : t.readFull}
+                  {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {lang === "VI"
+                ? "Chưa ghi nhận phần giải thích công khai của tác tử này."
+                : "No public explanation was recorded for this agent."}
             </p>
           )}
-          </>
-        ) : (
-          <>
-            <p className={`text-xl font-black ${textColor}`}>{hasResult && !isError ? denom : "—"}</p>
-            {hasResult && !isError && (
-              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{country} · {currency}</p>
-            )}
-          </>
-        )}
-      </div>
-      {reasoning && reasoning !== "N/A" && (
-        <div className="mb-3">
-          <p className={`${isExpanded ? "" : "line-clamp-4"} text-xs leading-5 text-slate-600 dark:text-slate-300`}>
-            {reasoning}
-          </p>
-          {reasoning.length > 170 && (
-            <button
-              type="button"
-              onClick={() => setIsExpanded((current) => !current)}
-              className="mt-2 inline-flex items-center gap-1 text-xs font-black text-indigo-600 hover:underline dark:text-indigo-300"
-            >
-              {isExpanded ? t.showLess : t.readFull}
-              {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </button>
-          )}
         </div>
-      )}
+      </div>
+
       {!isError && !isDisabled && confidence !== "N/A" && (
-        <p className="mt-auto border-t border-current/10 pt-3 text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">
-          {t.lblConfidence || "Confidence"}: {confidence}
-        </p>
+        <div className="mt-3 flex items-center justify-between border-t border-slate-200/60 pt-3 dark:border-slate-800">
+          <span className="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500">
+            {t.lblConfidence || "Confidence"}
+          </span>
+          <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+            {confidence}
+          </span>
+        </div>
       )}
     </article>
   );
@@ -3508,7 +4886,11 @@ function MultiObjectResults({ currentItem, t, lang, ratesData }) {
       <div>
         {objects.map((item, index) => {
           const finalData = item?.final_result || item?.summary || {};
-          const agentResults = Array.isArray(item?.agent_results) ? item.agent_results : [];
+          const agentResults = Array.isArray(item?.agent_votes)
+            ? item.agent_votes
+            : Array.isArray(item?.agent_results)
+              ? item.agent_results
+              : [];
           const lensPayload = getAgentDataByName(agentResults, ["lens", "visual", "agent_3"]);
           const denomination =
             finalData.final_denomination ||
@@ -3524,10 +4906,14 @@ function MultiObjectResults({ currentItem, t, lang, ratesData }) {
             null;
           const objectCropPreview = getCropPreviewSource(item, originalImageUrl);
           return (
-            <PerObjectResult 
+            <PerObjectResult
               key={index}
               objectNo={item?.object_index || index + 1}
-              finalDenomination={formatDenomination(denomination)}
+              finalDenomination={formatDenomination(
+                denomination,
+                finalData.currency || finalData.currency_code || finalData.ma_tien_te,
+                t.notRecorded,
+              )}
               country={formatCountry(finalData.quoc_gia || finalData.country || finalData.origin)}
               currency={formatCurrency(
                 finalData.currency ||
@@ -3537,13 +4923,15 @@ function MultiObjectResults({ currentItem, t, lang, ratesData }) {
               )}
               material={safeText(finalData.chat_lieu || finalData.material, "Không xác định")}
               origin={formatCountry(finalData.quoc_gia || finalData.country)}
-              matchedAgents={Number(finalData.matched_agents || finalData.so_luong_dong_thuan || 0)}
+              matchedAgents={toFiniteOrNull(firstDefined(item?.consensus?.display_matched_agents, finalData.matched_agents, finalData.so_luong_dong_thuan))}
+              totalAgents={toFiniteOrNull(firstDefined(item?.consensus?.display_total_agents, finalData.total_agents, item?.consensus?.total_agents, item?.agent_votes?.length || null))}
               confidence={formatConfidence(firstDefined(finalData.confidence, finalData.do_tin_cay))}
               status={normalizeStatusLabel(finalData.status || "Completed", lang)}
               image={getCropImageUrl(item) || originalImageUrl}
               cropPreview={objectCropPreview}
               agentResults={agentResults}
               consensusValidVotes={finalData.valid_votes || item?.consensus?.valid_votes || []}
+              consensusData={item?.consensus || finalData || {}}
               refereeView={stripMarkdownSymbols(finalData.quan_diem_trong_tai || finalData.referee_view || finalData.reasoning)}
               lensPayload={lensPayload}
               lensSources={normalizeLensSources(lensPayload)}
@@ -3566,379 +4954,8 @@ function MultiObjectResults({ currentItem, t, lang, ratesData }) {
 
 
 
-function TokenUsageCard({ currentItem, t }) {
-  const [isOpen, setIsOpen] = React.useState(false);
-  const raw = currentItem?.raw_backend || currentItem || {};
-  const usage = raw?.token_usage || currentItem?.token_usage || {};
 
-  const systemTokensCharged =
-    raw?.system_tokens_charged ??
-    currentItem?.system_tokens_charged ??
-    usage?.system_tokens_charged;
 
-  const inputTokens =
-    raw?.input_tokens ?? currentItem?.input_tokens ?? usage?.input_tokens;
-
-  const outputTokens =
-    raw?.output_tokens ??
-    currentItem?.output_tokens ??
-    usage?.output_tokens;
-
-  const totalAiTokens =
-    raw?.total_ai_tokens ??
-    currentItem?.total_ai_tokens ??
-    usage?.total_ai_tokens ??
-    (
-      inputTokens !== undefined &&
-      inputTokens !== null &&
-      outputTokens !== undefined &&
-      outputTokens !== null
-        ? Number(inputTokens) + Number(outputTokens)
-        : undefined
-    );
-
-  const billableAiTokens =
-    raw?.billable_ai_tokens ??
-    currentItem?.billable_ai_tokens ??
-    usage?.billable_ai_tokens;
-
-  const balanceBefore =
-    raw?.balance_before ?? currentItem?.balance_before ?? usage?.balance_before;
-
-  const balanceAfter =
-    raw?.balance_after ?? currentItem?.balance_after ?? usage?.balance_after;
-
-  const billingMode =
-    raw?.billing_mode ??
-    currentItem?.billing_mode ??
-    usage?.billing_mode;
-
-  const normalizedBillingMode = String(billingMode || "").trim().toLowerCase();
-  const hasChargeValue = systemTokensCharged !== undefined && systemTokensCharged !== null;
-  const explicitBillingSkipped = Boolean(
-    raw?.billing_skipped ??
-      currentItem?.billing_skipped ??
-      usage?.billing_skipped ??
-      raw?.final_result?.billing_skipped,
-  );
-  const billingSkipped =
-    explicitBillingSkipped ||
-    normalizedBillingMode === "skipped" ||
-    normalizedBillingMode.startsWith("not_billable") ||
-    (hasChargeValue && Number(systemTokensCharged) === 0);
-  const billingModeLabel = billingSkipped
-    ? t.skippedBillingMode
-    : normalizedBillingMode === "dynamic"
-      ? t.dynamicBillingMode
-      : normalizedBillingMode === "fixed"
-        ? t.fixedBillingMode
-        : billingMode ?? "N/A";
-  const billingDescription = billingSkipped
-    ? t.skippedBillingDesc
-    : normalizedBillingMode === "dynamic"
-      ? t.dynamicBillingDesc
-      : normalizedBillingMode === "fixed"
-        ? t.fixedBillingDesc
-        : t.tokenUsageDesc;
-  const chargedSummary = billingSkipped
-    ? t.skippedBillingDesc
-    : `${systemTokensCharged ?? "N/A"} ${String(t.tokensCharged).toLowerCase()}`;
-
-  return (
-    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between p-5 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 dark:hover:bg-slate-800/50"
-      >
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-50 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300">
-            <Coins className="w-5 h-5" />
-          </div>
-          <div>
-            <h2 className="text-base font-black text-slate-900 dark:text-slate-100">
-              {t.tokenUsageTitle}
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {chargedSummary}
-            </p>
-          </div>
-        </div>
-        {isOpen ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
-      </button>
-
-      {isOpen && (
-        <div className="border-t border-slate-200 p-5 dark:border-slate-800">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-            <TokenMetric
-              icon={<Coins className="w-4 h-4" />}
-              label={t.tokensCharged}
-              value={systemTokensCharged ?? "N/A"}
-            />
-
-            <TokenMetric
-              icon={<Wallet className="w-4 h-4" />}
-              label={t.balanceBefore}
-              value={balanceBefore ?? "N/A"}
-            />
-
-            <TokenMetric
-              icon={<Wallet className="w-4 h-4" />}
-              label={t.balanceAfter}
-              value={balanceAfter ?? "N/A"}
-            />
-
-            <TokenMetric
-              icon={<Cpu className="w-4 h-4" />}
-              label={t.inputOutputTokens}
-              value={`${inputTokens ?? "N/A"} / ${outputTokens ?? "N/A"}`}
-            />
-
-            <TokenMetric
-              icon={<Cpu className="w-4 h-4" />}
-              label={t.aiTokens}
-              value={totalAiTokens ?? "N/A"}
-            />
-
-            <TokenMetric
-              icon={<Coins className="w-4 h-4" />}
-              label={t.billingMode}
-              value={billingModeLabel}
-            />
-          </div>
-
-          <div className={`mt-4 rounded-lg border px-4 py-3 text-sm leading-6 ${
-            billingSkipped
-              ? "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300"
-              : "border-cyan-200 bg-cyan-50 text-cyan-900 dark:border-cyan-900/60 dark:bg-cyan-950/30 dark:text-cyan-200"
-          }`}>
-            {billingDescription}
-          </div>
-
-          {Number(billableAiTokens || 0) > 0 && (
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-4">
-              {t.billableTokens}:{" "}
-              <span className="font-bold text-slate-700 dark:text-slate-200">
-                {billableAiTokens}
-              </span>
-              <span className="ml-2">{t.billableUsageDesc}</span>
-            </p>
-          )}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function TokenMetric({ icon, label, value }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/50">
-      <div className="flex items-center gap-2 text-slate-400 mb-2">
-        {icon}
-        <p className="text-[10px] font-black uppercase tracking-wider">
-          {label}
-        </p>
-      </div>
-
-      <p className="text-lg font-black text-slate-900 dark:text-slate-100">
-        {normalizeText(value)}
-      </p>
-    </div>
-  );
-}
-
-function DecisionItem({ label, value, status, t }) {
-  const isMatched = status === "matched";
-  const isDiff = status === "different";
-  const isFinal = status === "final";
-
-  const borderColor = isMatched
-    ? "border-l-teal-500"
-    : isDiff
-    ? "border-l-amber-400"
-    : "border-l-slate-400 dark:border-l-slate-600";
-
-  const statusClass = isMatched
-    ? "bg-teal-50 dark:bg-teal-500/20 text-teal-700 dark:text-teal-300 border-teal-100 dark:border-teal-500/30"
-    : isDiff
-    ? "bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-100 dark:border-amber-500/30"
-    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700";
-
-  return (
-    <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 pl-5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50 border-l-4 ${borderColor} transition-colors`}>
-      <div className="flex items-center gap-3">
-        {isMatched ? (
-          <CheckCircle2 className="w-4 h-4 text-teal-500 shrink-0" strokeWidth={2.5} />
-        ) : isDiff ? (
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" strokeWidth={2.5} />
-        ) : (
-          <Layers className="w-4 h-4 text-slate-400 shrink-0" />
-        )}
-        <div>
-          <p className="text-sm font-bold text-slate-900 dark:text-slate-200">{label}</p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{normalizeText(value)}</p>
-        </div>
-      </div>
-      <span className={`w-fit px-3 py-1 rounded-full border text-xs font-bold uppercase tracking-wider ${statusClass}`}>
-        {isMatched ? t.matched : isDiff ? t.different : t.final}
-      </span>
-    </div>
-  );
-}
-
-function AgentCard({ agentKey, title, method, data, finalCanonical, t, agentType, lang }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  const headerGradient = agentType === "yolo"
-    ? "from-indigo-900 to-indigo-950"
-    : agentType === "llm"
-    ? "from-violet-900 to-violet-950"
-    : "from-teal-900 to-teal-950";
-
-  const agentIcon = agentType === "yolo"
-    ? <Cpu className="w-5 h-5" />
-    : agentType === "llm"
-    ? <BrainCircuit className="w-5 h-5" />
-    : <ScanSearch className="w-5 h-5" />;
-
-  const agentDenomination = getAgentDenomination(data);
-  const isErr = isTechnicalError(data);
-  const hasResult = Boolean(agentDenomination && agentDenomination !== "N/A" && !agentDenomination.toLowerCase().includes("không"));
-  const hasEvidence = Array.isArray(data?.evidence) && data?.evidence.length > 0;
-
-  if (!data || (!isErr && !hasResult && !hasEvidence)) {
-    return (
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors flex flex-col h-full">
-        <div className={`bg-gradient-to-br ${headerGradient} p-4 flex items-center gap-3`}>
-          <span className="text-slate-400">{agentIcon}</span>
-          <div>
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{agentKey}</span>
-            <h3 className="text-base font-bold text-white">{title}</h3>
-          </div>
-        </div>
-        <div className="p-6 flex-1">
-          <p className="text-sm text-slate-500 dark:text-slate-400">{t.noAgentData}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isErr && !hasResult && hasEvidence) {
-    return (
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors flex flex-col h-full">
-        <div className={`bg-gradient-to-br ${headerGradient} p-4 flex items-center gap-3`}>
-          <span className="text-slate-400">{agentIcon}</span>
-          <div>
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{agentKey}</span>
-            <h3 className="text-base font-bold text-white">{title}</h3>
-          </div>
-        </div>
-        <div className="p-6 flex-1 flex flex-col justify-center">
-          <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-            {lang === "VI" ? "CÓ BẰNG CHỨNG" : "EVIDENCE ONLY"}
-          </p>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {lang === "VI" ? "Không đủ chắc để tính phiếu" : "Not confident enough to count"}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const agentCountry = getAgentCountry(data);
-  const currency = data?.currency || data?.currency_code || inferMoneyCurrency(agentDenomination);
-
-  const agentCanonical = buildMoneyCanonical({
-    denomination: agentDenomination,
-    currency: currency,
-    country: agentCountry,
-  });
-
-  const isMatched = isSameMoneyVote(agentCanonical, finalCanonical);
-  const reasoningText = stripMarkdownSymbols(getAgentReasoning(data));
-  const confidence = data?.confidence || data?.do_tin_cay || data?.confidence_score;
-  const confNum = confidence !== undefined && confidence !== null
-    ? (Number(confidence) <= 1 ? Number(confidence) * 100 : Number(confidence))
-    : null;
-  const showAg3Trace =
-    agentType === "lens" ||
-    /ag3|lens|visual search/i.test(`${agentKey || ""} ${title || ""}`);
-
-  return (
-    <div className={`flex flex-col bg-white dark:bg-slate-900 rounded-2xl border shadow-sm overflow-hidden hover:shadow-md transition-all ${
-      isMatched ? "border-teal-200 dark:border-teal-800/60" : "border-slate-200 dark:border-slate-800"
-    }`}>
-      {/* Gradient header */}
-      <div className={`bg-gradient-to-br ${headerGradient} p-4 flex items-center justify-between`}>
-        <div className="flex items-center gap-3">
-          <span className={isMatched ? "text-teal-400" : "text-slate-400"}>{agentIcon}</span>
-          <div>
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{agentKey}</span>
-            <h3 className="text-base font-bold text-white leading-tight">{title}</h3>
-            <p className="text-xs text-slate-500 mt-0.5">{getAgentMethod(data, method)}</p>
-          </div>
-        </div>
-        <span className={`px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-full border whitespace-nowrap ${
-          isMatched
-            ? "bg-teal-500/20 text-teal-300 border-teal-500/40"
-            : "bg-amber-500/20 text-amber-300 border-amber-500/40"
-        }`}>
-          {isMatched ? t.matched : t.different}
-        </span>
-      </div>
-
-      {/* Body */}
-      <div className="p-5 space-y-3 flex-1">
-        <InfoRow label={t.lblDenomination} value={agentDenomination} />
-        <InfoRow label={t.lblCountry} value={getAgentCountry(data)} />
-        <InfoRow label={t.lblMaterial} value={data?.chat_lieu || data?.material} />
-        {showAg3Trace && (
-          <>
-            <InfoRow label={t.lblProvider || "Provider"} value={getAg3ProviderLabel(data)} />
-            <InfoRow label={t.lblFormatter || "Formatter"} value={getAg3FormatterLabel(data)} />
-          </>
-        )}
-
-        {confNum !== null && (
-          <div className="pt-1">
-            <div className="flex justify-between mb-1.5">
-              <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Confidence</span>
-              <span className={`text-xs font-black ${
-                confNum >= 80 ? "text-teal-500" : confNum >= 60 ? "text-amber-400" : "text-rose-400"
-              }`}>{confNum.toFixed(1)}%</span>
-            </div>
-            <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${
-                confNum >= 80 ? "bg-gradient-to-r from-teal-500 to-teal-400" : confNum >= 60 ? "bg-amber-400" : "bg-rose-400"
-              }`} style={{ width: `${Math.min(confNum, 100)}%` }} />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Reasoning */}
-      <div className="px-5 pb-5">
-        <p className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-          {t.lblReasoning}
-        </p>
-        <div className={`text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-100 dark:border-slate-700/50 ${
-          !isExpanded ? "line-clamp-5" : ""
-        }`}>
-          <div className="prose prose-sm prose-slate dark:prose-invert max-w-none">
-            <ReactMarkdown>{reasoningText}</ReactMarkdown>
-          </div>
-        </div>
-        {reasoningText.length > 180 && (
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="mt-3 text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 text-sm font-semibold transition-colors"
-          >
-            {isExpanded ? t.showLess : t.readFull}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
 const genericNoBanknoteReason = {
   type: "no_valid_crop",
   viMessage: "Không tìm thấy vùng nào đủ giống tiền giấy. Các vùng nghi vấn không đủ độ tin cậy nên hệ thống không gửi sang AI Agent để tránh nhận diện sai và không tốn token.",
@@ -4014,13 +5031,8 @@ const translateRejectEvidence = (evidence, lang) => {
 function InvalidConclusionResult({
   currentItem,
   previewImage,
-  t,
   lang,
   onScanAnother,
-  showRawLog,
-  setShowRawLog,
-  handleCopyJSON,
-  handleDownloadJSON,
 }) {
   const labels = lang === "VI" ? {
     title: "Chưa thể kết luận",
@@ -4028,10 +5040,6 @@ function InvalidConclusionResult({
     originalImage: "Ảnh gốc",
     errorStatus: "Trạng thái",
     errorDetail: "Chi tiết lỗi",
-    advDebug: "Gỡ lỗi chuyên sâu",
-    jsonTitle: "Dữ liệu JSON",
-    copy: "Sao chép",
-    download: "Tải xuống",
     backWorkspace: "Trở lại Không Gian Làm Việc",
     scanAnother: "Quét Tờ Tiền Khác"
   } : {
@@ -4040,10 +5048,6 @@ function InvalidConclusionResult({
     originalImage: "Original image",
     errorStatus: "Status",
     errorDetail: "Error details",
-    advDebug: "Advanced Debug",
-    jsonTitle: "JSON Data",
-    copy: "Copy",
-    download: "Download",
     backWorkspace: "Go back to Workspace",
     scanAnother: "Scan Another Banknote"
   };
@@ -4129,52 +5133,12 @@ function InvalidConclusionResult({
           )}
         </section>
 
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <button
-            onClick={() => setShowRawLog(!showRawLog)}
-            className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 dark:hover:bg-slate-800"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                <Zap className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="font-black text-slate-900 dark:text-white">{labels.advDebug}</h2>
-              </div>
-            </div>
-            {showRawLog ? <ChevronUp className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" /> : <ChevronDown className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" />}
-          </button>
-
-          {showRawLog && (
-            <div className="space-y-5 border-t border-slate-200 p-5 dark:border-slate-800">
-              <div>
-                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs font-black uppercase text-slate-500">{labels.jsonTitle}</p>
-                  <div className="flex gap-2">
-                    <button onClick={handleCopyJSON} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
-                      <Copy className="h-3.5 w-3.5" />
-                      {labels.copy}
-                    </button>
-                    <button onClick={handleDownloadJSON} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-indigo-500">
-                      <Download className="h-3.5 w-3.5" />
-                      {labels.download}
-                    </button>
-                  </div>
-                </div>
-                <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs text-emerald-700 dark:border-slate-800 dark:bg-slate-950 dark:text-emerald-300">
-                  {JSON.stringify(currentItem, null, 2)}
-                </pre>
-              </div>
-            </div>
-          )}
-        </section>
       </div>
     </div>
   );
 }
 
 function NoBanknoteResult({
-  item,
   rejectedObjects,
   previewImage,
   t,

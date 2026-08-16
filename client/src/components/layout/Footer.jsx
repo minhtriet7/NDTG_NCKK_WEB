@@ -6,7 +6,7 @@ export default function Footer() {
   const { t } = useTranslation();
 
   return (
-    <footer className="relative bg-background dark:bg-[#0B1120] pt-24 pb-12 overflow-hidden font-sans border-t border-border-theme dark:border-[#1E293B]">
+    <footer className="relative bg-background dark:bg-slate-950 pt-24 pb-12 overflow-hidden font-sans border-t border-border-theme dark:border-slate-900">
       {/* Background Glow */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-indigo-500/10 blur-[120px] rounded-full pointer-events-none" />
 
@@ -84,7 +84,7 @@ export default function Footer() {
           <p className="text-secondary dark:text-slate-500 text-xs">
             &copy; {new Date().getFullYear()} BanknoteAI Platform. {t('footer.allRightsReserved', 'All rights reserved.')}
           </p>
-          <p className="text-xs font-mono text-slate-400 dark:text-slate-600">
+          <p className="text-xs font-mono text-slate-400 dark:text-slate-500">
             {t('footer.systemsOperational', 'All systems operational')}
           </p>
         </div>

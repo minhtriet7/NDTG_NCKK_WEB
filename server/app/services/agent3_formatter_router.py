@@ -56,7 +56,36 @@ def _compact_evidence_for_formatter(item: Dict[str, Any]) -> Dict[str, Any]:
         "source": _compact_text(item.get("source"), 160),
         "url": _compact_text(item.get("url") or item.get("link"), 500),
     }
-    for key in ("provider", "bucket", "rank", "score", "domain"):
+    for key in (
+        "provider",
+        "bucket",
+        "rank",
+        "score",
+        "domain",
+        "canonical_domain",
+        "canonical_url",
+        "evidence_id",
+        "raw_rank",
+        "final_rank",
+        "page_fetch_status",
+        "fetch_status",
+        "source_class",
+        "source_trust_level",
+        "extracted_country",
+        "extracted_currency",
+        "extracted_denomination",
+        "object_type",
+        "banknote_context",
+        "identity_complete",
+        "complete_identity",
+        "content_identity_quality",
+        "verification_basis",
+        "evidence_disposition",
+        "final_disposition",
+        "classification_reason",
+        "evidence_reason",
+        "final_reason",
+    ):
         if key in item:
             compact[key] = item.get(key)
     if "rank_reasons" in item:
@@ -239,15 +268,25 @@ async def run_agent3_formatter(
     deterministic_parser: Callable[..., Dict[str, Any]],
     validator: Callable[..., Dict[str, Any]],
     parse_formatted_result: Callable[..., str],
+    groq_extractions: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Route top-five evidence through deterministic parsing and Groq safely."""
+    """Route ranked evidence through deterministic parsing and Groq safely."""
     router_started_at = time.monotonic()
     evidence = [
         _compact_evidence_for_formatter(item)
-        for item in list(top_evidence or [])[:5]
+        for item in list(top_evidence or [])[:10]
         if isinstance(item, dict)
     ]
-    _set_trace(debug_log, formatter_provider="groq", evidence_count=len(evidence))
+    formatter_provider_evidence = evidence[:5]
+    _set_trace(
+        debug_log,
+        formatter_provider="groq",
+        evidence_count=len(evidence),
+        source_of_truth_evidence_count=len(evidence),
+        formatter_provider_input_count=len(formatter_provider_evidence),
+        evidence_limit=10,
+        formatter_provider_input_limit=5,
+    )
 
     if not evidence:
         _set_trace(debug_log, outcome="partial", reason="no_evidence")
@@ -298,12 +337,18 @@ async def run_agent3_formatter(
         deterministic = deterministic_parser(
             evidence,
             raw_lens_text=raw_lens_data,
+            groq_extractions=groq_extractions,
         )
-        deterministic = validator(deterministic, evidence=evidence)
+        deterministic = validator(
+            deterministic,
+            evidence=evidence,
+            groq_extractions=groq_extractions,
+        )
     except Exception:
         deterministic = validator(
             _partial_payload("deterministic_parser_error"),
             evidence=evidence,
+            groq_extractions=groq_extractions,
         )
 
     if _is_strong_completed(deterministic):
@@ -354,20 +399,52 @@ async def run_agent3_formatter(
 
     try:
         _set_trace(debug_log, groq_called=True, model="primary")
-        candidate = await format_lens_evidence(evidence, deadline=deadline)
+
+        locked_c = deterministic.get("quoc_gia") or deterministic.get("country")
+        locked_curr = deterministic.get("ma_tien_te") or deterministic.get("currency")
+        locked_denom = deterministic.get("menh_gia") or deterministic.get("denomination")
+
+        locked_identity = {
+            "quoc_gia": locked_c,
+            "ma_tien_te": locked_curr,
+            "menh_gia": locked_denom,
+        }
+
+        candidate = await format_lens_evidence(
+            formatter_provider_evidence,
+            deadline=deadline,
+            locked_identity=locked_identity,
+        )
         candidate["provider"] = "serpapi"
         candidate["formatter_provider"] = "groq"
         candidate["phuong_phap"] = "Google Lens / SerpAPI + Groq Formatter"
 
+        locked_c = deterministic.get("quoc_gia") or deterministic.get("country")
+        locked_curr = deterministic.get("ma_tien_te") or deterministic.get("currency")
+        locked_denom = deterministic.get("menh_gia") or deterministic.get("denomination")
+
         # Reuse the existing AG3 parser so Groq output always reaches
         # validate_agent3_identity before it can become an AG4 vote.
-        result = parse_formatted_result(
+        result_str = parse_formatted_result(
             json.dumps([candidate], ensure_ascii=False),
             raw_lens_data,
             evidence=evidence,
         )
+        parsed_items = json.loads(result_str)
+        if isinstance(parsed_items, list) and parsed_items:
+            res_item = parsed_items[0]
+            out_c = res_item.get("quoc_gia") or res_item.get("country")
+            out_curr = res_item.get("ma_tien_te") or res_item.get("currency")
+            out_denom = res_item.get("menh_gia") or res_item.get("denomination")
+            if not _is_unknown(locked_c) and not _is_unknown(locked_denom) and (out_c != locked_c or out_curr != locked_curr or str(out_denom) != str(locked_denom)):
+                res_item["quoc_gia"] = locked_c
+                res_item["ma_tien_te"] = locked_curr
+                res_item["menh_gia"] = locked_denom
+                res_item["formatter_changed_locked_identity"] = True
+                result_str = json.dumps([res_item], ensure_ascii=False)
+
         return _finalize_formatter_json(
-            result,
+            result_str,
             debug_log=debug_log,
             outcome="groq_candidate_validated",
             formatter_provider="groq",

@@ -1,4 +1,4 @@
-import api from "./api";
+import api, { getStoredToken } from "./api";
 
 const ACTIVE_TASK_KEY = "active_recognition_task";
 
@@ -57,8 +57,16 @@ export const recognitionService = {
     });
   },
 
-  getTaskStatus: async (taskId) => {
-    return await api.get(`/recognition/tasks/${taskId}`);
+  getTaskStatus: async (taskId, options = {}) => {
+    return await api.get(`/recognition/tasks/${taskId}`, options);
+  },
+
+  getTaskLightStatus: async (taskId, options = {}) => {
+    return await api.get(`/recognition/tasks/${taskId}/status`, options);
+  },
+
+  cancelTask: async (taskId, options = {}) => {
+    return await api.post(`/recognition/tasks/${taskId}/cancel`, null, options);
   },
 
   getResultDetail: async (resultId) => {
@@ -72,6 +80,14 @@ export const startRecognitionTask = async (file) => {
 
 export const getRecognitionTaskStatus = async (taskId) => {
   return await recognitionService.getTaskStatus(taskId);
+};
+
+export const getRecognitionTaskLightStatus = async (taskId, options = {}) => {
+  return await recognitionService.getTaskLightStatus(taskId, options);
+};
+
+export const cancelRecognitionTask = async (taskId, options = {}) => {
+  return await recognitionService.cancelTask(taskId, options);
 };
 
 export const getRecognitionResult = async (resultId) => {
@@ -89,7 +105,6 @@ export const scanBanknoteDebug = async (formData) => {
 // Kiem tra xem auth token co trong store khong (debug helper, khong call API)
 export const getDebugAuthStatus = () => {
   try {
-    const { getStoredToken } = require("./api");
     const token = getStoredToken();
     return { hasToken: Boolean(token), tokenPreview: token ? `${token.slice(0, 20)}...` : null };
   } catch {

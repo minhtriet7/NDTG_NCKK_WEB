@@ -14,6 +14,7 @@ from app.schemas.admin_schema import (
     GoogleLensConfigSchema,
     LlmConfigSchema,
     SystemSettingsSchema,
+    AdminDiagnosticsResponse,
     AdminUserUpdateSchema,
     AdminUserRoleUpdateSchema,
     AdminUserStatusUpdateSchema,
@@ -411,6 +412,14 @@ async def delete_admin_feedback(
 @router.get("/results")
 async def get_admin_results(current_user: User = Depends(admin_user)):
     return await maybe_await(AdminController.get_all_results())
+
+
+@router.get("/results/{id}/diagnostics", response_model=AdminDiagnosticsResponse)
+async def get_admin_result_diagnostics(
+    id: str,
+    current_user: User = Depends(admin_user),
+):
+    return await maybe_await(AdminController.get_result_diagnostics(id))
 
 
 @router.get("/results/{id}")

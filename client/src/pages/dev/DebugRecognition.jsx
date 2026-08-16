@@ -185,7 +185,7 @@ function ApiRequestPanel({ apiLog }) {
       <KV k="URL" v={apiLog.url} vc="blue" />
       <KV k="Method" v={apiLog.method} />
       <KV k="FormData field" v={apiLog.formField} />
-      <KV k="Auth token" v={apiLog.hasToken ? "Present" : "MISSING ❌"} vc={apiLog.hasToken ? "ok" : "err"} />
+      <KV k="Auth token" v={apiLog.hasToken ? "Present" : "MISSING"} vc={apiLog.hasToken ? "ok" : "err"} />
       <KV k="Status" v={apiLog.status ? String(apiLog.status) : "—"} vc={apiLog.status >= 400 ? "err" : "ok"} />
       {apiLog.errorDetail && (
         <>
@@ -750,7 +750,7 @@ function ObjectDetailView({ obj, debugObj }) {
   return (
     <>
       {hasMissing && (
-        <Section title="⚠️ Missing Debug Fields" badge={<Badge label="CHECK" variant="warning" />} defaultOpen={true}>
+        <Section title="Missing Debug Fields" badge={<Badge label="CHECK" variant="warning" />} defaultOpen={true}>
           <div className="dbg-small" style={{ color: "#8b949e", marginBottom: 6 }}>
             The following expected debug fields are missing from the backend response:
           </div>
@@ -1036,7 +1036,7 @@ export default function DebugRecognition() {
         </span>
         <span style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:6 }}>
           <Badge
-            label={authStatus.hasToken ? "🔑 Token present" : "⚠ No token"}
+            label={authStatus.hasToken ? "Token present" : "No token"}
             variant={authStatus.hasToken ? "yes" : "warning"}
           />
         </span>
@@ -1072,7 +1072,7 @@ export default function DebugRecognition() {
       {/* ══ Auth warning ══ */}
       {!authStatus.hasToken && (
         <div className="dbg-warn-banner">
-          ⚠️ <strong>Chưa có auth token trong localStorage.</strong> Bạn cần{" "}
+          <strong>Chưa có auth token trong localStorage.</strong> Bạn cần{" "}
           <a href="/auth/admin-login" style={{ color:"#58a6ff" }}>đăng nhập admin</a>{" "}
           trước rồi mới gọi được /dev/debug. (Token được check bằng localStorage, không hardcode.)
         </div>
@@ -1081,7 +1081,7 @@ export default function DebugRecognition() {
       {/* ══ Error banner — KHÔNG xóa ảnh ══ */}
       {error && (
         <div className={`dbg-error ${error.code === 401 || error.code === 403 ? "auth" : ""}`}>
-          <div>❌ <strong>{error.message}</strong></div>
+          <div><strong>{error.message}</strong></div>
           {error.code === 401 && (
             <div style={{ marginTop: 6, fontSize: 11 }}>
               → <a href="/auth/admin-login" style={{ color:"#58a6ff" }}>Đăng nhập admin tại /auth/admin-login</a>
@@ -1282,7 +1282,7 @@ export default function DebugRecognition() {
 
               {/* STATE B: Lỗi — hiện chi tiết lỗi, không mất ảnh */}
               {error && !hasResult && (
-                <Section title="❌ Lỗi API" badge={<Badge label={`${error.code||"ERR"}`} variant="failed" />} defaultOpen={true}>
+                <Section title="Lỗi API" badge={<Badge label={`${error.code||"ERR"}`} variant="failed" />} defaultOpen={true}>
                   <div style={{ color:"#f85149", marginBottom:12, fontSize:13 }}>{error.message}</div>
                   {error.code === 401 && (
                     <div style={{ background:"#4d1919", borderRadius:6, padding:"10px 14px", fontSize:12 }}>
@@ -1290,7 +1290,7 @@ export default function DebugRecognition() {
                       <div>1. Mở <a href="/auth/admin-login" style={{ color:"#58a6ff" }}>/auth/admin-login</a></div>
                       <div>2. Đăng nhập admin</div>
                       <div>3. Quay lại <a href="/dev/debug" style={{ color:"#58a6ff" }}>/dev/debug</a></div>
-                      <div style={{ marginTop:6, color:"#8b949e" }}>Auth token hiện tại: {authStatus.hasToken ? `✅ có (${authStatus.preview})` : "❌ không có"}</div>
+                      <div style={{ marginTop:6, color:"#8b949e" }}>Auth token hiện tại: {authStatus.hasToken ? `có (${authStatus.preview})` : "không có"}</div>
                     </div>
                   )}
                   {error.code === 422 && (
@@ -1402,7 +1402,7 @@ export default function DebugRecognition() {
 
                   {/* Final result */}
                   <Section
-                    title="✅ Final Result"
+                    title="Final Result"
                     badge={<Badge label={pipelineStatus?.toUpperCase()||"—"} variant={statusBadgeVariant(pipelineStatus||"")} />}
                     defaultOpen={true}
                   >
@@ -1410,10 +1410,10 @@ export default function DebugRecognition() {
                   </Section>
 
                   {/* Raw JSON */}
-                  <Section title="📄 Raw Debug JSON" badge={<Badge label="FULL RESPONSE" variant="neutral" />} defaultOpen={false}>
+                  <Section title="Raw Debug JSON" badge={<Badge label="FULL RESPONSE" variant="neutral" />} defaultOpen={false}>
                     <div style={{ display:"flex", gap:6, marginBottom:8 }}>
                       <button className="dbg-btn copy" onClick={() => doCopy(fmtJSON(debugData), "full")}>
-                        {copied==="full" ? "✓ Copied!" : "📋 Copy full JSON"}
+                        {copied==="full" ? "✓ Copied!" : "Copy full JSON"}
                       </button>
                     </div>
                     <JsonBlock data={debugData} />
@@ -1427,7 +1427,7 @@ export default function DebugRecognition() {
                   <div style={{ fontSize:30, marginBottom:8 }}>▶</div>
                   <div>Bấm <strong style={{ color:"#c9d1d9" }}>Run pipeline</strong> để bắt đầu phân tích</div>
                   <div className="dbg-small" style={{ marginTop:6 }}>
-                    Auth: {authStatus.hasToken ? "✅ Token có sẵn" : "⚠ Chưa có token — cần login admin"}
+                    Auth: {authStatus.hasToken ? "Token có sẵn" : "Chưa có token — cần login admin"}
                   </div>
                 </div>
               )}

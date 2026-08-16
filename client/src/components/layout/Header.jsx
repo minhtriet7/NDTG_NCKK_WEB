@@ -46,6 +46,7 @@ function HeaderUserAvatar({ user, displayName, size = "sm" }) {
   const sizeClass = size === "md" ? "h-9 w-9" : "h-8 w-8";
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset on avatarSrc prop change
     setImageFailed(false);
   }, [avatarSrc]);
 
@@ -329,8 +330,8 @@ export default function Header() {
 
       {/* Logout Modal */}
       {showLogoutModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/40 dark:bg-[#0B1120]/60 backdrop-blur-md transition-all duration-300">
-          <div className="relative w-full max-w-md p-7 rounded-2xl shadow-2xl overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-200 bg-white dark:bg-[#1E293B] border border-gray-100 dark:border-[#334155]">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-md transition-all duration-300">
+          <div className="relative w-full max-w-md p-7 rounded-2xl shadow-2xl overflow-hidden transform transition-all animate-in fade-in zoom-in-95 duration-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 to-orange-500"></div>
             
             <div className="flex items-start gap-4 mb-6 mt-2">
@@ -339,10 +340,10 @@ export default function Header() {
               </div>
 
               <div className="pt-1">
-                <h3 className="text-lg font-bold mb-1.5 text-gray-900 dark:text-white">
+                <h3 className="text-lg font-bold mb-1.5 text-slate-900 dark:text-white">
                   {t('header.logoutConfirmTitle', 'Confirm Logout')}
                 </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
                   {t('header.logoutConfirmDesc', 'Are you sure you want to log out of your account? You will need to log back in to access your workspace.')}
                 </p>
               </div>
@@ -352,7 +353,7 @@ export default function Header() {
               <button
                 type="button"
                 onClick={() => setShowLogoutModal(false)}
-                className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-transparent dark:text-gray-300 dark:hover:bg-[#334155] border border-gray-200 dark:border-[#334155] hover:border-gray-300"
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-transparent dark:text-slate-300 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700"
               >
                 {t('header.cancel', 'Cancel')}
               </button>

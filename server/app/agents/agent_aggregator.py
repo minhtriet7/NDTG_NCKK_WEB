@@ -1,6 +1,6 @@
 import json
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.utils.currency_normalizer import normalize_agent_vote
 
@@ -170,7 +170,7 @@ def should_early_stop_fixed_provider_config_single_valid_vote(
 
 def classify_consensus_pattern(agents: Dict[str, Any], valid_votes: List[Dict[str, Any]], matched_count: int) -> str:
     if matched_count >= 2:
-        return f"{matched_count}/3"
+        return f"{matched_count}/{max(matched_count, len(valid_votes))}"
 
     vote_keys = [
         tuple(v.get("vote_key"))
@@ -198,6 +198,216 @@ def classify_consensus_pattern(agents: Dict[str, Any], valid_votes: List[Dict[st
         return "-".join("1" for _ in vote_keys)
 
     return "conflict"
+
+def _extract_ag3_canonical_trace(agent_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract and normalize the canonical AG3 contract fields from various nesting levels."""
+    summary = agent_data.get("ag3_verification_summary") or {}
+    promotion_trace = agent_data.get("promotion_trace") or {}
+    provider_trace = agent_data.get("provider_trace") or {}
+    winning_cluster = agent_data.get("winning_cluster") or summary.get("winning_cluster") or promotion_trace.get("winning_cluster") or {}
+
+    def _first_present(*values: Any) -> Any:
+        for value in values:
+            if value is not None:
+                return value
+        return None
+
+    # search_performed can be in top-level, summary, or provider_trace
+    search_performed = bool(
+        agent_data.get("search_performed") is True or
+        summary.get("search_performed") is True or
+        provider_trace.get("search_performed") is True
+    )
+
+    # technical_error
+    technical_error = bool(
+        agent_data.get("technical_error") is True or
+        summary.get("technical_error") is True or
+        provider_trace.get("technical_error") is True
+    )
+
+    # vote_eligible
+    vote_eligible_raw = _first_present(
+        agent_data.get("vote_eligible"),
+        summary.get("vote_eligible"),
+        promotion_trace.get("vote_eligible"),
+    )
+    vote_eligible = bool(vote_eligible_raw is True)
+
+    # vote_created
+    vote_created_raw = _first_present(
+        agent_data.get("vote_created"),
+        summary.get("vote_created"),
+        promotion_trace.get("vote_created"),
+    )
+    vote_created = bool(vote_created_raw is True)
+
+    selected_voting_source_count = _first_present(
+        agent_data.get("selected_voting_source_count"),
+        agent_data.get("selected_voting_set_size"),
+        agent_data.get("selected_source_count"),
+        summary.get("selected_voting_source_count"),
+        summary.get("selected_voting_set_size"),
+        summary.get("selected_source_count"),
+        promotion_trace.get("selected_voting_source_count"),
+        promotion_trace.get("selected_voting_set_size"),
+        promotion_trace.get("selected_source_count"),
+    )
+    if selected_voting_source_count is None:
+        selected_voting_source_count = 0
+
+    selected_independent_domain_count = _first_present(
+        agent_data.get("selected_independent_domain_count"),
+        summary.get("selected_independent_domain_count"),
+    )
+    if selected_independent_domain_count is None:
+        sd = agent_data.get("selected_domains") or summary.get("selected_domains")
+        if isinstance(sd, list):
+            selected_independent_domain_count = len(sd)
+    if selected_independent_domain_count is None:
+        selected_independent_domain_count = winning_cluster.get("independent_domain_count")
+    if selected_independent_domain_count is None:
+        selected_independent_domain_count = promotion_trace.get("selected_independent_domain_count")
+    if selected_independent_domain_count is None:
+        sd = promotion_trace.get("selected_domains")
+        if isinstance(sd, list):
+            selected_independent_domain_count = len(sd)
+    if selected_independent_domain_count is None:
+        selected_independent_domain_count = 0
+
+    majority_count = _first_present(
+        agent_data.get("majority_count"),
+        agent_data.get("majority_achieved"),
+        agent_data.get("support_count"),
+        summary.get("majority_count"),
+        summary.get("majority_achieved"),
+        summary.get("support_count"),
+        winning_cluster.get("support_count"),
+        winning_cluster.get("source_count"),
+        promotion_trace.get("majority_count"),
+        promotion_trace.get("majority_achieved"),
+        promotion_trace.get("support_count"),
+    )
+    if majority_count is None:
+        majority_count = 0
+
+    majority_required = _first_present(
+        agent_data.get("majority_required"),
+        summary.get("majority_required"),
+        promotion_trace.get("majority_required"),
+    )
+    if majority_required is None:
+        majority_required = 3
+
+    qualified_source_count = _first_present(
+        agent_data.get("qualified_source_count"),
+        summary.get("qualified_source_count"),
+        promotion_trace.get("qualified_source_count"),
+    )
+    if qualified_source_count is None:
+        qualified_source_count = 0
+
+    vote_identity = agent_data.get("vote_identity") or summary.get("vote_identity") or promotion_trace.get("vote_identity") or {}
+    winning_identity = agent_data.get("winning_identity") or summary.get("winning_identity") or promotion_trace.get("winning_identity") or {}
+
+    not_counted_raw = _first_present(
+        agent_data.get("not_counted_in_consensus"),
+        summary.get("not_counted_in_consensus"),
+        promotion_trace.get("not_counted_in_consensus"),
+    )
+    not_counted = bool(not_counted_raw is True)
+
+    return {
+        "search_performed": search_performed,
+        "technical_error": technical_error,
+        "vote_eligible": vote_eligible,
+        "vote_created": vote_created,
+        "selected_voting_source_count": selected_voting_source_count,
+        "selected_independent_domain_count": selected_independent_domain_count,
+        "majority_count": majority_count,
+        "majority_required": majority_required,
+        "qualified_source_count": qualified_source_count,
+        "vote_identity": vote_identity,
+        "winning_identity": winning_identity,
+        "not_counted_in_consensus": not_counted,
+        "validation_errors": agent_data.get("validation_errors") or [],
+        "status": str(agent_data.get("status") or "").strip().lower(),
+    }
+
+
+def _validate_ag3_strict_contract(agent_data: Dict[str, Any]) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    """Verify visual_search payload against the AG3 3-to-5-source contract."""
+    trace = _extract_ag3_canonical_trace(agent_data)
+
+    if not trace["search_performed"]:
+        return False, "ag3_search_not_performed", None
+
+    if trace["status"] != "completed":
+        return False, "ag3_status_non_voting", None
+
+    if trace["technical_error"]:
+        return False, "ag3_technical_failure", None
+
+    if trace["not_counted_in_consensus"]:
+        return False, "ag3_not_counted_flag", None
+
+    if not trace["vote_eligible"]:
+        selected = trace["selected_voting_source_count"] or 0
+        qualified = trace["qualified_source_count"] or 0
+        if trace["search_performed"] and (selected < 5 or qualified < 5):
+            return False, "ag3_insufficient_eligible_sources", None
+        return False, "ag3_vote_eligible_false", None
+
+    if not trace["vote_created"]:
+        return False, "ag3_vote_not_created", None
+
+    vote_identity = trace["vote_identity"]
+    country = vote_identity.get("country")
+    currency = vote_identity.get("currency")
+    amount = vote_identity.get("amount")
+
+    # AG3 may vote with any selected set from 3 to 5 independent sources.
+    selected_voting_source_count = trace["selected_voting_source_count"]
+    if (
+        not isinstance(selected_voting_source_count, (int, float))
+        or selected_voting_source_count < 3
+        or selected_voting_source_count > 5
+    ):
+        return False, "ag3_selected_source_count_invalid", None
+
+    majority_required = trace["majority_required"] or 3
+    selected_independent_domain_count = trace["selected_independent_domain_count"]
+    if (
+        not isinstance(selected_independent_domain_count, (int, float))
+        or selected_independent_domain_count < majority_required
+        or selected_independent_domain_count > selected_voting_source_count
+    ):
+        return False, "ag3_selected_domains_invalid", None
+
+    majority_count = trace["majority_count"]
+    if not isinstance(majority_count, (int, float)) or majority_count < majority_required:
+        return False, "ag3_majority_not_met", None
+
+    validation_errors = trace["validation_errors"]
+    if validation_errors:
+        return False, "ag3_has_validation_errors", None
+
+    vote_identity = trace["vote_identity"]
+    country = vote_identity.get("country")
+    currency = vote_identity.get("currency")
+    amount = vote_identity.get("amount")
+    if not country or not currency or amount is None:
+        return False, "ag3_vote_identity_missing", None
+
+    winning_identity = trace["winning_identity"]
+    if winning_identity and (
+        winning_identity.get("country") != country or
+        winning_identity.get("currency") != currency or
+        winning_identity.get("amount") != amount
+    ):
+        return False, "ag3_vote_identity_mismatch", None
+
+    return True, "ag3_strict_contract_passed", vote_identity
 
 
 def _safe_parse(data_str: Any) -> Dict[str, Any]:
@@ -333,24 +543,66 @@ async def run_aggregator(
     }
 
     valid_votes: List[Dict[str, Any]] = []
+    agent_counting_traces: Dict[str, Dict[str, Any]] = {}
 
     for agent_key, agent_data in agents.items():
         if not agent_data:
+            agent_counting_traces[agent_key] = {
+                "agent_key": agent_key,
+                "valid_vote": False,
+                "counted_in_consensus": False,
+                "matched": False,
+                "counting_reason": "no_agent_data",
+                "strict_contract_checked": agent_key == "visual_search",
+                "strict_contract_passed": False,
+            }
             continue
 
-        # --- Gate 1: non-voting status (applies to ALL agents) ---
-        status = str(agent_data.get("status") or "").strip().lower()
-        if status in NON_VOTING_STATUSES:
-            continue
-
-        # --- Gate 2: not_counted_in_consensus flag ---
-        if bool(agent_data.get("not_counted_in_consensus")):
-            continue
-
-        # --- Gate 3: visual_search gets additional error_type check ---
         if agent_key == "visual_search":
-            error_type = str(agent_data.get("error_type") or "").strip().lower()
-            if error_type in NON_VOTING_STATUSES:
+            passed, reason, vote_identity = _validate_ag3_strict_contract(agent_data)
+            agent_counting_traces[agent_key] = {
+                "agent_key": agent_key,
+                "valid_vote": passed,
+                "counted_in_consensus": passed,
+                "matched": False,
+                "counting_reason": reason,
+                "vote_identity": vote_identity or {},
+                "strict_contract_checked": True,
+                "strict_contract_passed": passed,
+            }
+            if not passed:
+                continue
+
+            # Bridge the deep trace identity to the top level for normalize_agent_vote
+            if vote_identity:
+                agent_data["quoc_gia"] = vote_identity.get("country") or agent_data.get("quoc_gia") or agent_data.get("country")
+                agent_data["ma_tien_te"] = vote_identity.get("currency") or agent_data.get("ma_tien_te") or agent_data.get("currency")
+                if vote_identity.get("amount") is not None:
+                    agent_data["menh_gia"] = str(vote_identity["amount"])
+        else:
+            status = str(agent_data.get("status") or "").strip().lower()
+            if status in NON_VOTING_STATUSES:
+                agent_counting_traces[agent_key] = {
+                    "agent_key": agent_key,
+                    "valid_vote": False,
+                    "counted_in_consensus": False,
+                    "matched": False,
+                    "counting_reason": "non_voting_status",
+                    "strict_contract_checked": False,
+                    "strict_contract_passed": False,
+                }
+                continue
+
+            if bool(agent_data.get("not_counted_in_consensus")):
+                agent_counting_traces[agent_key] = {
+                    "agent_key": agent_key,
+                    "valid_vote": False,
+                    "counted_in_consensus": False,
+                    "matched": False,
+                    "counting_reason": "not_counted_in_consensus",
+                    "strict_contract_checked": False,
+                    "strict_contract_passed": False,
+                }
                 continue
 
         norm_vote = normalize_agent_vote(agent_data)
@@ -398,7 +650,25 @@ async def run_aggregator(
         )
 
         matched_agents_keys = [v["agent_key"] for v in winning_votes]
-        consensus_reason = f"{matched_count}/3 agreement"
+        winning_agent_keys = set(matched_agents_keys)
+        for vote in valid_votes:
+            trace = agent_counting_traces.setdefault(
+                vote["agent_key"],
+                {
+                    "agent_key": vote["agent_key"],
+                    "valid_vote": True,
+                    "counted_in_consensus": True,
+                    "matched": False,
+                    "counting_reason": "valid_vote_counted",
+                    "strict_contract_checked": vote["agent_key"] == "visual_search",
+                    "strict_contract_passed": False,
+                },
+            )
+            trace["valid_vote"] = True
+            trace["counted_in_consensus"] = True
+            trace["matched"] = vote["agent_key"] in winning_agent_keys
+            trace["vote_key"] = list(vote["vote_key"]) if vote.get("vote_key") is not None else None
+        consensus_reason = f"{pattern} agreement"
 
         winner_data = _clone_agent(final_vote["agent_data"])
         winner_data["menh_gia"] = final_denomination
@@ -415,6 +685,8 @@ async def run_aggregator(
         winner_data["max_matching_votes"] = matched_count
         winner_data["required_votes"] = REQUIRED_CONSENSUS_VOTES
         winner_data["valid_vote_count"] = valid_vote_count
+        winner_data["total_agents"] = valid_vote_count
+        winner_data["agent_count"] = valid_vote_count
         winner_data["completed_agent_count"] = completed_agent_count
         winner_data["consensus_reached"] = consensus_reached
         winner_data["so_luong_dong_thuan"] = matched_count
@@ -426,9 +698,10 @@ async def run_aggregator(
         winner_data["winner_key"] = list(winner_key)
         winner_data["consensus_reason"] = consensus_reason
         winner_data["quan_diem_trong_tai"] = (
-            f"Đạt đồng thuận ({matched_count}/3). "
+            f"Đạt đồng thuận ({pattern}). "
             f"Quyết định chọn: {final_denomination} ({winner_country})."
         )
+        winner_data["agent_counting_traces"] = agent_counting_traces
         return winner_data
 
 
@@ -443,6 +716,8 @@ async def run_aggregator(
             "max_matching_votes": matched_count,
             "required_votes": REQUIRED_CONSENSUS_VOTES,
             "valid_vote_count": valid_vote_count,
+            "total_agents": valid_vote_count,
+            "agent_count": valid_vote_count,
             "completed_agent_count": completed_agent_count,
             "consensus_reached": False,
             "so_luong_dong_thuan": 0,
@@ -458,6 +733,7 @@ async def run_aggregator(
             "winner_key": None,
             "consensus_reason": "technical_error",
             "quan_diem_trong_tai": "Các agent bị lỗi kỹ thuật (timeout/API error). Cần chạy lại.",
+            "agent_counting_traces": agent_counting_traces,
         }
 
     if pattern in ("0/3", "not_banknote_or_unclear", "zero_evidence"):
@@ -468,6 +744,8 @@ async def run_aggregator(
             "max_matching_votes": matched_count,
             "required_votes": REQUIRED_CONSENSUS_VOTES,
             "valid_vote_count": valid_vote_count,
+            "total_agents": valid_vote_count,
+            "agent_count": valid_vote_count,
             "completed_agent_count": completed_agent_count,
             "consensus_reached": False,
             "so_luong_dong_thuan": 0,
@@ -483,6 +761,7 @@ async def run_aggregator(
             "winner_key": None,
             "consensus_reason": "no_reliable_evidence",
             "quan_diem_trong_tai": "Không có agent nào nhận diện được tiền giấy hợp lệ. Crop có thể là nền, vật thể lạ hoặc ảnh quá mờ.",
+            "agent_counting_traces": agent_counting_traces,
         }
 
     # 1-valid-only hoặc conflict/mâu thuẫn
@@ -515,6 +794,8 @@ async def run_aggregator(
         "max_matching_votes": matched_count,
         "required_votes": REQUIRED_CONSENSUS_VOTES,
         "valid_vote_count": valid_vote_count,
+        "total_agents": valid_vote_count,
+        "agent_count": valid_vote_count,
         "completed_agent_count": completed_agent_count,
         "consensus_reached": False,
         "so_luong_dong_thuan": matched_count,
@@ -530,6 +811,7 @@ async def run_aggregator(
         "winner_key": list(winner_key) if winner_key else None,
         "consensus_reason": insufficient_reason,
         "quan_diem_trong_tai": referee_message,
+        "agent_counting_traces": agent_counting_traces,
         "referee_view": referee_message,
     }
     if suggested_result is not None:

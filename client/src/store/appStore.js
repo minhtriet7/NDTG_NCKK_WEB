@@ -7,6 +7,11 @@ function normalizeTheme(theme) {
   return ["light", "dark", "system"].includes(theme) ? theme : "light";
 }
 
+function normalizeLang(lang) {
+  const str = String(lang || "").trim().toUpperCase();
+  return str === "VI" ? "VI" : "EN";
+}
+
 function getSystemTheme() {
   if (typeof window === "undefined" || !window.matchMedia) {
     return "light";
@@ -28,6 +33,7 @@ function applyTheme(theme) {
 
   if (typeof document !== "undefined") {
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
+    document.documentElement.style.colorScheme = resolvedTheme === "dark" ? "dark" : "light";
   }
   if (typeof localStorage !== "undefined") {
     localStorage.setItem("theme", normalizedTheme);
@@ -62,12 +68,29 @@ function subscribeSystemTheme(onChange) {
   }
 }
 
+function getInitialLanguage() {
+  if (typeof localStorage === "undefined") return "EN";
+  try {
+    const legacyRaw = localStorage.getItem("app-language");
+    if (legacyRaw) {
+      const parsed = JSON.parse(legacyRaw);
+      const legacyLang = parsed && (parsed.lang || (parsed.state && parsed.state.lang));
+      localStorage.removeItem("app-language");
+      if (legacyLang) return normalizeLang(legacyLang);
+    }
+  } catch {
+    /* ignore storage parse errors */
+  }
+
+  return "EN";
+}
+
 export const useAppStore = create(
   persist(
     (set, get) => ({
       theme: "light",
       resolvedTheme: "light",
-      lang: "EN",
+      lang: getInitialLanguage(),
 
       setTheme: (theme) => {
         const nextTheme = normalizeTheme(theme);
@@ -100,7 +123,7 @@ export const useAppStore = create(
         get().setTheme(newTheme);
       },
 
-      setLang: (lang) => set({ lang }),
+      setLang: (lang) => set({ lang: normalizeLang(lang) }),
       toggleLang: () =>
         set((state) => ({
           lang: state.lang === "EN" ? "VI" : "EN",

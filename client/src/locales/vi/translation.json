@@ -178,6 +178,47 @@
     "logoutConfirmDesc": "Bạn có chắc chắn muốn đăng xuất khỏi tài khoản?",
     "cancel": "Hủy"
   },
+  "admin": {
+    "panel": "Trang quản trị",
+    "userApp": "Về trang người dùng",
+    "changeLanguage": "Đổi ngôn ngữ",
+    "changeTheme": "Đổi giao diện",
+    "logout": "Đăng xuất",
+    "adminUser": "Quản trị viên",
+    "nav": {
+      "overviewGroup": "Tổng quan",
+      "dashboard": "Bảng điều khiển",
+      "usersGroup": "Người dùng & Thanh toán",
+      "users": "Người dùng",
+      "tokenPackages": "Gói token",
+      "transactions": "Giao dịch",
+      "feedbacks": "Phản hồi",
+      "recognitionGroup": "Dữ liệu nhận diện",
+      "results": "Kết quả",
+      "experiments": "Thực nghiệm",
+      "banknotes": "Tiền giấy",
+      "currencyRates": "Tỷ giá",
+      "agentsGroup": "Cấu hình AI Agents",
+      "agentsManager": "Quản lý agents",
+      "agentsConfig": "Cấu hình agents",
+      "aggregator": "Tổng hợp",
+      "systemGroup": "Hệ thống",
+      "systemLogs": "Nhật ký hệ thống",
+      "settings": "Cài đặt",
+      "contentManager": "Quản lý nội dung"
+    }
+  },
+  "globalTracker": {
+    "analysisComplete": "Phân tích hoàn tất!",
+    "resultReady": "Kết quả đã sẵn sàng.",
+    "viewResult": "Xem kết quả",
+    "backgroundFailed": "Tiến trình chạy nền thất bại."
+  },
+  "legal": {
+    "policyTitle": "Pháp lý & Chính sách",
+    "documentBadge": "Tài liệu pháp lý",
+    "lastUpdated": "Cập nhật lần cuối:"
+  },
   "exchange": {
     "title": "Quy đổi Tỷ giá Thị trường",
     "subtitle": "Quy đổi các đồng tiền bằng tỷ giá mới nhất được lưu trong BanknoteAI.",

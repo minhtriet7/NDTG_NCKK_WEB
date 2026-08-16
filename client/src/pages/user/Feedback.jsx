@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   MessageSquare,
@@ -13,7 +13,6 @@ import {
   Clock,
   Star,
   ArrowLeft,
-  FileJson,
   ClipboardCheck,
   Bug,
   CreditCard,
@@ -31,6 +30,10 @@ import {
   submitFeedback,
   getFeedbackHistory,
 } from "../../services/feedbackService";
+import {
+  formatDenominationLabel,
+  normalizeUserResultResponse,
+} from "../../utils/userResultAdapter";
 
 const content = {
   EN: {
@@ -44,8 +47,6 @@ const content = {
     finalResult: "Final result",
     consensus: "Consensus",
     agentSummary: "Agent summary",
-    viewJson: "View JSON",
-    hideJson: "Hide JSON",
     backToResult: "Back to Result",
     formTitle: "Send feedback",
     formSubtitle:
@@ -142,8 +143,6 @@ const content = {
     finalResult: "Kết quả cuối",
     consensus: "Đồng thuận",
     agentSummary: "Tóm tắt tác nhân",
-    viewJson: "Xem JSON",
-    hideJson: "Ẩn JSON",
     backToResult: "Quay lại kết quả",
     formTitle: "Gửi phản hồi",
     formSubtitle: "Hãy mô tả đủ chi tiết để đội ngũ có thể kiểm tra chính xác.",
@@ -239,19 +238,22 @@ function getScanImage(scanResult) {
 }
 
 function getScanDenomination(scanResult) {
-  return (
+  return formatDenominationLabel(
     scanResult?.data?.denomination ||
-    scanResult?.final_result?.menh_gia ||
-    scanResult?.final_result?.denomination ||
-    "N/A"
+      scanResult?.summary?.denomination ||
+      scanResult?.denomination,
+    scanResult?.data?.currency ||
+      scanResult?.summary?.currency ||
+      scanResult?.currency,
+    "N/A",
   );
 }
 
 function getScanCountry(scanResult) {
   return (
     scanResult?.data?.country ||
-    scanResult?.final_result?.quoc_gia ||
-    scanResult?.final_result?.country ||
+    scanResult?.summary?.country ||
+    scanResult?.country ||
     "N/A"
   );
 }
@@ -270,18 +272,20 @@ function getScanStatus(scanResult) {
   return (
     scanResult?.consensus?.status ||
     scanResult?.status ||
-    scanResult?.final_result?.status ||
     "N/A"
   );
 }
 
 function getScanConsensus(scanResult) {
   const matched =
-    scanResult?.consensus?.matched_agents ||
-    scanResult?.final_result?.so_luong_dong_thuan;
+    scanResult?.consensus?.matched_agents ?? null;
+  const total =
+    scanResult?.consensus?.total_agents ??
+    scanResult?.agent_votes?.length ??
+    null;
 
-  if (!matched) return "N/A";
-  return `${matched}/3`;
+  if (matched === null || matched === undefined || matched === "") return "N/A";
+  return total ? `${matched}/${total}` : String(matched);
 }
 
 function getAgentValue(scanResult, key) {
@@ -584,19 +588,43 @@ export default function Feedback() {
   const isDark = (resolvedTheme || theme) === "dark";
   const t = content[lang] || content["EN"];
 
-  const feedbackDraft =
-    location.state?.feedbackDraft || location.state?.reportDraft || {};
-  const scanResult = feedbackDraft.scanResult || location.state?.scanResult || null;
-  const draftImageUrl =
-    feedbackDraft.image_url || feedbackDraft.imageUrl || getScanImage(scanResult);
+  const feedbackDraft = useMemo(
+    () => location.state?.feedbackDraft || location.state?.reportDraft || {},
+    [location.state],
+  );
   const relatedResultId =
     feedbackDraft.related_result_id ||
     feedbackDraft.relatedResultId ||
     feedbackDraft.resultId ||
     location.state?.resultId ||
     location.state?.scan_result_id ||
-    scanResult?.id ||
     "";
+  const draftImageUrl = feedbackDraft.image_url || feedbackDraft.imageUrl || "";
+  const scanResult = useMemo(() => {
+    const draftScan =
+      feedbackDraft.scanSummary ||
+      (relatedResultId || feedbackDraft.actual_result || feedbackDraft.actualResult
+        ? {
+            id: relatedResultId,
+            status: feedbackDraft.status || "",
+            data: {
+              denomination:
+                feedbackDraft.denomination ||
+                feedbackDraft.actual_result ||
+                feedbackDraft.actualResult ||
+                "N/A",
+              country: feedbackDraft.country || "N/A",
+              currency: feedbackDraft.currency || "N/A",
+              confidence: feedbackDraft.confidence,
+            },
+            consensus: feedbackDraft.consensus || {},
+            agents: feedbackDraft.agents || {},
+            image_url: draftImageUrl,
+          }
+        : null);
+
+    return normalizeUserResultResponse(draftScan) || draftScan;
+  }, [draftImageUrl, feedbackDraft, relatedResultId]);
 
   const cameFromResult = Boolean(
     scanResult || relatedResultId || Object.keys(feedbackDraft).length,
@@ -634,7 +662,6 @@ export default function Feedback() {
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
   const [history, setHistory] = useState([]);
   const [submitted, setSubmitted] = useState(false);
-  const [showJson, setShowJson] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [ticketFilter, setTicketFilter] = useState("all");
   const [ticketSearch, setTicketSearch] = useState("");
@@ -691,7 +718,7 @@ export default function Feedback() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  const fetchHistory = async () => {
+  async function fetchHistory() {
     setIsFetchingHistory(true);
 
     try {
@@ -702,7 +729,7 @@ export default function Feedback() {
     } finally {
       setIsFetchingHistory(false);
     }
-  };
+  }
 
   const updateForm = (field, value) => {
     setFormData((prev) => ({
@@ -797,15 +824,8 @@ export default function Feedback() {
   };
 
   const handleBackToResult = () => {
-    if (scanResult) {
-      navigate("/result", {
-        state: {
-          scanSession: {
-            result: scanResult,
-            previewUrl: getScanImage(scanResult),
-          },
-        },
-      });
+    if (relatedResultId) {
+      navigate(`/result?resultId=${encodeURIComponent(relatedResultId)}`);
       return;
     }
 
@@ -944,8 +964,6 @@ export default function Feedback() {
                   isDark={isDark}
                   scanResult={scanResult}
                   isConflict={isConflict}
-                  showJson={showJson}
-                  onToggleJson={() => setShowJson((prev) => !prev)}
                 />
               )}
 
@@ -1244,8 +1262,6 @@ function RelatedScanCard({
   isDark,
   scanResult,
   isConflict,
-  showJson,
-  onToggleJson,
 }) {
   const image = getScanImage(scanResult);
   const agent1 = getAgentValue(scanResult, "ml_dl");
@@ -1276,18 +1292,6 @@ function RelatedScanCard({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={onToggleJson}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm ${
-            isDark
-              ? "bg-slate-800 text-slate-200 hover:bg-slate-700"
-              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-          }`}
-        >
-          <FileJson size={16} />
-          {showJson ? t.hideJson : t.viewJson}
-        </button>
       </div>
 
       {isConflict && (
@@ -1368,13 +1372,6 @@ function RelatedScanCard({
         </div>
       </div>
 
-      {showJson && (
-        <div className="mx-6 mb-6 bg-slate-900 rounded-2xl p-5 border border-slate-800 overflow-auto max-h-80">
-          <pre className="text-xs text-indigo-300 whitespace-pre-wrap">
-            {JSON.stringify(scanResult, null, 2)}
-          </pre>
-        </div>
-      )}
     </div>
   );
 }

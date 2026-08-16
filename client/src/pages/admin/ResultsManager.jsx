@@ -1,31 +1,17 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { useAppStore } from "../../store/appStore";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
-  getAdminResults,
-  deleteResult,
-  markResultReviewed,
-  rerunRecognition,
-} from "../../services/adminService";
-import {
-  Search,
-  Eye,
-  Trash2,
-  X,
-  Terminal,
-  CheckCircle,
   AlertTriangle,
-  Clock,
-  RefreshCw,
-  Download,
-  Copy,
-  Play,
+  CheckCircle,
+  Eye,
   Loader2,
-  GitMerge,
-  Cpu,
-  BotMessageSquare,
-  SearchCheck,
+  RefreshCw,
+  Search,
+  Trash2,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { useAppStore } from "../../store/appStore";
+import { deleteResult, getAdminResults } from "../../services/adminService";
 
 function normalizeList(data) {
   const list = Array.isArray(data)
@@ -42,11 +28,7 @@ function normalizeList(data) {
 }
 
 function getId(item) {
-  return item?.id || item?._id;
-}
-
-function safeStr(value) {
-  return value === null || value === undefined || value === "" ? "" : String(value);
+  return item?.id || item?._id || item?.result_id;
 }
 
 function inferCurrencyFromDenom(denom) {
@@ -55,251 +37,272 @@ function inferCurrencyFromDenom(denom) {
   return codes.find((code) => text.includes(code)) || "";
 }
 
-function normalizeStatus(status, finalResult = {}) {
-  const raw = String(status || finalResult?.status || "").toLowerCase();
+function normalizeStatus(status, finalResult = {}, consensus = {}, item = {}) {
+  const rawStatus = String(status || finalResult?.status || consensus?.status || "").trim().toLowerCase();
+  const finalStatus = String(finalResult?.status || "").trim().toLowerCase();
+  const consensusStatus = String(consensus?.status || "").trim().toLowerCase();
 
-  if (["success", "completed", "done", "paid"].includes(raw)) return "completed";
-  if (["failed", "error"].includes(raw)) return "failed";
-  if (["conflict", "needs review", "needs_review", "review"].includes(raw)) return "conflict";
+  const matchedAgents =
+    Number(
+      item.matched_agents ||
+        consensus?.matched_agents ||
+        finalResult?.matched_agents ||
+        finalResult?.so_luong_dong_thuan ||
+        0,
+    ) || 0;
+  const requiredVotes =
+    Number(
+      consensus?.required_votes ||
+        finalResult?.required_votes ||
+        2,
+    ) || 2;
+  const requireRerun = Boolean(finalResult?.require_rerun || consensus?.require_rerun);
+  const consensusReached =
+    finalResult?.consensus_reached !== undefined
+      ? Boolean(finalResult.consensus_reached)
+      : consensus?.consensus_reached !== undefined
+        ? Boolean(consensus.consensus_reached)
+        : null;
 
-  if (finalResult?.require_rerun) return "conflict";
+  const hasUsableIdentity = Boolean(
+    item.denomination ||
+      item.country ||
+      item.currency ||
+      finalResult?.final_denomination ||
+      finalResult?.denomination ||
+      finalResult?.menh_gia ||
+      finalResult?.final_country ||
+      finalResult?.country ||
+      finalResult?.quoc_gia ||
+      finalResult?.currency ||
+      finalResult?.loai_tien,
+  );
 
-  return raw || "completed";
-}
-
-function normalizeAgentOutputs(record) {
-  const agentResults =
-    record?.agent_results ||
-    record?.result?.agent_results ||
-    record?.raw?.agent_results ||
-    [];
-
-  if (Array.isArray(agentResults) && agentResults.length > 0) {
-    const findAgent = (keywords) => {
-      const found = agentResults.find((item) => {
-        const name = String(item?.agent || item?.name || "").toLowerCase();
-        return keywords.some((keyword) => name.includes(keyword));
-      });
-
-      return found?.data || found?.result || null;
-    };
-
-    return {
-      ml_dl: findAgent(["yolo", "ml", "agent_1", "openai", "chatgpt"]),
-      llm_api: findAgent(["llm", "gemini", "agent_2"]),
-      visual_search: findAgent(["lens", "visual", "agent_3"]),
-    };
+  // 1. Hard technical / terminal failures
+  const failedStatuses = new Set([
+    "failed",
+    "failure",
+    "error",
+    "timeout",
+    "agent_error",
+    "technical_error",
+    "cancelled",
+    "canceled",
+    "invalid_conclusion",
+    "invalid conclusion",
+  ]);
+  if (
+    failedStatuses.has(rawStatus) ||
+    (failedStatuses.has(finalStatus) &&
+      !["completed", "completed_partial", "needs_review", "needs review"].includes(rawStatus))
+  ) {
+    return "failed";
   }
 
-  const agents = record?.agents || record?.raw?.agents;
-
-  if (agents) {
-    return {
-      ml_dl: agents.ml_dl || agents.agent_1 || null,
-      llm_api: agents.llm_api || agents.agent_2 || null,
-      visual_search: agents.visual_search || agents.agent_3 || null,
-    };
+  // 2. Needs review / conflict explicit states
+  const conflictStatuses = new Set([
+    "conflict",
+    "conflict detected",
+    "conflict_detected",
+    "needs_review",
+    "needs review",
+    "review",
+    "consensus_failed",
+    "needs_better_image",
+    "no_banknote_detected",
+    "not_banknote_or_unclear",
+    "completed_with_warning",
+  ]);
+  if (
+    conflictStatuses.has(rawStatus) ||
+    conflictStatuses.has(finalStatus) ||
+    conflictStatuses.has(consensusStatus) ||
+    requireRerun ||
+    consensusReached === false
+  ) {
+    return "conflict";
   }
 
-  return {
-    ml_dl: null,
-    llm_api: null,
-    visual_search: null,
-  };
+  // 3. Completed partial — strictly requires affirmative evidence of successful consensus
+  if (
+    rawStatus === "completed_partial" ||
+    rawStatus === "partial" ||
+    rawStatus === "partial_success" ||
+    finalStatus === "completed_partial"
+  ) {
+    const isAffirmativeSuccess =
+      !requireRerun &&
+      consensusReached !== false &&
+      matchedAgents >= requiredVotes &&
+      hasUsableIdentity;
+
+    return isAffirmativeSuccess ? "completed" : "conflict";
+  }
+
+  // 4. Explicit completed / success / reviewed (affirmative raw success)
+  const completedStatuses = new Set([
+    "completed",
+    "success",
+    "succeeded",
+    "complete",
+    "done",
+    "paid",
+    "reviewed",
+    "completed_with_limit",
+  ]);
+  if (completedStatuses.has(rawStatus) || completedStatuses.has(finalStatus)) {
+    if (requireRerun || consensusReached === false) {
+      return "conflict";
+    }
+    return "completed";
+  }
+
+  // 5. Default / unknown / malformed fallback: NEVER silently 'completed'
+  return "conflict";
 }
 
 function normalizeResult(item = {}) {
   const final = item.final_result || item.result?.final_result || item.data || {};
-
+  const consensus = item.consensus || {};
   const denomination =
+    item.denomination ||
+    item.data?.denomination ||
     final.final_denomination ||
     final.menh_gia ||
     final.denomination ||
-    item.denomination ||
-    item.data?.denomination ||
     "";
-
   const country =
-    final.quoc_gia ||
-    final.country ||
     item.country ||
     item.data?.country ||
+    final.quoc_gia ||
+    final.country ||
+    final.final_country ||
     "";
-
   const currency =
+    item.currency ||
+    item.data?.currency ||
     final.loai_tien ||
     final.currency ||
     final.currency_code ||
-    item.currency ||
-    item.data?.currency ||
     inferCurrencyFromDenom(denomination);
-
-  const material =
-    final.chat_lieu ||
-    final.material ||
-    item.material ||
-    item.data?.material ||
-    "";
-
-  const status = normalizeStatus(item.status, final);
-
   const matchedAgents =
     Number(
-      final.matched_agents ||
+      item.matched_agents ||
+        consensus.matched_agents ||
+        final.matched_agents ||
         final.so_luong_dong_thuan ||
-        item.matched_agents ||
-        item.consensus?.matched_agents ||
         0,
     ) || 0;
+  const totalAgents =
+    Number(consensus.total_agents || final.total_agents || item.total_agents || 3) || 3;
 
   return {
-    id: item.id || item._id,
+    id: getId(item),
     _id: item._id,
     user_id: item.user_id,
-    status,
+    task_id: item.task_id,
+    status: normalizeStatus(item.status, final, consensus, item),
     original_status: item.status,
     denomination,
     country,
     currency,
-    material,
+    confidence: item.confidence || final.confidence || final.do_tin_cay,
     matched_agents: matchedAgents,
+    total_agents: totalAgents,
+    consensus: {
+      status: consensus.status || final.status || item.status,
+      matched_agents: matchedAgents,
+      total_agents: totalAgents,
+    },
     image_url:
       item.image_url ||
       item.uploaded_image_url ||
       item.data?.image_url ||
       item.result?.uploaded_image_url ||
       "",
-    final_result: final,
-    agent_results: item.agent_results || item.result?.agent_results || [],
-    task_id: item.task_id,
     processing_time_ms: item.processing_time_ms,
-    error_message: item.error_message,
     created_at: item.created_at,
     updated_at: item.updated_at,
-    raw: item,
   };
 }
 
-function getAgentDenom(data) {
-  if (Array.isArray(data)) {
-    return safeStr(data[0]?.menh_gia || data[0]?.denomination || data[0]?.class_name);
-  }
-
-  return safeStr(
-    data?.final_denomination ||
-      data?.menh_gia ||
-      data?.denomination ||
-      data?.result ||
-      data?.class_name,
-  );
-}
-
-function getAgentCountry(data) {
-  if (Array.isArray(data)) {
-    return safeStr(data[0]?.quoc_gia || data[0]?.country || data[0]?.origin);
-  }
-
-  return safeStr(data?.quoc_gia || data?.country || data?.origin);
-}
-
-function getAgentConfidence(data) {
-  if (Array.isArray(data)) return data[0]?.confidence;
-  return data?.confidence || data?.do_tin_cay || data?.confidence_score;
-}
+const COPY = {
+  EN: {
+    title: "Recognition Results",
+    subtitle: "Monitor scan outputs and consensus status.",
+    searchPlaceholder: "Search by country, denomination, currency...",
+    statusAll: "All Statuses",
+    statusCompleted: "Completed",
+    statusConflict: "Needs Review",
+    statusFailed: "Failed",
+    thTime: "Time",
+    thImg: "Image",
+    thResult: "Final Result",
+    thConsensus: "Consensus",
+    thStatus: "Status",
+    thAction: "Actions",
+    totalResults: "Total Results",
+    completed: "Completed",
+    needsReview: "Needs Review",
+    failed: "Failed",
+    noData: "No scan records found.",
+    errLoad: "Failed to load results.",
+    msgDel: "Record deleted.",
+    confirmDelete: "Are you sure you want to delete this record?",
+    deleteFailed: "Failed to delete record.",
+    noDataYet: "No data yet",
+    noRunsYet: "No runs yet",
+    noImage: "No image",
+    matched: "matched",
+    refresh: "Refresh",
+    viewDiagnostics: "View diagnostics",
+    delete: "Delete",
+  },
+  VI: {
+    title: "Ket qua nhan dien",
+    subtitle: "Theo doi ket qua quet va trang thai dong thuan.",
+    searchPlaceholder: "Tim quoc gia, menh gia, ma tien...",
+    statusAll: "Tat ca trang thai",
+    statusCompleted: "Hoan tat",
+    statusConflict: "Can xem xet",
+    statusFailed: "That bai",
+    thTime: "Thoi gian",
+    thImg: "Anh",
+    thResult: "Ket qua",
+    thConsensus: "Dong thuan",
+    thStatus: "Trang thai",
+    thAction: "Thao tac",
+    totalResults: "Tong ket qua",
+    completed: "Hoan tat",
+    needsReview: "Can xem xet",
+    failed: "That bai",
+    noData: "Chua co du lieu quet.",
+    errLoad: "Khong the tai danh sach ket qua.",
+    msgDel: "Da xoa ban ghi.",
+    confirmDelete: "Ban co chac muon xoa ban ghi nay?",
+    deleteFailed: "Khong the xoa ban ghi.",
+    noDataYet: "Chua co du lieu",
+    noRunsYet: "Chua co luot chay",
+    noImage: "Chua co anh",
+    matched: "khop",
+    refresh: "Tai lai",
+    viewDiagnostics: "Xem chan doan",
+    delete: "Xoa",
+  },
+};
 
 export default function ResultsManager() {
   const { lang, theme } = useAppStore();
+  const navigate = useNavigate();
+  const location = useLocation();
   const isDark = theme === "dark";
+  const t = COPY[lang || "EN"] || COPY.EN;
 
   const [results, setResults] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-
-  const [selectedScan, setSelectedScan] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
-
-  const t = {
-    EN: {
-      title: "Recognition Results",
-      subtitle: "Monitor scan outputs, consensus status, and agent decisions.",
-      searchPlaceholder: "Search by country, denomination, currency...",
-      statusAll: "All Statuses",
-      statusCompleted: "Completed",
-      statusConflict: "Needs Review",
-      statusFailed: "Failed",
-      thTime: "Time",
-      thImg: "Image",
-      thResult: "Final Result",
-      thConsensus: "Consensus",
-      thStatus: "Status",
-      thAction: "Actions",
-      noData: "No scan records found.",
-      errLoad: "Failed to load results.",
-      drwTitle: "Scan Details",
-      btnClose: "Close",
-      msgDel: "Record deleted.",
-      markReview: "Mark Reviewed",
-      rerun: "Rerun Scan",
-      copy: "Copy JSON",
-      download: "Download JSON",
-      agents: "Agent Outputs",
-      copied: "JSON copied.",
-      reviewed: "Record marked as reviewed.",
-      rerunSuccess: "Rerun requested.",
-      noDataYet: "No data yet",
-      noRunsYet: "No runs yet",
-      country: "Country",
-      currency: "Currency",
-      material: "Material",
-      detailStatus: "Status",
-      noImage: "No image",
-      matched: "matched",
-      agentDenomination: "Denomination",
-      agentCountry: "Country",
-      agentConfidence: "Confidence",
-    },
-    VI: {
-      title: "Kết quả Nhận diện",
-      subtitle:
-        "Theo dõi kết quả quét, trạng thái đồng thuận và quyết định của tác tử.",
-      searchPlaceholder: "Tìm quốc gia, mệnh giá, mã tiền...",
-      statusAll: "Tất cả trạng thái",
-      statusCompleted: "Hoàn tất",
-      statusConflict: "Cần xem xét",
-      statusFailed: "Thất bại",
-      thTime: "Thời gian",
-      thImg: "Ảnh",
-      thResult: "Kết quả",
-      thConsensus: "Đồng thuận",
-      thStatus: "Trạng thái",
-      thAction: "Thao tác",
-      noData: "Chưa có dữ liệu quét.",
-      errLoad: "Không thể tải danh sách kết quả.",
-      drwTitle: "Chi tiết Nhận diện",
-      btnClose: "Đóng",
-      msgDel: "Đã xóa bản ghi.",
-      markReview: "Đã kiểm duyệt",
-      rerun: "Quét lại",
-      copy: "Sao chép JSON",
-      download: "Tải JSON",
-      agents: "Kết quả tác tử",
-      copied: "Đã sao chép JSON.",
-      reviewed: "Đã đánh dấu kiểm duyệt.",
-      rerunSuccess: "Đã yêu cầu quét lại.",
-      noDataYet: "Chưa có dữ liệu",
-      noRunsYet: "Chưa có lượt chạy",
-      country: "Quốc gia",
-      currency: "Tiền tệ",
-      material: "Chất liệu",
-      detailStatus: "Trạng thái",
-      noImage: "Chưa có ảnh",
-      matched: "khớp",
-      agentDenomination: "Mệnh giá",
-      agentCountry: "Quốc gia",
-      agentConfidence: "Độ tin cậy",
-    },
-  }[lang || "EN"];
 
   const cardBg = isDark
     ? "bg-slate-900 border-slate-800"
@@ -330,7 +333,17 @@ export default function ResultsManager() {
   };
 
   useEffect(() => {
-    loadData();
+    let cancelled = false;
+
+    queueMicrotask(() => {
+      if (!cancelled) {
+        loadData();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -362,158 +375,104 @@ export default function ResultsManager() {
     };
   }, [results]);
 
-  const selectedAgents = useMemo(() => {
-    if (!selectedScan) {
-      return {
-        ml_dl: null,
-        llm_api: null,
-        visual_search: null,
-      };
-    }
+  const handleOpenDetail = (result) => {
+    const id = getId(result);
 
-    return normalizeAgentOutputs(selectedScan);
-  }, [selectedScan]);
+    if (!id) return;
+
+    navigate(`/admin/results/${id}`, {
+      state: {
+        resultSummary: result,
+        from: `${location.pathname}${location.search}`,
+      },
+    });
+  };
 
   const handleDelete = async (id) => {
     if (!id) return;
-    if (!window.confirm("Are you sure you want to delete this record?")) return;
+    if (!window.confirm(t.confirmDelete)) return;
 
     setIsProcessing(true);
 
     try {
       await deleteResult(id);
       toast.success(t.msgDel);
-      setSelectedScan(null);
       await loadData();
     } catch (error) {
       console.error("Delete result failed:", error);
       toast.error(
         error?.response?.data?.detail ||
           error?.response?.data?.message ||
-          "Failed to delete record.",
+          t.deleteFailed,
       );
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleMarkReviewed = async (id) => {
-    if (!id) return;
-
-    setIsProcessing(true);
-
-    try {
-      await markResultReviewed(id);
-      toast.success(t.reviewed);
-      setSelectedScan(null);
-      await loadData();
-    } catch (error) {
-      console.error("Mark reviewed failed:", error);
-      toast.error(
-        error?.response?.data?.detail ||
-          error?.response?.data?.message ||
-          "Action failed.",
-      );
-    } finally {
-      setIsProcessing(false);
+  const handleRowKeyDown = (event, result) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handleOpenDetail(result);
     }
-  };
-
-  const handleRerun = async (id) => {
-    if (!id) return;
-
-    setIsProcessing(true);
-
-    try {
-      await rerunRecognition(id);
-      toast.success(t.rerunSuccess);
-      setSelectedScan(null);
-      await loadData();
-    } catch (error) {
-      console.error("Rerun failed:", error);
-      toast.error(
-        error?.response?.data?.detail ||
-          error?.response?.data?.message ||
-          "Action failed.",
-      );
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleCopy = async (payload) => {
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-    toast.success(t.copied);
-  };
-
-  const handleDownload = (payload) => {
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-
-    a.href = url;
-    a.download = `recognition_result_${getId(payload) || Date.now()}.json`;
-    a.click();
-
-    URL.revokeObjectURL(url);
   };
 
   const renderStatus = (status) => {
     if (status === "completed") {
       return (
-        <span className="px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400">
-          <CheckCircle size={12} className="inline mr-1 mb-0.5" />
-          Completed
+        <span className="rounded-md bg-teal-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-teal-700 dark:bg-teal-900/30 dark:text-teal-400">
+          <CheckCircle size={12} className="mb-0.5 mr-1 inline" />
+          {t.completed}
         </span>
       );
     }
 
     if (status === "conflict") {
       return (
-        <span className="px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-          <AlertTriangle size={12} className="inline mr-1 mb-0.5" />
-          Needs Review
+        <span className="rounded-md bg-amber-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+          <AlertTriangle size={12} className="mb-0.5 mr-1 inline" />
+          {t.needsReview}
         </span>
       );
     }
 
     return (
-      <span className="px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
-        <AlertTriangle size={12} className="inline mr-1 mb-0.5" />
-        Failed
+      <span className="rounded-md bg-rose-50 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
+        <AlertTriangle size={12} className="mb-0.5 mr-1 inline" />
+        {t.failed}
       </span>
     );
   };
 
   return (
-    <div className="space-y-6 animate-[fadeInUp_0.3s_ease-out]">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
+    <div className="space-y-6">
+      <div className="flex flex-col items-start justify-between gap-4 border-b border-slate-200 pb-5 dark:border-slate-800 md:flex-row md:items-center">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{t.title}</h1>
-          <p className="text-sm text-slate-500 mt-1">{t.subtitle}</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            {t.title}
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">{t.subtitle}</p>
         </div>
 
         <button
+          type="button"
           onClick={loadData}
           disabled={isLoading}
-          className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold text-sm flex items-center gap-2 transition-colors disabled:opacity-60"
+          className="flex items-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-60"
         >
           <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
-          Refresh
+          {t.refresh}
         </button>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard label="Total Results" value={kpis.total} className={cardBg} textMain={textMain} />
-        <KpiCard label="Completed" value={kpis.completed} className={cardBg} textMain="text-teal-600" />
-        <KpiCard label="Needs Review" value={kpis.conflict} className={cardBg} textMain="text-amber-600" />
-        <KpiCard label="Failed" value={kpis.failed} className={cardBg} textMain="text-rose-600" />
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <KpiCard label={t.totalResults} value={kpis.total} className={cardBg} textMain={textMain} />
+        <KpiCard label={t.completed} value={kpis.completed} className={cardBg} textMain="text-teal-600" />
+        <KpiCard label={t.needsReview} value={kpis.conflict} className={cardBg} textMain="text-amber-600" />
+        <KpiCard label={t.failed} value={kpis.failed} className={cardBg} textMain="text-rose-600" />
       </div>
 
-      <div className={`p-4 rounded-xl border shadow-sm flex flex-col md:flex-row gap-4 ${cardBg}`}>
+      <div className={`flex flex-col gap-4 rounded-xl border p-4 shadow-sm md:flex-row ${cardBg}`}>
         <div className="relative flex-1">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -540,12 +499,12 @@ export default function ResultsManager() {
         </select>
       </div>
 
-      <div className={`rounded-xl border shadow-sm overflow-hidden ${cardBg}`}>
+      <div className={`overflow-hidden rounded-xl border shadow-sm ${cardBg}`}>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm whitespace-nowrap">
+          <table className="w-full whitespace-nowrap text-left text-sm">
             <thead
-              className={`uppercase text-[11px] font-bold tracking-wider text-slate-500 border-b ${
-                isDark ? "bg-slate-950/50 border-slate-800" : "bg-slate-50 border-slate-200"
+              className={`border-b text-[11px] font-bold uppercase tracking-wider text-slate-500 ${
+                isDark ? "border-slate-800 bg-slate-950/50" : "border-slate-200 bg-slate-50"
               }`}
             >
               <tr>
@@ -562,7 +521,7 @@ export default function ResultsManager() {
               {isLoading ? (
                 <tr>
                   <td colSpan="6" className="p-8 text-center text-slate-500">
-                    <Loader2 className="animate-spin mx-auto" />
+                    <Loader2 className="mx-auto animate-spin" />
                   </td>
                 </tr>
               ) : filteredResults.length === 0 ? (
@@ -575,7 +534,10 @@ export default function ResultsManager() {
                 filteredResults.map((result) => (
                   <tr
                     key={getId(result)}
-                    className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+                    tabIndex={0}
+                    onClick={() => handleOpenDetail(result)}
+                    onKeyDown={(event) => handleRowKeyDown(event, result)}
+                    className="cursor-pointer transition-colors hover:bg-slate-50 focus:bg-slate-50 focus:outline-none dark:hover:bg-slate-800/50 dark:focus:bg-slate-800/50"
                   >
                     <td className={`px-6 py-4 ${textMain}`}>
                       {result.created_at
@@ -584,19 +546,16 @@ export default function ResultsManager() {
                     </td>
 
                     <td className="px-6 py-4">
-                      <div className="w-12 h-8 rounded overflow-hidden bg-slate-200 dark:bg-slate-800 flex items-center justify-center">
+                      <div className="flex h-8 w-12 items-center justify-center overflow-hidden rounded bg-slate-200 dark:bg-slate-800">
                         {result.image_url ? (
                           <img
                             src={result.image_url}
-                            alt="note"
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.onerror = null;
-                              e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2' ry='2'/><circle cx='8.5' cy='8.5' r='1.5'/><polyline points='21 15 16 10 5 21'/></svg>";
-                            }}
+                            alt="Recognition input"
+                            loading="lazy"
+                            className="h-full w-full object-cover"
                           />
                         ) : (
-                          <span className="text-[10px]">{t.noImage}</span>
+                          <span className="text-[10px] text-slate-500">{t.noImage}</span>
                         )}
                       </div>
                     </td>
@@ -606,13 +565,13 @@ export default function ResultsManager() {
                         {result.denomination || t.noDataYet}
                       </p>
                       <p className="text-xs text-slate-500">
-                        {result.country || t.noDataYet} · {result.currency || t.noDataYet}
+                        {result.country || t.noDataYet} - {result.currency || t.noDataYet}
                       </p>
                     </td>
 
                     <td className="px-6 py-4">
-                      <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {result.matched_agents}/3 {t.matched}
+                      <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        {result.matched_agents}/{result.total_agents} {t.matched}
                       </span>
                     </td>
 
@@ -620,16 +579,28 @@ export default function ResultsManager() {
 
                     <td className="px-6 py-4 text-right">
                       <button
-                        onClick={() => setSelectedScan(result)}
-                        className="p-2 text-slate-400 hover:text-teal-600 transition-colors"
+                        type="button"
+                        aria-label={t.viewDiagnostics}
+                        title={t.viewDiagnostics}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleOpenDetail(result);
+                        }}
+                        className="p-2 text-slate-400 transition-colors hover:text-teal-600"
                       >
                         <Eye size={18} />
                       </button>
 
                       <button
-                        onClick={() => handleDelete(getId(result))}
+                        type="button"
+                        aria-label={t.delete}
+                        title={t.delete}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDelete(getId(result));
+                        }}
                         disabled={isProcessing}
-                        className="p-2 text-slate-400 hover:text-rose-600 transition-colors disabled:opacity-50"
+                        className="p-2 text-slate-400 transition-colors hover:text-rose-600 disabled:opacity-50"
                       >
                         <Trash2 size={18} />
                       </button>
@@ -641,309 +612,15 @@ export default function ResultsManager() {
           </table>
         </div>
       </div>
-
-      {selectedScan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
-          <div
-            className={`w-full max-w-5xl max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden ${cardBg}`}
-          >
-            <div
-              className={`px-6 py-4 border-b flex justify-between items-center ${
-                isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"
-              }`}
-            >
-              <h3 className={`font-bold flex items-center gap-2 ${textMain}`}>
-                <Terminal size={20} className="text-teal-500" />
-                {t.drwTitle}
-              </h3>
-
-              <button
-                onClick={() => setSelectedScan(null)}
-                className="p-2 text-slate-400 hover:text-rose-500 bg-slate-100 dark:bg-slate-800 rounded-xl"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-6 overflow-y-auto space-y-6">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="bg-slate-100 dark:bg-slate-950 rounded-xl flex items-center justify-center min-h-[220px] border border-slate-200 dark:border-slate-800 overflow-hidden p-2">
-                  {selectedScan.image_url ? (
-                    <img
-                      src={selectedScan.image_url}
-                      alt="scan"
-                      className="max-h-[220px] object-contain rounded-xl"
-                      onError={(e) => {
-                        e.target.onerror = null;
-                        e.target.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='3' y='3' width='18' height='18' rx='2' ry='2'/><circle cx='8.5' cy='8.5' r='1.5'/><polyline points='21 15 16 10 5 21'/></svg>";
-                      }}
-                    />
-                  ) : (
-                    <span className="text-slate-400">No Image</span>
-                  )}
-                </div>
-
-                <div className="lg:col-span-2 bg-slate-900 rounded-xl p-6 text-white shadow-inner">
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">
-                    Final Decision
-                  </h4>
-
-                  <p className="text-4xl font-black text-teal-400">
-                    {selectedScan.denomination}
-                  </p>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 text-sm">
-                    <InfoItem label={t.country} value={selectedScan.country} fallback={t.noDataYet} />
-                    <InfoItem label={t.currency} value={selectedScan.currency} fallback={t.noDataYet} />
-                    <InfoItem label={t.material} value={selectedScan.material} fallback={t.noDataYet} />
-                    <InfoItem label={t.detailStatus} value={selectedScan.status} fallback={t.noDataYet} />
-                  </div>
-
-                  {selectedScan.error_message && (
-                    <div className="mt-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-200 text-sm">
-                      {selectedScan.error_message}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <h4
-                  className={`text-sm font-bold uppercase tracking-wider mb-3 flex items-center gap-2 ${
-                    isDark ? "text-slate-400" : "text-slate-500"
-                  }`}
-                >
-                  <GitMerge size={16} />
-                  {t.agents}
-                </h4>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <AgentCard
-                    isDark={isDark}
-                    title="AG1 OpenAI/GPT Vision"
-                    icon={<Cpu size={16} />}
-                    data={selectedAgents.ml_dl}
-                    finalDenom={selectedScan.denomination}
-                    noDataText={t.noDataYet}
-                    denominationLabel={t.agentDenomination}
-                    countryLabel={t.agentCountry}
-                    confidenceLabel={t.agentConfidence}
-                  />
-
-                  <AgentCard
-                    isDark={isDark}
-                    title="AG2 Gemini/LLM"
-                    icon={<BotMessageSquare size={16} />}
-                    data={selectedAgents.llm_api}
-                    finalDenom={selectedScan.denomination}
-                    noDataText={t.noDataYet}
-                    denominationLabel={t.agentDenomination}
-                    countryLabel={t.agentCountry}
-                    confidenceLabel={t.agentConfidence}
-                  />
-
-                  <AgentCard
-                    isDark={isDark}
-                    title="AG3 Google Lens/Visual Search"
-                    icon={<SearchCheck size={16} />}
-                    data={selectedAgents.visual_search}
-                    finalDenom={selectedScan.denomination}
-                    noDataText={t.noDataYet}
-                    denominationLabel={t.agentDenomination}
-                    countryLabel={t.agentCountry}
-                    confidenceLabel={t.agentConfidence}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => handleCopy(selectedScan.raw || selectedScan)}
-                  className="px-3 py-2 rounded-xl border text-sm font-bold flex items-center gap-2 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800"
-                >
-                  <Copy size={16} />
-                  {t.copy}
-                </button>
-
-                <button
-                  onClick={() => handleDownload(selectedScan.raw || selectedScan)}
-                  className="px-3 py-2 rounded-xl border text-sm font-bold flex items-center gap-2 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800"
-                >
-                  <Download size={16} />
-                  {t.download}
-                </button>
-
-                <button
-                  onClick={() => handleMarkReviewed(getId(selectedScan))}
-                  disabled={isProcessing}
-                  className="px-3 py-2 rounded-xl bg-teal-600 text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60"
-                >
-                  <CheckCircle size={16} />
-                  {t.markReview}
-                </button>
-
-                <button
-                  onClick={() => handleRerun(getId(selectedScan))}
-                  disabled={isProcessing}
-                  className="px-3 py-2 rounded-xl bg-amber-500 text-white text-sm font-bold flex items-center gap-2 disabled:opacity-60"
-                >
-                  <Play size={16} />
-                  {t.rerun}
-                </button>
-              </div>
-
-              <div>
-                <h4
-                  className={`text-sm font-bold uppercase tracking-wider mb-3 ${
-                    isDark ? "text-slate-400" : "text-slate-500"
-                  }`}
-                >
-                  JSON Payload
-                </h4>
-
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                  <pre className="text-xs text-teal-300 font-mono overflow-auto max-h-[300px] whitespace-pre-wrap">
-                    {JSON.stringify(selectedScan.raw || selectedScan, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-            @keyframes fadeIn {
-              from { opacity: 0; }
-              to { opacity: 1; }
-            }
-          `,
-        }}
-      />
     </div>
   );
 }
 
 function KpiCard({ label, value, className, textMain }) {
   return (
-    <div className={`p-5 rounded-xl border shadow-sm ${className}`}>
-      <p className="text-xs font-bold text-slate-500 uppercase">{label}</p>
-      <p className={`text-2xl font-black mt-2 ${textMain}`}>{value}</p>
-    </div>
-  );
-}
-
-function InfoItem({ label, value, fallback }) {
-  return (
-    <div>
-      <p className="text-slate-400 text-xs">{label}</p>
-      <p className="font-semibold capitalize">{safeStr(value) || fallback}</p>
-    </div>
-  );
-}
-
-function AgentCard({
-  title,
-  icon,
-  data,
-  finalDenom,
-  isDark,
-  noDataText,
-  denominationLabel,
-  countryLabel,
-  confidenceLabel,
-}) {
-  if (!data) {
-    return (
-      <div
-        className={`p-4 rounded-xl border border-dashed flex flex-col items-center justify-center text-center min-h-[140px] ${
-          isDark
-            ? "bg-slate-900 border-slate-700 text-slate-500"
-            : "bg-white border-slate-200 text-slate-400"
-        }`}
-      >
-        {icon}
-        <p className="text-sm font-bold mt-2">{title}</p>
-        <p className="text-xs mt-1">{noDataText}</p>
-      </div>
-    );
-  }
-
-  const denom = getAgentDenom(data);
-  const country = getAgentCountry(data);
-  const confidence = getAgentConfidence(data);
-  const isMatch = Boolean(denom && finalDenom && denom === finalDenom);
-
-  return (
-    <div
-      className={`p-4 rounded-xl border shadow-sm flex flex-col ${
-        isDark
-          ? "bg-slate-900 border-slate-800"
-          : "bg-white border-slate-200"
-      }`}
-    >
-      <div
-        className={`flex items-center justify-between mb-3 border-b pb-2 ${
-          isDark ? "border-slate-800" : "border-slate-50"
-        }`}
-      >
-        <p className="text-xs font-bold text-slate-500 uppercase flex items-center gap-1.5">
-          {icon} {title}
-        </p>
-
-        {isMatch ? (
-          <CheckCircle size={14} className="text-teal-500" />
-        ) : (
-          <AlertTriangle size={14} className="text-amber-500" />
-        )}
-      </div>
-
-      <div className="space-y-2 mt-auto">
-        <div className="flex justify-between gap-3">
-          <span className="text-xs text-slate-400">{denominationLabel}:</span>
-          <span
-            className={`text-sm font-bold text-right ${
-              isMatch
-                ? isDark
-                  ? "text-white"
-                  : "text-slate-900"
-                : isDark
-                  ? "text-amber-400"
-                  : "text-amber-600"
-            }`}
-          >
-            {denom || noDataText}
-          </span>
-        </div>
-
-        <div className="flex justify-between gap-3">
-          <span className="text-xs text-slate-400">{countryLabel}:</span>
-          <span
-            className={`text-sm font-semibold text-right ${
-              isDark ? "text-slate-300" : "text-slate-700"
-            }`}
-          >
-            {country || noDataText}
-          </span>
-        </div>
-
-        {confidence !== undefined && confidence !== null && confidence !== "" && (
-          <div className="flex justify-between gap-3">
-            <span className="text-xs text-slate-400">{confidenceLabel}:</span>
-            <span
-              className={`text-sm font-semibold text-right ${
-                isDark ? "text-slate-300" : "text-slate-700"
-              }`}
-            >
-              {Number(confidence) <= 1
-                ? `${(Number(confidence) * 100).toFixed(2)}%`
-                : `${Number(confidence).toFixed(2)}%`}
-            </span>
-          </div>
-        )}
-      </div>
+    <div className={`rounded-xl border p-5 shadow-sm ${className}`}>
+      <p className="text-xs font-bold uppercase text-slate-500">{label}</p>
+      <p className={`mt-2 text-2xl font-black ${textMain}`}>{value}</p>
     </div>
   );
 }

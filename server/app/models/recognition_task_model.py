@@ -16,8 +16,12 @@ class RecognitionTask(Document):
 
     result_id: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
+    crop_preview: Optional[Dict[str, Any]] = None  # Minimal crop snapshot persisted after AG0, before agents run
 
     error_message: Optional[str] = None
+    cancel_requested: bool = False
+    cancel_requested_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

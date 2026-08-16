@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Brain,
   ScanLine,
-  Globe,
   Loader2,
   CheckCircle2,
   AlertCircle,
@@ -18,7 +17,9 @@ import {
 
 import {
   startRecognitionTask,
-  getRecognitionTaskStatus,
+  getRecognitionTaskLightStatus,
+  cancelRecognitionTask,
+  getRecognitionResult,
   saveActiveRecognitionTask,
   clearActiveRecognitionTask,
   getActiveRecognitionTask,
@@ -32,6 +33,7 @@ import {
   useRecognitionStore,
 } from "../../store/recognitionStore";
 import { useLanguageStore } from "../../store/languageStore";
+import { normalizeUserResultResponse } from "../../utils/userResultAdapter";
 
 const dict = {
   EN: {
@@ -75,6 +77,19 @@ const dict = {
     failTitle: "Analysis Failed",
     failDesc: "Analysis process failed.",
     retryBtn: "Try Again",
+    stopProcessing: "Stop processing",
+    stopping: "Stopping...",
+    stopConfirmTitle: "Stop this recognition task?",
+    stopConfirmDesc: "The backend task will be cancelled at the next safe checkpoint.",
+    confirmStop: "Stop task",
+    keepRunning: "Keep running",
+    retryCancel: "Retry cancel",
+    cancelError: "Could not stop the task. It is still running.",
+    cancellingStage: "Stopping",
+    cancelledTitle: "Recognition stopped",
+    cancelledDesc: "This task was cancelled before completion.",
+    backToWorkspace: "Back to Workspace",
+    scanAnother: "Scan another image",
     pipelineName: "BanknoteAI Pipeline"
   },
   VI: {
@@ -118,12 +133,29 @@ const dict = {
     failTitle: "Phân tích thất bại",
     failDesc: "Quá trình phân tích thất bại.",
     retryBtn: "Thử lại",
+    stopProcessing: "Dừng xử lý",
+    stopping: "Đang dừng...",
+    stopConfirmTitle: "Dừng tác vụ nhận diện này?",
+    stopConfirmDesc: "Tác vụ backend sẽ được hủy tại checkpoint an toàn kế tiếp.",
+    confirmStop: "Dừng tác vụ",
+    keepRunning: "Tiếp tục chạy",
+    retryCancel: "Thử dừng lại",
+    cancelError: "Chưa thể dừng tác vụ. Tác vụ vẫn đang chạy.",
+    cancellingStage: "Đang dừng",
+    cancelledTitle: "Đã dừng nhận diện",
+    cancelledDesc: "Tác vụ đã được hủy trước khi hoàn thành.",
+    backToWorkspace: "Quay lại không gian làm việc",
+    scanAnother: "Quét ảnh khác",
     pipelineName: "BanknoteAI Pipeline"
   }
 };
 
-const POLL_INTERVAL_MS = 2000;
 const MAX_POLL_TIME_MS = 4 * 60 * 1000; // 4 phút timeout cứng ở frontend
+
+const MIN_POLL_DELAY_MS = 1000;
+const MAX_POLL_DELAY_MS = 5000;
+const MISSING_RESULT_RETRY_LIMIT = 3;
+const MISSING_RESULT_RETRY_DELAY_MS = 1000;
 
 const TERMINAL_DONE_STATUSES = new Set([
   "done",
@@ -137,17 +169,26 @@ const TERMINAL_DONE_STATUSES = new Set([
   "needs review",
   "no_banknote_detected",
   "needs_better_image",
+  "invalid_conclusion",
 ]);
 
 const TERMINAL_FAILED_STATUSES = new Set([
   "failed",
   "failure",
   "error",
-  "cancelled",
-  "canceled",
   "timeout",
   "agent_error",
   "technical_error",
+]);
+
+const TERMINAL_CANCELLED_STATUSES = new Set([
+  "cancelled",
+  "canceled",
+]);
+
+const CANCELLING_STATUSES = new Set([
+  "cancelling",
+  "canceling",
 ]);
 
 function normalizeStatus(value) {
@@ -162,6 +203,17 @@ function unwrapApiResponse(response) {
 
 function getTaskId(task) {
   return task?.task_id || task?.id || task?.taskId || null;
+}
+
+function getTaskResultId(task) {
+  return (
+    task?.result_id ||
+    task?.resultId ||
+    task?.result?.result_id ||
+    task?.result?.id ||
+    task?.data?.result_id ||
+    null
+  );
 }
 
 function getTaskResult(task) {
@@ -182,10 +234,19 @@ function isNoBanknoteResult(task) {
 
 function getTaskError(task) {
   return (
+    task?.public_error ||
     task?.error_message ||
     task?.error ||
     task?.message ||
     "Quá trình phân tích thất bại."
+  );
+}
+
+function isAbortError(error) {
+  return (
+    error?.code === "ERR_CANCELED" ||
+    error?.name === "CanceledError" ||
+    error?.message === "canceled"
   );
 }
 
@@ -200,6 +261,25 @@ function normalizeProgress(value) {
   const numeric = Number(value ?? 0);
   if (!Number.isFinite(numeric)) return 0;
   return Math.min(Math.max(numeric, 0), 100);
+}
+
+function clampPollDelay(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return Math.min(Math.max(numeric, MIN_POLL_DELAY_MS), MAX_POLL_DELAY_MS);
+}
+
+function getNextPollDelay(startedAt, retryAfterMs, networkErrorCount = 0) {
+  const backendDelay = clampPollDelay(retryAfterMs);
+  if (backendDelay) return backendDelay;
+
+  const elapsed = Date.now() - (startedAt || Date.now());
+  const baseDelay =
+    elapsed < 15000 ? 1000 :
+    elapsed < 60000 ? 2000 :
+    5000;
+
+  return Math.min(baseDelay + networkErrorCount * 1000, MAX_POLL_DELAY_MS);
 }
 
 function mapPipelineByProgress(stage, progress, t) {
@@ -287,6 +367,7 @@ function getCropDebug(task) {
   const source =
     task?.crop_checker ||
     task?.cropChecker ||
+    task?.crop_preview ||
     task?.result?.crop_checker ||
     task?.result?.cropChecker ||
     task?.data?.crop_checker ||
@@ -296,9 +377,12 @@ function getCropDebug(task) {
     task?.crop_image_url ||
     task?.cropped_image_url ||
     task?.selected_crop_url ||
+    task?.crop_preview?.selected_crop_url ||
+    task?.crop_preview?.crop_image_url ||
     task?.result?.crop_image_url ||
     task?.result?.cropped_image_url ||
     source?.crop_image_url ||
+    source?.selected_crop_url ||
     source?.cropped_image_url ||
     null;
 
@@ -463,6 +547,8 @@ export default function Processing() {
     if (fileToUse && typeof fileToUse !== 'string') {
       try {
         urlToRevoke = URL.createObjectURL(fileToUse);
+        // React owns the preview URL state; cleanup below still revokes the browser URL.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setLocalObjectURL(urlToRevoke);
       } catch (e) {
         console.error("Could not create object URL from file:", e);
@@ -492,6 +578,9 @@ export default function Processing() {
   const [taskSnapshot, setTaskSnapshot] = useState(null);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isMissingFileError, setIsMissingFileError] = useState(false);
+  const [currentTaskId, setCurrentTaskId] = useState(null);
+  const [cancelState, setCancelState] = useState("idle");
+  const [cancelError, setCancelError] = useState(null);
 
   const [agentsStatus, setAgentsStatus] = useState({
     crop: "running",
@@ -505,15 +594,73 @@ export default function Processing() {
   const isMountedRef = useRef(false);
   const pollTimerRef = useRef(null);
   const elapsedTimerRef = useRef(null);
-  const navigateTimerRef = useRef(null);
   const finishedRef = useRef(false);
   const currentTaskIdRef = useRef(null);
-  const startTimeRef = useRef(Date.now());
+  const startTimeRef = useRef(null);
+  const pollInFlightRef = useRef(false);
+  const pollAbortControllerRef = useRef(null);
+  const cancelAbortControllerRef = useRef(null);
+  const resultFetchStartedRef = useRef(false);
+  const missingResultRetryCountRef = useRef(0);
+  const networkErrorCountRef = useRef(0);
 
   const stopPolling = () => {
     if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
+      clearTimeout(pollTimerRef.current);
       pollTimerRef.current = null;
+    }
+    if (pollAbortControllerRef.current) {
+      pollAbortControllerRef.current.abort();
+      pollAbortControllerRef.current = null;
+    }
+    pollInFlightRef.current = false;
+  };
+
+  const scheduleNextPoll = (taskId, retryAfterMs = null) => {
+    if (!taskId || finishedRef.current || !isMountedRef.current) return;
+
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+
+    const offline =
+      typeof navigator !== "undefined" &&
+      "onLine" in navigator &&
+      navigator.onLine === false;
+    const delayMs = offline
+      ? MAX_POLL_DELAY_MS
+      : getNextPollDelay(
+          startTimeRef.current,
+          retryAfterMs,
+          networkErrorCountRef.current,
+        );
+
+    pollTimerRef.current = setTimeout(() => {
+      pollTimerRef.current = null;
+      void pollTask(taskId);
+    }, delayMs);
+  };
+
+  const startElapsedTimer = () => {
+    if (elapsedTimerRef.current) {
+      clearTimeout(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+
+    const tick = () => {
+      if (!isMountedRef.current || finishedRef.current) return;
+      setElapsedMs(Date.now() - startTimeRef.current);
+      elapsedTimerRef.current = setTimeout(tick, 1000);
+    };
+
+    tick();
+  };
+
+  const stopElapsedTimer = () => {
+    if (elapsedTimerRef.current) {
+      clearTimeout(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
     }
   };
 
@@ -533,61 +680,80 @@ export default function Processing() {
     }));
   };
 
-  const finishSuccessfully = async (taskId, task) => {
-    if (finishedRef.current || !isMountedRef.current) return;
+  const finishSuccessfully = async (taskId, taskStatus) => {
+    if (
+      finishedRef.current ||
+      resultFetchStartedRef.current ||
+      !isMountedRef.current
+    ) {
+      return;
+    }
 
+    const resultId = getTaskResultId(taskStatus);
+    if (!resultId) {
+      failProcessing("Completed task did not return a result id. Please scan again.");
+      return;
+    }
+
+    resultFetchStartedRef.current = true;
     finishedRef.current = true;
     stopPolling();
-
-    setVisualStage("done", 100);
-    clearActiveRecognitionTask();
-    clearActiveTask();
-
-    const rawResult = getTaskResult(task) || task;
-
-    const result = {
-      ...rawResult,
-      input_image_url:
-        rawResult?.input_image_url ||
-        task?.input_image_url ||
-        task?.image_url ||
-        task?.uploaded_image_url ||
-        null,
-      task_id: taskId,
-      result_id:
-        rawResult?.result_id ||
-        task?.result_id ||
-        rawResult?.id ||
-        task?.result?.id ||
-        null,
-    };
-
-    if (result) {
-      setScanSession(result.input_image_url || previewUrl, result, taskId);
-    }
-
-    const shouldFallbackCharge =
-      !isNoBanknoteResult({ result }) &&
-      Number(result?.system_tokens_charged ?? 1) > 0;
+    stopElapsedTimer();
 
     try {
-      const latestProfile = await syncProfile?.();
+      // API interceptor already unwraps {success,data} envelope.
+      // The returned value IS the public payload — do NOT call unwrapApiResponse
+      // here because that would access response.data (summary sub-object) and
+      // strip consensus, agentVotes, crop, billing, and evidence.
+      const response = await getRecognitionResult(resultId);
+      const publicResult = response;
 
-      if (
-        !latestProfile &&
-        shouldFallbackCharge &&
-        typeof tokenBalance !== "undefined"
-      ) {
-        updateTokenBalance(Math.max(Number(tokenBalance || 0) - 1, 0));
-      }
-    } catch {
-      if (shouldFallbackCharge && typeof tokenBalance !== "undefined") {
-        updateTokenBalance(Math.max(Number(tokenBalance || 0) - 1, 0));
-      }
-    }
-
-    navigateTimerRef.current = setTimeout(() => {
       if (!isMountedRef.current) return;
+
+      const result = normalizeUserResultResponse(
+        {
+          ...publicResult,
+          input_image_url:
+            publicResult?.input_image_url ||
+            publicResult?.image_url ||
+            publicResult?.uploaded_image_url ||
+            previewUrl ||
+            null,
+          task_id: taskId,
+          result_id: publicResult?.result_id || publicResult?.id || resultId,
+        },
+        { taskId, previewUrl },
+      ) || {
+        ...publicResult,
+        input_image_url:
+          publicResult?.input_image_url ||
+          publicResult?.image_url ||
+          publicResult?.uploaded_image_url ||
+          previewUrl ||
+          null,
+        task_id: taskId,
+        result_id: publicResult?.result_id || publicResult?.id || resultId,
+      };
+
+      setVisualStage("done", 100, taskStatus);
+      clearActiveRecognitionTask();
+      clearActiveTask();
+      setScanSession(result.input_image_url || previewUrl, result, taskId);
+
+      const shouldFallbackCharge =
+        !isNoBanknoteResult({ result }) &&
+        Number(
+          result?.billing?.credits_charged ??
+            result?.credits_charged ??
+            result?.system_tokens_charged ??
+            1,
+        ) > 0;
+
+      const applyFallbackCharge = () => {
+        if (shouldFallbackCharge && typeof tokenBalance !== "undefined") {
+          updateTokenBalance(Math.max(Number(tokenBalance || 0) - 1, 0));
+        }
+      };
 
       navigate("/result", {
         replace: true,
@@ -597,7 +763,24 @@ export default function Processing() {
           previewUrl: result.input_image_url || previewUrl,
         },
       });
-    }, 500);
+
+      void Promise.resolve(syncProfile?.())
+        .then((latestProfile) => {
+          if (!latestProfile) {
+            applyFallbackCharge();
+          }
+        })
+        .catch(() => {
+          applyFallbackCharge();
+        });
+    } catch (err) {
+      resultFetchStartedRef.current = false;
+      finishedRef.current = false;
+
+      if (!isMountedRef.current || isAbortError(err)) return;
+
+      failProcessing(getApiErrorMessage(err));
+    }
   };
 
   const failProcessing = (message) => {
@@ -605,6 +788,7 @@ export default function Processing() {
 
     finishedRef.current = true;
     stopPolling();
+    stopElapsedTimer();
 
     clearActiveRecognitionTask();
     clearActiveTask();
@@ -612,21 +796,131 @@ export default function Processing() {
     setError(message || t.failDesc);
   };
 
-  const pollTask = async (taskId) => {
-    if (!taskId || finishedRef.current || !isMountedRef.current) return;
+  const finishCancelled = (taskStatus = null) => {
+    if (finishedRef.current || !isMountedRef.current) return;
 
-    if (Date.now() - startTimeRef.current > MAX_POLL_TIME_MS) {
+    finishedRef.current = true;
+    stopPolling();
+    stopElapsedTimer();
+    clearActiveRecognitionTask();
+    clearActiveTask();
+    setCancelError(null);
+    setCancelState("cancelled");
+    setTaskSnapshot(taskStatus || taskSnapshot);
+    setStage("cancelled");
+    setProgress(100);
+    setAgentsStatus((prev) => ({
+      ...prev,
+      crop: prev.crop === "waiting" ? "waiting" : "not_counted",
+      gpt: "not_counted",
+      gemini: "not_counted",
+      lens: "not_counted",
+      referee: "not_counted",
+    }));
+  };
+
+  const requestCancelConfirmation = () => {
+    setCancelError(null);
+    setCancelState("confirming");
+  };
+
+  const dismissCancelConfirmation = () => {
+    if (cancelState === "confirming" || cancelState === "error") {
+      setCancelError(null);
+      setCancelState("idle");
+    }
+  };
+
+  const confirmCancelTask = async () => {
+    const taskId = currentTaskIdRef.current || currentTaskId;
+    if (!taskId || cancelState === "requesting" || cancelState === "cancelling") {
+      return;
+    }
+
+    setCancelError(null);
+    setCancelState("requesting");
+    stopPolling();
+
+    const controller = new AbortController();
+    cancelAbortControllerRef.current = controller;
+
+    try {
+      const response = await cancelRecognitionTask(taskId, {
+        signal: controller.signal,
+      });
+      const payload = unwrapApiResponse(response);
+      if (!isMountedRef.current || finishedRef.current) return;
+
+      const status = normalizeStatus(payload?.status);
+      setTaskSnapshot((prev) => ({ ...(prev || {}), ...(payload || {}) }));
+
+      if (TERMINAL_CANCELLED_STATUSES.has(status)) {
+        finishCancelled(payload);
+        return;
+      }
+
+      if (payload?.terminal) {
+        setCancelState("idle");
+        void pollTask(taskId);
+        return;
+      }
+
+      setCancelState("cancelling");
+      setVisualStage(payload?.stage || t.cancellingStage, progress, payload);
+      scheduleNextPoll(taskId, payload?.retry_after_ms || MIN_POLL_DELAY_MS);
+    } catch (err) {
+      if (isAbortError(err)) return;
+      if (!isMountedRef.current || finishedRef.current) return;
+
+      setCancelError(
+        err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          err?.message ||
+          t.cancelError,
+      );
+      setCancelState("error");
+      scheduleNextPoll(taskId, MIN_POLL_DELAY_MS);
+    } finally {
+      if (cancelAbortControllerRef.current === controller) {
+        cancelAbortControllerRef.current = null;
+      }
+    }
+  };
+
+  const pollTask = async (taskId) => {
+    if (
+      !taskId ||
+      finishedRef.current ||
+      !isMountedRef.current ||
+      pollInFlightRef.current
+    ) {
+      return;
+    }
+
+    const startedAt = startTimeRef.current || Date.now();
+    if (Date.now() - startedAt > MAX_POLL_TIME_MS) {
       failProcessing("Task timeout, please scan again.");
       return;
     }
 
+    const controller = new AbortController();
+    pollInFlightRef.current = true;
+    pollAbortControllerRef.current = controller;
+    let shouldScheduleNext = false;
+    let nextDelayMs = null;
+
     try {
-      const response = await getRecognitionTaskStatus(taskId);
+      const response = await getRecognitionTaskLightStatus(taskId, {
+        signal: controller.signal,
+      });
       const task = unwrapApiResponse(response);
 
       if (!isMountedRef.current || finishedRef.current) return;
 
+      networkErrorCountRef.current = 0;
+
       const status = normalizeStatus(task?.status);
+      const terminal = Boolean(task?.terminal);
       setTaskSnapshot(task);
       
       // Cập nhật lại ảnh preview nếu frontend bị mất URL do reload tab
@@ -640,7 +934,33 @@ export default function Processing() {
         task,
       );
 
-      if (TERMINAL_DONE_STATUSES.has(status)) {
+      if (TERMINAL_CANCELLED_STATUSES.has(status)) {
+        finishCancelled(task);
+        return;
+      }
+
+      if (CANCELLING_STATUSES.has(status)) {
+        setCancelState("cancelling");
+        shouldScheduleNext = true;
+        nextDelayMs = task?.retry_after_ms;
+        return;
+      }
+
+      if (
+        TERMINAL_DONE_STATUSES.has(status) ||
+        (terminal && !TERMINAL_FAILED_STATUSES.has(status) && getTaskResultId(task))
+      ) {
+        if (!getTaskResultId(task)) {
+          missingResultRetryCountRef.current += 1;
+          if (missingResultRetryCountRef.current <= MISSING_RESULT_RETRY_LIMIT) {
+            shouldScheduleNext = true;
+            nextDelayMs = MISSING_RESULT_RETRY_DELAY_MS;
+            return;
+          }
+          failProcessing("Completed task did not return a result id. Please scan again.");
+          return;
+        }
+
         await finishSuccessfully(taskId, task);
         return;
       }
@@ -651,8 +971,13 @@ export default function Processing() {
           return;
         }
         failProcessing(getTaskError(task));
+        return;
       }
+
+      shouldScheduleNext = true;
+      nextDelayMs = task?.retry_after_ms;
     } catch (err) {
+      if (isAbortError(err)) return;
       if (!isMountedRef.current || finishedRef.current) return;
 
       // Xử lý 404 nếu task hết hạn hoặc không tồn tại trên backend
@@ -667,7 +992,9 @@ export default function Processing() {
 
       // Không kết thúc flow ngay khi lỗi network tạm thời (network error hoặc 5xx)
       if (!err?.response || err?.response?.status >= 500) {
+        networkErrorCountRef.current += 1;
         console.warn("Polling network error, retrying...", err.message);
+        shouldScheduleNext = true;
         return; // Return mà không fail, để poll timer vòng sau gọi lại
       }
 
@@ -677,28 +1004,61 @@ export default function Processing() {
           err?.message ||
           t.failDesc,
       );
+    } finally {
+      if (pollAbortControllerRef.current === controller) {
+        pollAbortControllerRef.current = null;
+      }
+      pollInFlightRef.current = false;
+      if (shouldScheduleNext && isMountedRef.current && !finishedRef.current) {
+        scheduleNextPoll(taskId, nextDelayMs);
+      }
     }
+  };
+
+  const getKnownTaskId = ({ includeStored = true } = {}) => {
+    const queryTaskId = new URLSearchParams(location.search).get("taskId");
+    const pathTaskId = location.pathname.startsWith("/processing/")
+      ? location.pathname.split("/").filter(Boolean).at(-1)
+      : null;
+    const storedTask = includeStored ? getActiveRecognitionTask() : null;
+    const restoredTask = includeStored ? peekFreshActiveTask?.() : null;
+
+    return (
+      currentTaskIdRef.current ||
+      location.state?.taskId ||
+      queryTaskId ||
+      pathTaskId ||
+      restoredTask?.taskId ||
+      storedTask?.taskId ||
+      null
+    );
   };
 
   useEffect(() => {
     isMountedRef.current = true;
-    elapsedTimerRef.current = setInterval(() => {
-      setElapsedMs(Date.now() - startTimeRef.current);
-    }, 1000);
+    if (!startTimeRef.current) {
+      startTimeRef.current = Date.now();
+    }
+    startElapsedTimer();
 
     if (hasStartedRef.current) {
+      const resumeTaskId = getKnownTaskId();
+      if (resumeTaskId && !finishedRef.current) {
+        currentTaskIdRef.current = resumeTaskId;
+        setCurrentTaskId(resumeTaskId);
+        setIsBootstrapping(false);
+        void pollTask(resumeTaskId);
+      }
+
       return () => {
         isMountedRef.current = false;
         stopPolling();
-        if (elapsedTimerRef.current) {
-          clearInterval(elapsedTimerRef.current);
-          elapsedTimerRef.current = null;
+        if (cancelAbortControllerRef.current) {
+          cancelAbortControllerRef.current.abort();
+          cancelAbortControllerRef.current = null;
         }
+        stopElapsedTimer();
 
-        if (navigateTimerRef.current) {
-          clearTimeout(navigateTimerRef.current);
-          navigateTimerRef.current = null;
-        }
       };
     }
 
@@ -708,14 +1068,10 @@ export default function Processing() {
       try {
         setVisualStage("uploading", 10);
 
-        const queryTaskId = new URLSearchParams(location.search).get("taskId");
-        const pathTaskId = location.pathname.startsWith("/processing/")
-          ? location.pathname.split("/").filter(Boolean).at(-1)
-          : null;
-        const explicitTaskId = location.state?.taskId || queryTaskId || pathTaskId;
         const startsNewScan = Boolean(
           routeScanNonce || location.state?.imageFile || location.state?.file,
         );
+        const explicitTaskId = getKnownTaskId({ includeStored: !startsNewScan });
         const storedTask = startsNewScan ? null : getActiveRecognitionTask();
         const restoredTask = startsNewScan ? null : peekFreshActiveTask?.();
         let taskId =
@@ -786,15 +1142,9 @@ export default function Processing() {
         }
 
         currentTaskIdRef.current = taskId;
+        setCurrentTaskId(taskId);
 
-        await pollTask(taskId);
-
-        if (!finishedRef.current && isMountedRef.current) {
-          stopPolling();
-          pollTimerRef.current = setInterval(() => {
-            pollTask(taskId);
-          }, POLL_INTERVAL_MS);
-        }
+        void pollTask(taskId);
       } catch (err) {
         if (!isMountedRef.current || finishedRef.current) return;
 
@@ -845,15 +1195,12 @@ export default function Processing() {
     return () => {
       isMountedRef.current = false;
       stopPolling();
-      if (elapsedTimerRef.current) {
-        clearInterval(elapsedTimerRef.current);
-        elapsedTimerRef.current = null;
+      if (cancelAbortControllerRef.current) {
+        cancelAbortControllerRef.current.abort();
+        cancelAbortControllerRef.current = null;
       }
+      stopElapsedTimer();
 
-      if (navigateTimerRef.current) {
-        clearTimeout(navigateTimerRef.current);
-        navigateTimerRef.current = null;
-      }
     };
     // Chỉ chạy 1 lần mỗi lần vào Processing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -862,7 +1209,7 @@ export default function Processing() {
   if (isBootstrapping && !taskSnapshot) {
     return (
       <div className="page-inner flex min-h-[50vh] items-center justify-center py-10">
-        <div className="flex items-center gap-3 text-slate-600 dark:text-slate-300">
+        <div className="flex items-center gap-3 text-slate-600 dark:text-slate-300" role="status" aria-live="polite">
           <Loader2 className="h-6 w-6 animate-spin text-indigo-500" />
           <span className="font-bold">
             {activeLang === "VI" ? "Đang khôi phục tác vụ..." : "Restoring task..."}
@@ -872,11 +1219,50 @@ export default function Processing() {
     );
   }
 
+  if (cancelState === "cancelled") {
+    return (
+      <div className="page-inner relative py-10">
+        <div className="mx-auto max-w-3xl px-4 font-sans">
+          <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-xl shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950" role="status" aria-live="polite">
+            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-500/10 text-slate-600 dark:text-slate-300">
+              <AlertCircle className="h-7 w-7" />
+            </div>
+
+            <h2 className="mb-2 text-2xl font-black text-slate-900 dark:text-slate-100">
+              {t.cancelledTitle}
+            </h2>
+
+            <p className="mb-6 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+              {t.cancelledDesc}
+            </p>
+
+            <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => navigate("/workspace", { replace: true })}
+                className="w-full rounded-xl bg-slate-900 px-5 py-2.5 font-bold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white dark:focus:ring-offset-slate-950 sm:w-auto"
+              >
+                {t.backToWorkspace}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate("/recognize", { replace: true, state: { resetScan: true } })}
+                className="w-full rounded-xl bg-indigo-600 px-5 py-2.5 font-bold text-white transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2 dark:focus:ring-offset-slate-950 sm:w-auto"
+              >
+                {t.scanAnother}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="page-inner relative py-10">
         <div className="mx-auto max-w-3xl px-4 font-sans">
-          <div className="rounded-3xl border border-rose-200 bg-white p-8 text-center shadow-xl shadow-rose-500/10 dark:border-rose-900/60 dark:bg-slate-950">
+          <div className="rounded-3xl border border-rose-200 bg-white p-8 text-center shadow-xl shadow-rose-500/10 dark:border-rose-900/60 dark:bg-slate-950" role="alert">
             <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-500/10 text-rose-500">
               <AlertCircle className="h-7 w-7" />
             </div>
@@ -930,7 +1316,24 @@ export default function Processing() {
     : cropDebug.cropUrl;
   const lensStatus = getLensStatus(taskSnapshot, agentsStatus.lens);
   const lensHasTechnicalIssue = lensStatus === "not_counted";
-  const taskId = currentTaskIdRef.current || taskSnapshot?.task_id || taskSnapshot?.id || "Đang tạo";
+  const taskId = currentTaskId || taskSnapshot?.task_id || taskSnapshot?.id || "Đang tạo";
+  const isCancelBusy = cancelState === "requesting" || cancelState === "cancelling";
+  const showCancelDialogText =
+    cancelState === "confirming" ||
+    cancelState === "error" ||
+    cancelState === "cancelling";
+  const taskStatusText = normalizeStatus(taskSnapshot?.status);
+  const taskIsTerminal = Boolean(
+    taskSnapshot?.terminal ||
+      TERMINAL_DONE_STATUSES.has(taskStatusText) ||
+      TERMINAL_FAILED_STATUSES.has(taskStatusText) ||
+      TERMINAL_CANCELLED_STATUSES.has(taskStatusText),
+  );
+  const showStopButton = Boolean(
+    currentTaskId &&
+      !taskIsTerminal &&
+      cancelState !== "cancelled",
+  );
   const activeTimelineIndex =
     safeProgress >= 95 ? 5 :
     safeProgress >= 75 ? 4 :
@@ -969,7 +1372,7 @@ export default function Processing() {
                 {t.pipelineDesc}
               </p>
 
-              <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/70">
+              <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/70" role="status" aria-live="polite">
                 <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-black text-slate-900 dark:text-slate-100">{pipeline.currentStep}</p>
@@ -1000,6 +1403,58 @@ export default function Processing() {
                     <span className="font-mono text-xs">{formatElapsed(elapsedMs)}</span>
                   </div>
                 </div>
+
+                {showStopButton && (
+                  <div className="mt-4 rounded-2xl border border-rose-200 bg-white p-3 dark:border-rose-500/30 dark:bg-slate-950">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      {showCancelDialogText && (
+                        <div className="min-w-0">
+                          <p className="text-sm font-black text-slate-900 dark:text-slate-100">
+                            {cancelState === "cancelling" ? t.stopping : t.stopConfirmTitle}
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                            {cancelError || t.stopConfirmDesc}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex shrink-0 flex-col gap-2 sm:ml-auto sm:flex-row">
+                        {cancelState === "confirming" || cancelState === "error" ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={confirmCancelTask}
+                              disabled={isCancelBusy}
+                              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-rose-300 bg-rose-600 px-4 py-2 text-sm font-black text-white transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/40"
+                            >
+                              {isCancelBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+                              {cancelState === "error" ? t.retryCancel : t.confirmStop}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={dismissCancelConfirmation}
+                              disabled={isCancelBusy}
+                              className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            >
+                              {t.keepRunning}
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={requestCancelConfirmation}
+                            disabled={isCancelBusy}
+                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-black text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/15"
+                          >
+                            {isCancelBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+                            <AlertCircle className="h-4 w-4" />
+                            {isCancelBusy ? t.stopping : t.stopProcessing}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </section>
 
@@ -1027,7 +1482,7 @@ export default function Processing() {
 
           {/* CỘT PHẢI: Cổng cắt ảnh (Ảnh gốc + Vùng cắt) */}
           <div className="space-y-6">
-            <section className="rounded-[2rem] border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/80 h-full flex flex-col">
+            <section className="rounded-[2rem] border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/80">
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h2 className="text-xl font-black text-slate-950 dark:text-white">{t.cropGate}</h2>
@@ -1038,11 +1493,11 @@ export default function Processing() {
                 <StatusBadge status={agentsStatus.crop} />
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 flex-1">
+              <div className="grid gap-4 sm:grid-cols-2">
                 {/* Ảnh gốc */}
                 <div className="flex flex-col rounded-3xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/70">
                   <p className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{t.originalImage}</p>
-                  <div className="flex flex-1 min-h-[160px] items-center justify-center overflow-hidden rounded-2xl bg-slate-950">
+                  <div className="flex aspect-[4/3] min-h-[240px] max-h-[420px] w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-950">
                     {previewUrl ? (
                       <>
                         <img
@@ -1052,7 +1507,7 @@ export default function Processing() {
                             e.target.style.display = 'none';
                             e.target.nextElementSibling.style.display = 'flex';
                           }}
-                          className="h-full w-full object-contain"
+                          className="h-full w-full object-contain object-center"
                         />
                         <div className="hidden flex-col items-center gap-2 text-slate-500">
                           <ImageIcon className="h-8 w-8 opacity-50" />
@@ -1071,7 +1526,7 @@ export default function Processing() {
                 {/* Vùng cắt */}
                 <div className="flex flex-col rounded-3xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/70">
                   <p className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">{t.cropPreview}</p>
-                  <div className="flex flex-1 min-h-[160px] items-center justify-center overflow-hidden rounded-2xl bg-white dark:bg-slate-950">
+                  <div className="flex aspect-[4/3] min-h-[240px] max-h-[420px] w-full items-center justify-center overflow-hidden rounded-2xl bg-white dark:bg-slate-950">
                     {cropImage ? (
                       <div className="relative h-full w-full flex items-center justify-center">
                         <img
@@ -1081,7 +1536,7 @@ export default function Processing() {
                             e.target.style.display = 'none';
                             e.target.nextElementSibling.style.display = 'flex';
                           }}
-                          className="max-h-full max-w-full object-contain"
+                          className="h-full w-full object-contain object-center"
                         />
                         <div className="hidden flex-col items-center gap-2 text-slate-500">
                           <ImageIcon className="h-8 w-8 opacity-50" />
@@ -1091,10 +1546,19 @@ export default function Processing() {
                           <span className="bg-slate-900/80 text-white text-[10px] px-2 py-1.5 rounded-full backdrop-blur-md shadow-lg font-semibold border border-white/10">{t.cropUnderAnalysis}</span>
                         </div>
                       </div>
-                    ) : (
+                    ) : safeProgress < 40 ? (
                       <div className="flex flex-col items-center justify-center space-y-3 px-4 text-center text-sm text-slate-500 dark:text-slate-400">
                         <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
-                        <span className="text-xs font-semibold">{t.waitingCrop}</span>
+                        <span className="text-xs font-semibold">
+                          {activeLang === "VI" ? "Đang phát hiện vùng tiền giấy..." : "Detecting banknote region..."}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center space-y-3 px-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                        <ImageIcon className="w-6 h-6 opacity-50" />
+                        <span className="text-xs font-semibold">
+                          {activeLang === "VI" ? "Chưa có vùng cắt" : "No crop available"}
+                        </span>
                       </div>
                     )}
                   </div>

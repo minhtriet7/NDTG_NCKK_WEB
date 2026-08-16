@@ -32,6 +32,22 @@ async def start_recognition_task(
     return await RecognitionController.start_task(current_user, file)
 
 
+@router.get("/tasks/{task_id}/status")
+async def get_recognition_task_light_status(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    return await RecognitionController.get_task_light_status(current_user, task_id)
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_recognition_task(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    return await RecognitionController.cancel_task(current_user, task_id)
+
+
 @router.get("/tasks/{task_id}")
 async def get_recognition_task_status(
     task_id: str,

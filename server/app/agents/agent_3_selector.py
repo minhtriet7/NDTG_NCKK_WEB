@@ -29,6 +29,93 @@ RATE_LIMIT_MARKERS = (
     "rate_limit",
     "too many requests",
 )
+PROVIDER_ERROR_TYPES = {
+    "provider_timeout",
+    "provider_connection_error",
+    "provider_rate_limited",
+    "provider_server_error",
+    "provider_auth_error",
+    "provider_bad_request",
+    "provider_malformed_response",
+    "provider_no_result",
+}
+NON_RETRYABLE_PROVIDER_ERRORS = {
+    "provider_rate_limited",
+    "provider_auth_error",
+    "provider_bad_request",
+    "provider_malformed_response",
+}
+
+
+def _log(message: str, data: Any = None) -> None:
+    if not DEBUG_AGENT3_SELECTOR:
+        return
+
+    prefix = "[Agent3Selector]"
+
+    if data is None:
+        print(f"{prefix} {message}", flush=True)
+        return
+
+    try:
+        print(
+            f"{prefix} {message}: {json.dumps(data, ensure_ascii=True, default=str)[:3000]}",
+            flush=True,
+        )
+    except Exception:
+        print(f"{prefix} {message}: {data}", flush=True)
+
+
+def _agent3_response(
+    status: str,
+    message: str,
+    method: str = "Agent 3 Selector",
+    provider: str = "disabled",
+    confidence: float = 0.0,
+    technical_error: bool = False,
+    error_type: str = "technical_error",
+) -> str:
+    payload = {
+        "quoc_gia": "Không xác định",
+        "ma_tien_te": "Không xác định",
+        "menh_gia": "Không xác định",
+        "mat_tien": "Không xác định",
+        "nam_phat_hanh": "Không xác định",
+        "chat_lieu": "Không xác định",
+        "mo_ta": message,
+        "quan_diem": message,
+        "phuong_phap": method,
+        "do_tin_cay": confidence,
+        "van_ban_nhin_thay": [],
+        "dac_diem_chinh": [],
+        "status": status,
+        "provider": provider,
+        "evidence": [],
+        "not_counted_in_consensus": status.strip().lower() != "completed",
+        "promotion_trace": {
+            "promoted": False,
+            "method": "evidence_verification",
+            "provider": provider,
+            "reason": f"provider_status:{status.strip().lower() or 'unknown'}",
+            "selected_identity": None,
+            "selected_evidence": None,
+            "checks": {
+                "identity_complete": False,
+                "amount_allowed": False,
+                "direct_title_or_snippet_match": False,
+                "source_trusted": False,
+                "multiple_evidence_agreement": False,
+                "conflict_check_passed": True,
+                "page_text_checked": False,
+            },
+            "matched_terms": [],
+            "verification_source": "title_snippet_metadata",
+        },
+    }
+
+    if technical_error:
+        payload["error_type"] = error_type
+        payload["technical_error"] = True
 
 
 def _log(message: str, data: Any = None) -> None:
@@ -107,9 +194,7 @@ def _agent3_response(
 def _safe_key_fingerprint(value: Any) -> Dict[str, Any]:
     key = str(value or "")
     return {
-        "loaded": bool(key),
-        "length": len(key),
-        "last4": key[-4:] if key else None,
+        "credential_configured": bool(key),
     }
 
 
@@ -122,16 +207,74 @@ def _safe_error_text(value: Any, limit: int = 200) -> str:
     return text[:limit]
 
 
+def _normalize_provider_error_type(value: Any) -> str:
+    explicit = str(value or "").strip().lower()
+    if explicit in PROVIDER_ERROR_TYPES:
+        return explicit
+    if explicit in {"rate_limit", "provider_quota_exhausted"}:
+        return "provider_rate_limited"
+    if explicit == "timeout":
+        return "provider_timeout"
+    if explicit in {"connection_error", "network_error"}:
+        return "provider_connection_error"
+    if explicit in {"bad_request", "request_error"}:
+        return "provider_bad_request"
+    if explicit in {"auth_error", "missing_api_key", "provider_config_missing"}:
+        return "provider_auth_error"
+    return explicit
+
+
 def _classify_provider_error(value: Any) -> str:
     explicit = str(getattr(value, "error_type", "") or "").strip().lower()
-    if explicit in {"rate_limit", "provider_quota_exhausted"}:
-        return explicit
+    normalized = _normalize_provider_error_type(explicit)
+    if normalized in PROVIDER_ERROR_TYPES:
+        return normalized
+    status_code = getattr(value, "status_code", None)
+    if status_code in {401, 403}:
+        return "provider_auth_error"
+    if status_code == 400:
+        return "provider_bad_request"
+    if status_code in {408, 504}:
+        return "provider_timeout"
+    if status_code == 429:
+        return "provider_rate_limited"
+    if isinstance(status_code, int) and 500 <= status_code <= 599:
+        return "provider_server_error"
     text = str(value or "").casefold()
     if any(marker in text for marker in RATE_LIMIT_MARKERS):
-        return "rate_limit"
+        return "provider_rate_limited"
     if isinstance(value, (asyncio.TimeoutError, TimeoutError)) or "timeout" in text:
-        return "timeout"
+        return "provider_timeout"
+    if any(token in text for token in ("connection", "network", "dns", "proxy", "ssl")):
+        return "provider_connection_error"
+    if any(token in text for token in ("http 500", "http 502", "http 503", "http 504", "server error")):
+        return "provider_server_error"
+    if any(token in text for token in ("unauthorized", "forbidden", "auth", "api key", "serpapi_key")):
+        return "provider_auth_error"
+    if any(token in text for token in ("bad request", "http 400", "invalid request", "invalid parameter")):
+        return "provider_bad_request"
+    if any(token in text for token in ("malformed", "invalid json", "not valid json", "không trả json")):
+        return "provider_malformed_response"
     return "technical_error"
+
+
+def _fallback_reason_from_provider_error(error_type: str) -> str:
+    normalized = _normalize_provider_error_type(error_type)
+    mapping = {
+        "provider_timeout": "primary_timeout",
+        "provider_connection_error": "primary_connection_error",
+        "provider_rate_limited": "primary_rate_limited",
+        "provider_server_error": "primary_server_error",
+        "provider_auth_error": "primary_auth_error",
+        "provider_bad_request": "primary_bad_request",
+        "provider_malformed_response": "primary_malformed_response",
+        "provider_no_result": "primary_no_result",
+    }
+    return mapping.get(normalized, "primary_technical_error")
+
+
+def _provider_available(provider: Any) -> bool:
+    return _normalize_provider(provider) in {"serpapi", "selenium"}
 
 
 def _provider_config_source(config: Any) -> str:
@@ -200,7 +343,11 @@ def _resolve_fallback_provider(config: Any, provider: str) -> str:
         or getattr(config, "agent3_fallback_provider", None)
     )
 
-    fallback_provider = _normalize_provider(raw_fallback)
+    fallback_provider = (
+        _normalize_provider(raw_fallback)
+        if str(raw_fallback or "").strip()
+        else ""
+    )
     if not fallback_provider:
         fallback_provider = "selenium" if provider == "serpapi" else "serpapi"
 
@@ -327,6 +474,42 @@ def _normalized_agent3_result(raw_result: Any, provider: str) -> str:
         data,
         evidence=data.get("evidence") or [],
     )
+    if bool(data.get("technical_error")) or str(data.get("error_type") or "").strip().lower() == "technical_error":
+        technical_keys = (
+            "timeout_stage",
+            "provider_stage",
+            "technical_error",
+            "root_error_type",
+            "elapsed_ms",
+            "remaining_ms",
+            "remaining_ms_at_stage",
+            "retry_attempted",
+            "evidence_preserved",
+            "search_performed",
+            "raw_lens_result_count",
+        )
+        validated["status"] = data.get("status") or "Failed"
+        validated["error_type"] = data.get("error_type") or "technical_error"
+        validated["technical_error"] = True
+        validated["not_counted_in_consensus"] = True
+        for key in technical_keys:
+            if key in data:
+                validated[key] = data[key]
+        source_errors = data.get("validation_errors")
+        if isinstance(source_errors, list) and source_errors:
+            validated["validation_errors"] = source_errors
+        else:
+            root_error_type = str(data.get("root_error_type") or "technical_error").strip()
+            validated["validation_errors"] = [f"technical_failure:{root_error_type}"]
+        if isinstance(validated.get("ag3_verification_summary"), dict):
+            summary = validated["ag3_verification_summary"]
+            summary["status"] = validated["status"]
+            summary["error_type"] = validated["error_type"]
+            summary["technical_error"] = True
+            summary["not_counted_in_consensus"] = True
+            for key in technical_keys:
+                if key in validated:
+                    summary[key] = validated[key]
     _ensure_provider_formatter_separation(validated, provider)
     return json.dumps([validated], ensure_ascii=False)
 
@@ -391,6 +574,16 @@ def _is_weak_agent3_result(raw_result: str) -> bool:
 
 def _summarize_result(raw_result: str) -> Dict[str, Any]:
     data = _safe_parse_agent3_result(raw_result)
+    provider_trace = data.get("provider_trace") if isinstance(data.get("provider_trace"), dict) else {}
+    raw_error_type = (
+        data.get("provider_error_type")
+        or data.get("root_error_type")
+        or provider_trace.get("root_error_type")
+        or provider_trace.get("primary_error_type")
+        or data.get("error_type")
+        or data.get("error_code")
+    )
+    provider_error_type = _normalize_provider_error_type(raw_error_type)
     return {
         "status": data.get("status"),
         "provider": data.get("provider"),
@@ -400,6 +593,9 @@ def _summarize_result(raw_result: str) -> Dict[str, Any]:
         "method": data.get("phuong_phap"),
         "evidence_count": len(data.get("evidence") or []),
         "error_type": data.get("error_type") or data.get("error_code"),
+        "provider_error_type": provider_error_type if provider_error_type in PROVIDER_ERROR_TYPES else None,
+        "root_error_type": data.get("root_error_type") or provider_trace.get("root_error_type"),
+        "search_performed": data.get("search_performed", provider_trace.get("search_performed")),
         "technical_error": bool(data.get("technical_error")),
         "description": str(data.get("mo_ta") or "")[:300],
     }
@@ -408,13 +604,23 @@ def _summarize_result(raw_result: str) -> Dict[str, Any]:
 def _fallback_reason_for_result(raw_result: str) -> str:
     data = _safe_parse_agent3_result(raw_result)
     status = str(data.get("status") or "").strip().lower()
-    error_type = str(data.get("error_type") or data.get("error_code") or "").lower()
-    if error_type in {"rate_limit", "provider_quota_exhausted"}:
-        return "primary_rate_limit"
+    provider_trace = data.get("provider_trace") if isinstance(data.get("provider_trace"), dict) else {}
+    error_type = (
+        data.get("provider_error_type")
+        or data.get("root_error_type")
+        or provider_trace.get("root_error_type")
+        or provider_trace.get("primary_error_type")
+        or data.get("error_type")
+        or data.get("error_code")
+        or ""
+    )
+    normalized = _normalize_provider_error_type(error_type)
+    if normalized in PROVIDER_ERROR_TYPES:
+        return _fallback_reason_from_provider_error(normalized)
     if (
         status in {"failed", "error", "technical_error"}
         or bool(data.get("technical_error"))
-        or any(token in error_type for token in ("technical", "timeout", "quota", "provider"))
+        or any(token in str(error_type).lower() for token in ("technical", "timeout", "quota", "provider"))
     ):
         return "primary_technical_error"
     return "primary_partial_weak_evidence"
@@ -431,6 +637,7 @@ def _attach_provider_trace(
     primary_summary: Optional[Dict[str, Any]] = None,
     trace_context: Optional[Dict[str, Any]] = None,
     fallback_result_status: Optional[str] = None,
+    fallback_error_type: Optional[str] = None,
 ) -> str:
     data = _safe_parse_agent3_result(raw_result)
     if not data:
@@ -447,9 +654,7 @@ def _attach_provider_trace(
         "fallback_attempted": bool(fallback_attempted),
         "fallback_reason": fallback_reason,
         "selected_provider": selected_provider,
-        "serpapi_key_loaded": key_fingerprint["loaded"],
-        "serpapi_key_len": key_fingerprint["length"],
-        "serpapi_key_last4": key_fingerprint["last4"],
+        "serpapi_credential_configured": key_fingerprint["credential_configured"],
         "process_id": os.getpid(),
         "serpapi_no_cache": bool(
             getattr(settings, "AGENT3_SERPAPI_NO_CACHE", False)
@@ -457,9 +662,30 @@ def _attach_provider_trace(
     })
     if trace_context:
         provider_trace.update(trace_context)
-    primary_error_type = (primary_summary or {}).get("error_type")
+    primary_error_type = (
+        (primary_summary or {}).get("provider_error_type")
+        or _normalize_provider_error_type((primary_summary or {}).get("error_type"))
+        or (primary_summary or {}).get("error_type")
+    )
     if primary_error_type:
         provider_trace["primary_error_type"] = primary_error_type
+    provider_trace.setdefault("fallback_error_type", fallback_error_type)
+    provider_trace["fallback_available"] = bool(
+        provider_trace.get("fallback_available", _provider_available(fallback))
+    )
+    provider_trace["only_mode"] = bool(
+        provider_trace.get("only_mode", provider_trace.get("serpapi_only_mode", False))
+    )
+    provider_trace.setdefault("remaining_ms_before_fallback", None)
+    final_status = str(data.get("status") or "").strip().lower()
+    final_technical_error = bool(data.get("technical_error"))
+    provider_trace["technical_error"] = final_technical_error
+    if "search_performed" in data:
+        provider_trace["search_performed"] = bool(data.get("search_performed"))
+    elif selected_provider and final_status not in {"disabled", "failed", "error"} and not final_technical_error:
+        provider_trace["search_performed"] = True
+    else:
+        provider_trace.setdefault("search_performed", False)
     if data.get("formatter_provider"):
         provider_trace["formatter_provider"] = data.get("formatter_provider")
     if fallback_result_status is not None:
@@ -482,6 +708,7 @@ async def _run_by_provider(
     context: str = "",
     debug_log: Optional[Dict] = None,
     deadline: Optional[float] = None,
+    public_crop_url: Optional[str] = None,
     **kwargs,
 ) -> str:
     force_enable_selenium = bool(kwargs.pop("force_enable_selenium", False) or kwargs.pop("force_enable", False))
@@ -498,6 +725,7 @@ async def _run_by_provider(
                 context=context,
                 debug_log=debug_log,
                 deadline=deadline,
+                public_crop_url=public_crop_url,
             ),
             timeout=max(0.1, _remaining_budget(deadline)),
         )
@@ -517,9 +745,12 @@ async def _run_by_provider(
                     "primary_provider": "serpapi",
                     "selected_provider": None,
                     "fallback_attempted": False,
-                    "fallback_reason": "serpapi_only_mode",
+                    "fallback_reason": "disabled_by_policy",
                     "serpapi_only_mode": True,
+                    "only_mode": True,
                     "selenium_enabled": False,
+                    "fallback_enabled": False,
+                    "fallback_available": True,
                 },
             }], ensure_ascii=False)
 
@@ -587,6 +818,7 @@ async def _run_agent3_lens_core(
     context: str = "",
     debug_log: Optional[Dict] = None,
     deadline: Optional[float] = None,
+    public_crop_url: Optional[str] = None,
 ) -> str:
     """
     Entry point thay thế cho app.agents.agent_3_lens.run_agent3_lens.
@@ -607,6 +839,7 @@ async def _run_agent3_lens_core(
                 context=context,
                 debug_log=debug_log,
                 deadline=deadline,
+                public_crop_url=public_crop_url,
             )
             _log("Fallback v1 after config error finished", _summarize_result(result))
             return _attach_provider_trace(
@@ -659,50 +892,44 @@ async def _run_agent3_lens_core(
     lens_enabled = bool(getattr(config, "lens_enabled", True))
     serpapi_only_mode = _is_serpapi_only_mode()
     provider = "serpapi" if serpapi_only_mode else _resolve_provider(config)
-    fallback_enabled = False if serpapi_only_mode else _resolve_fallback_enabled(config)
     selenium_enabled = False if serpapi_only_mode else _is_selenium_enabled(config)
-    fallback_details = (
-        {
-            "provider": "disabled",
-            "normalized": False,
-            "blocked_reason": "serpapi_only_mode",
-        }
-        if serpapi_only_mode
-        else _resolve_fallback_details(
-            config,
-            provider,
-            selenium_enabled=selenium_enabled,
-        )
+    fallback_config_enabled = False if serpapi_only_mode else _resolve_fallback_enabled(config)
+    fallback_details = _resolve_fallback_details(
+        config,
+        provider,
+        selenium_enabled=selenium_enabled,
     )
     fallback_provider = fallback_details["provider"]
-    fallback_blocked_reason = fallback_details["blocked_reason"]
+    fallback_available = _provider_available(fallback_provider)
+    fallback_blocked_reason = (
+        "disabled_by_policy"
+        if serpapi_only_mode
+        else fallback_details["blocked_reason"]
+    )
+    if not fallback_available and not fallback_blocked_reason:
+        fallback_blocked_reason = "fallback_unavailable"
+    fallback_enabled = bool(
+        fallback_config_enabled
+        and not fallback_blocked_reason
+        and fallback_available
+        and fallback_provider != provider
+        and fallback_provider != "disabled"
+        and (fallback_provider != "selenium" or selenium_enabled)
+    )
     trace_context = {
         "provider_config_source": _provider_config_source(config),
         "fallback_enabled": fallback_enabled,
+        "fallback_available": fallback_available,
         "selenium_enabled": selenium_enabled,
         "serpapi_only_mode": serpapi_only_mode,
+        "only_mode": serpapi_only_mode,
         "fallback_provider_normalized": bool(fallback_details["normalized"]),
+        "remaining_ms_before_fallback": None,
     }
     if serpapi_only_mode:
-        trace_context["fallback_policy_reason"] = "serpapi_only_mode"
+        trace_context["fallback_policy_reason"] = "disabled_by_policy"
         trace_context["selenium_disabled_by_policy"] = True
-
-    key_fingerprint = _safe_key_fingerprint(getattr(settings, "SERPAPI_KEY", None))
-    _log(
-        "Runtime diagnostics",
-        {
-            **trace_context,
-            "primary_provider": provider,
-            "fallback_provider": fallback_provider,
-            "serpapi_key_loaded": key_fingerprint["loaded"],
-            "serpapi_key_len": key_fingerprint["length"],
-            "serpapi_key_last4": key_fingerprint["last4"],
-            "process_id": os.getpid(),
-            "serpapi_no_cache": bool(
-                getattr(settings, "AGENT3_SERPAPI_NO_CACHE", False)
-            ),
-        },
-    )
+        trace_context["disabled_by_policy"] = True
 
     if not enable_agent_3 or not lens_enabled or provider == "disabled":
         _log("Agent 3 disabled by admin config")
@@ -737,6 +964,7 @@ async def _run_agent3_lens_core(
             context=context,
             debug_log=debug_log,
             deadline=deadline,
+            public_crop_url=public_crop_url,
         )
         primary_summary = _summarize_result(primary_result)
         primary_is_weak = _is_weak_agent3_result(primary_result)
@@ -760,6 +988,11 @@ async def _run_agent3_lens_core(
             and _remaining_budget(deadline) >= MIN_FALLBACK_BUDGET_SECONDS
         ):
             fallback_reason = _fallback_reason_for_result(primary_result)
+            remaining_ms_before_fallback = int(_remaining_budget(deadline) * 1000)
+            fallback_trace_context = {
+                **trace_context,
+                "remaining_ms_before_fallback": remaining_ms_before_fallback,
+            }
             _log(
                 f"fallback_used=True reason={fallback_reason}",
                 {"from_provider": provider, "fallback_provider": fallback_provider},
@@ -780,6 +1013,7 @@ async def _run_agent3_lens_core(
                     context=context,
                     debug_log=debug_log,
                     deadline=deadline,
+                    public_crop_url=public_crop_url,
                 )
             except (ImportError, ModuleNotFoundError):
                 return _attach_provider_trace(
@@ -790,10 +1024,11 @@ async def _run_agent3_lens_core(
                     fallback_reason="module_unavailable",
                     selected_provider=provider,
                     primary_summary=primary_summary,
-                    trace_context=trace_context,
+                    trace_context=fallback_trace_context,
                     fallback_result_status="Failed",
+                    fallback_error_type="module_unavailable",
                 )
-            except Exception:
+            except Exception as fallback_exc:
                 return _attach_provider_trace(
                     primary_result,
                     primary=provider,
@@ -802,8 +1037,9 @@ async def _run_agent3_lens_core(
                     fallback_reason="fallback_failed",
                     selected_provider=provider,
                     primary_summary=primary_summary,
-                    trace_context=trace_context,
+                    trace_context=fallback_trace_context,
                     fallback_result_status="Failed",
+                    fallback_error_type=_classify_provider_error(fallback_exc),
                 )
 
             fallback_summary = _summarize_result(fallback_result)
@@ -816,22 +1052,22 @@ async def _run_agent3_lens_core(
                 fallback_reason=fallback_reason,
                 selected_provider=fallback_provider,
                 primary_summary=primary_summary,
-                trace_context=trace_context,
+                trace_context=fallback_trace_context,
                 fallback_result_status=str(
                     fallback_summary.get("status") or "unknown"
                 ),
             )
 
         if serpapi_only_mode:
-            fallback_skip_reason = "serpapi_only_mode"
+            fallback_skip_reason = "disabled_by_policy"
         elif not primary_is_weak:
             fallback_skip_reason = "primary_result_accepted"
-        elif not fallback_enabled:
-            fallback_skip_reason = "fallback_disabled"
         elif fallback_blocked_reason:
             fallback_skip_reason = fallback_blocked_reason
         elif fallback_provider == "selenium" and not selenium_enabled:
             fallback_skip_reason = "selenium_disabled"
+        elif not fallback_enabled:
+            fallback_skip_reason = "fallback_disabled"
         elif _remaining_budget(deadline) < MIN_FALLBACK_BUDGET_SECONDS:
             fallback_skip_reason = "fallback_budget_low"
         else:
@@ -868,8 +1104,14 @@ async def _run_agent3_lens_core(
             and _remaining_budget(deadline) >= MIN_FALLBACK_BUDGET_SECONDS
         ):
             try:
+                fallback_reason = _fallback_reason_from_provider_error(primary_error_type)
+                remaining_ms_before_fallback = int(_remaining_budget(deadline) * 1000)
+                fallback_trace_context = {
+                    **trace_context,
+                    "remaining_ms_before_fallback": remaining_ms_before_fallback,
+                }
                 _log(
-                    "fallback_used=True reason=primary_exception",
+                    f"fallback_used=True reason={fallback_reason}",
                     {"from_provider": provider, "fallback_provider": fallback_provider},
                 )
                 fallback_result = await _run_by_provider(
@@ -878,6 +1120,7 @@ async def _run_agent3_lens_core(
                     context=context,
                     debug_log=debug_log,
                     deadline=deadline,
+                    public_crop_url=public_crop_url,
                 )
 
                 fallback_summary = _summarize_result(fallback_result)
@@ -887,14 +1130,10 @@ async def _run_agent3_lens_core(
                     primary=provider,
                     fallback=fallback_provider,
                     fallback_attempted=True,
-                    fallback_reason=(
-                        "primary_rate_limit"
-                        if primary_error_type in {"rate_limit", "provider_quota_exhausted"}
-                        else "primary_exception"
-                    ),
+                    fallback_reason=fallback_reason,
                     selected_provider=fallback_provider,
                     primary_summary={"error_type": primary_error_type},
-                    trace_context=trace_context,
+                    trace_context=fallback_trace_context,
                     fallback_result_status=str(
                         fallback_summary.get("status") or "unknown"
                     ),
@@ -932,8 +1171,12 @@ async def _run_agent3_lens_core(
                     ),
                     selected_provider=provider,
                     primary_summary={"error_type": primary_error_type},
-                    trace_context=trace_context,
+                    trace_context={
+                        **trace_context,
+                        "remaining_ms_before_fallback": int(_remaining_budget(deadline) * 1000),
+                    },
                     fallback_result_status="Failed",
+                    fallback_error_type=_classify_provider_error(fallback_exc),
                 )
 
         _log(
@@ -948,13 +1191,13 @@ async def _run_agent3_lens_core(
             error_type=primary_error_type,
         )
         if serpapi_only_mode:
-            fallback_skip_reason = "serpapi_only_mode"
-        elif not fallback_enabled:
-            fallback_skip_reason = "fallback_disabled"
+            fallback_skip_reason = "disabled_by_policy"
         elif fallback_blocked_reason:
             fallback_skip_reason = fallback_blocked_reason
         elif fallback_provider == "selenium" and not selenium_enabled:
             fallback_skip_reason = "selenium_disabled"
+        elif not fallback_enabled:
+            fallback_skip_reason = "fallback_disabled"
         elif _remaining_budget(deadline) < MIN_FALLBACK_BUDGET_SECONDS:
             fallback_skip_reason = "fallback_budget_low"
         else:
@@ -990,10 +1233,16 @@ async def run_agent3_candidate_verification(
 
 
 def resolve_agent3_candidate_verification_policy(
-    agent1_result: Dict[str, Any],
-    agent2_result: Dict[str, Any],
+    agent1_result: Optional[Dict[str, Any]],
+    agent2_result: Optional[Dict[str, Any]],
+    *,
+    agent3_result: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    mode = resolve_candidate_verification_mode(agent1_result, agent2_result)
+    mode = resolve_candidate_verification_mode(
+        agent1_result,
+        agent2_result,
+        agent3_result=agent3_result,
+    )
     timeout_seconds = (
         FAST_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS
         if mode == "fast_race_to_3"
@@ -1026,11 +1275,18 @@ async def run_agent3_lens(
     debug_log: Optional[Dict] = None,
     deadline: Optional[float] = None,
     experiment_mode: bool = False,
+    public_crop_url: Optional[str] = None,
 ) -> str:
     from app.core.config import settings
 
     # 1. Run core logic to get primary/fallback results
-    result_str = await _run_agent3_lens_core(image_bytes, context, debug_log, deadline)
+    result_str = await _run_agent3_lens_core(
+        image_bytes,
+        context,
+        debug_log,
+        deadline,
+        public_crop_url=public_crop_url,
+    )
 
     # 2. Check if Groq Formatter should run
     is_groq_enabled = getattr(settings, "AGENT3_GROQ_FORMATTER_ENABLED", False)

@@ -63,3 +63,16 @@ server/debug_*.py
 server/lens_no_results.*
 server/proxy.data
 history_response_dump.json
+
+# temporary diffs/patches
+*.patch
+*.diff
+
+# known debug data
+debug_*.json
+*_record.json
+ag3_out.json
+/temp_*.py
+/fix*.py
+/replace_*.py
+/server/test_*.py

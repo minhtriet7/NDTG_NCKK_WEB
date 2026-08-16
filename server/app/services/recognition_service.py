@@ -1,9 +1,11 @@
 import asyncio
 import base64
 import hashlib
+import ipaddress
 import os
 import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -17,6 +19,11 @@ from app.models.user_model import User
 from app.models.recognition_model import RecognitionRequest
 from app.models.recognition_task_model import RecognitionTask
 from app.services.token_billing_service import TokenBillingService
+from app.services.result_payload_service import (
+    serialize_task_light_status,
+    serialize_user_result,
+    serialize_user_task,
+)
 from app.core.config import settings
 from app.core.logger import get_logger
 
@@ -54,6 +61,10 @@ from app.agents.agent_3_selector import (
 )
 from app.services.admin_service import AdminService
 from app.agents.agent_aggregator import (
+    _has_transient_provider_error,
+    _validate_ag3_strict_contract,
+    is_transient_agent_error,
+    normalize_agent_vote,
     run_aggregator,
     should_early_stop_fixed_provider_config_single_valid_vote,
 )
@@ -70,6 +81,35 @@ SERVER_ROOT = Path(__file__).resolve().parents[2]
 TASK_IMAGE_UPLOAD_DIR = SERVER_ROOT / "uploads" / "recognition_tasks"
 TASK_CLOUDINARY_UPLOAD_TIMEOUT_SECONDS = 30.0
 TASK_PIPELINE_TIMEOUT_SECONDS = 180.0
+
+TASK_TERMINAL_STATUSES = {
+    "done",
+    "completed",
+    "completed_with_limit",
+    "completed_partial",
+    "complete",
+    "success",
+    "succeeded",
+    "needs_review",
+    "needs review",
+    "no_banknote_detected",
+    "needs_better_image",
+    "invalid_conclusion",
+    "invalid conclusion",
+    "failed",
+    "failure",
+    "error",
+    "cancelled",
+    "canceled",
+    "timeout",
+    "agent_error",
+    "technical_error",
+}
+
+
+class RecognitionTaskCancelled(Exception):
+    """Raised when a persisted recognition task cancellation is observed."""
+
 
 def _agent_status(agent_data):
     return agent_data.get("status") if isinstance(agent_data, dict) else "Failed"
@@ -183,6 +223,9 @@ SENSITIVE_PUBLIC_KEYS = {
     "serpapi_key_loaded",
     "serpapi_key_len",
     "serpapi_key_last4",
+    "openai_key_last4",
+    "openai_key_loaded",
+    "openai_key_len",
     "api_key",
     "apikey",
     "access_token",
@@ -227,6 +270,137 @@ def _sanitize_public_url(value: str) -> str:
     if not redacted:
         return value
     return urlunparse(parsed._replace(query=urlencode(cleaned_pairs, doseq=True)))
+
+
+AG3_PUBLIC_CROP_URL_FIELDS = (
+    "public_crop_url",
+    "crop_public_url",
+    "crop_image_url",
+    "crop_url",
+)
+
+
+def _is_public_crop_image_url_candidate(value: Any) -> bool:
+    url = str(value or "").strip()
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return False
+    if parsed.username or parsed.password:
+        return False
+    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return False
+    if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+        return False
+    try:
+        ip_value = ipaddress.ip_address(host)
+        if not ip_value.is_global:
+            return False
+    except ValueError:
+        pass
+
+    path = (parsed.path or "").lower()
+    if path.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff")):
+        return True
+    if "res.cloudinary.com" in host and "/image/upload/" in path:
+        return True
+    if host in {"i.ibb.co", "ibb.co"}:
+        return True
+    return False
+
+
+def _public_crop_url_for_ag3(object_item: Dict[str, Any], original_image_url: Optional[str] = None) -> Optional[str]:
+    if not isinstance(object_item, dict):
+        return None
+
+    if original_image_url and isinstance(original_image_url, str) and "res.cloudinary.com" in original_image_url and "/upload/" in original_image_url:
+        bbox = object_item.get("bbox")
+        if isinstance(bbox, list) and len(bbox) == 4:
+            try:
+                x1, y1, x2, y2 = bbox
+                x = int(x1)
+                y = int(y1)
+                w = int(x2) - x
+                h = int(y2) - y
+                if w > 0 and h > 0:
+                    transformation = f"/upload/c_crop,x_{x},y_{y},w_{w},h_{h}/"
+                    return original_image_url.replace("/upload/", transformation, 1)
+            except (ValueError, TypeError):
+                pass
+        elif not bbox:
+            return original_image_url
+
+    candidates: List[Any] = [object_item.get(key) for key in AG3_PUBLIC_CROP_URL_FIELDS]
+    crop_meta = object_item.get("crop")
+    if isinstance(crop_meta, dict):
+        candidates.extend(crop_meta.get(key) for key in AG3_PUBLIC_CROP_URL_FIELDS)
+    crop_checker = object_item.get("crop_checker")
+    if isinstance(crop_checker, dict):
+        candidates.extend(crop_checker.get(key) for key in AG3_PUBLIC_CROP_URL_FIELDS)
+
+    for candidate in candidates:
+        if _is_public_crop_image_url_candidate(candidate):
+            return str(candidate).strip()
+    return None
+
+
+def _resolve_crop_preview_url(
+    object_item: Dict[str, Any],
+    original_image_url: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Resolve authoritative selected crop URL strictly for Crop Preview.
+    Does NOT fall back to original_image_url when bbox is absent or invalid.
+    """
+    if not isinstance(object_item, dict):
+        return None
+
+    # Case 1: Valid bbox on Cloudinary image -> Cloudinary crop transformation URL
+    bbox = object_item.get("bbox")
+    if (
+        original_image_url
+        and isinstance(original_image_url, str)
+        and "res.cloudinary.com" in original_image_url
+        and "/upload/" in original_image_url
+        and isinstance(bbox, list)
+        and len(bbox) == 4
+    ):
+        try:
+            x1, y1, x2, y2 = bbox
+            x = int(x1)
+            y = int(y1)
+            w = int(x2) - x
+            h = int(y2) - y
+            if w > 0 and h > 0:
+                transformation = f"/upload/c_crop,x_{x},y_{y},w_{w},h_{h}/"
+                return _sanitize_public_url(original_image_url.replace("/upload/", transformation, 1))
+        except (ValueError, TypeError):
+            pass
+
+    # Case 2 & 3: Explicit genuine crop URL candidate on object_item or crop_checker
+    candidates: List[Any] = [object_item.get(key) for key in AG3_PUBLIC_CROP_URL_FIELDS + ("selected_crop_url",)]
+    crop_meta = object_item.get("crop")
+    if isinstance(crop_meta, dict):
+        candidates.extend(crop_meta.get(key) for key in AG3_PUBLIC_CROP_URL_FIELDS + ("selected_crop_url",))
+    crop_checker = object_item.get("crop_checker")
+    if isinstance(crop_checker, dict):
+        candidates.extend(crop_checker.get(key) for key in AG3_PUBLIC_CROP_URL_FIELDS + ("selected_crop_url",))
+
+    clean_orig = _sanitize_public_url(original_image_url) if original_image_url else None
+
+    for candidate in candidates:
+        if _is_public_crop_image_url_candidate(candidate):
+            cand_url = _sanitize_public_url(str(candidate).strip())
+            # Ensure the explicit URL is NOT simply the original uncropped image
+            if cand_url and cand_url != clean_orig:
+                return cand_url
+
+    return None
 
 
 def _looks_like_inline_base64(value: str) -> bool:
@@ -302,6 +476,8 @@ def build_public_detected_object(object_result: Dict[str, Any]) -> Dict[str, Any
             "crop_height": object_result.get("crop_height"),
             "crop_source": object_result.get("crop_source"),
             "fallback": object_result.get("fallback"),
+            "fallback_reason": object_result.get("fallback_reason"),
+            "original_candidate_bbox": object_result.get("original_candidate_bbox"),
             "final_result": final_result,
             "agent_results": object_result.get("agent_results") or [],
             "consensus_trace": object_result.get("consensus_trace") or [],
@@ -493,6 +669,9 @@ def serialize_task(task: RecognitionTask) -> Dict[str, Any]:
         "result_id": getattr(task, "result_id", None),
         "result": getattr(task, "result", None),
         "error_message": getattr(task, "error_message", None),
+        "cancel_requested": getattr(task, "cancel_requested", False),
+        "cancel_requested_at": getattr(task, "cancel_requested_at", None),
+        "cancelled_at": getattr(task, "cancelled_at", None),
         "created_at": getattr(task, "created_at", None),
         "updated_at": getattr(task, "updated_at", None),
         "finished_at": getattr(task, "finished_at", None),
@@ -563,6 +742,214 @@ async def run_agent_with_timeout(agent_coro, timeout_sec: int, fallback_message:
             "quoc_gia": "Không xác định",
             "quan_diem": f"{fallback_message} execution failed: {str(e)[:100]}"
         }], ensure_ascii=False)
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, int((time.perf_counter() - started_at) * 1000))
+
+
+async def run_agent_with_timing(agent_coro, timeout_sec: int, fallback_message: str):
+    started_at = time.perf_counter()
+    result = await run_agent_with_timeout(agent_coro, timeout_sec, fallback_message)
+    return result, _elapsed_ms(started_at)
+
+
+def _split_timed_agent_result(value):
+    if isinstance(value, tuple) and len(value) == 2:
+        return value
+    return value, 0
+
+
+def _apply_attempt_diagnostics(
+    final_consensus: Dict[str, Any],
+    attempt_no: int,
+    pattern: str,
+    current_max_attempts: int,
+    attempt_policy_trace: List[Dict[str, Any]],
+    effective_max_attempts: int,
+    agent_actions: Optional[Dict[str, str]] = None,
+) -> int:
+    attempt_value = max(1, int(attempt_no or 1))
+    max_attempts_value = max(1, int(current_max_attempts or 1))
+    trace_record = {
+        "attempt": attempt_value,
+        "pattern": pattern or "unknown",
+        "max_attempts": max_attempts_value,
+    }
+    if agent_actions:
+        trace_record["agents"] = dict(agent_actions)
+    attempt_policy_trace.append(trace_record)
+    effective_value = max(
+        max(1, int(effective_max_attempts or 1)),
+        attempt_value,
+        max_attempts_value,
+    )
+    final_consensus["attempts_used"] = attempt_value
+    final_consensus["max_attempts"] = effective_value
+    final_consensus["attempt_policy_trace"] = list(attempt_policy_trace)
+    return effective_value
+
+
+def _agent_result_image_fingerprint(image_bytes: Optional[bytes]) -> Optional[str]:
+    if not isinstance(image_bytes, (bytes, bytearray)):
+        return None
+    return hashlib.sha256(bytes(image_bytes)).hexdigest()
+
+
+def _agent_nested_value(agent_data: Dict[str, Any], field_name: str) -> Any:
+    for container_name in (
+        None,
+        "ag3_verification_summary",
+        "provider_trace",
+        "promotion_trace",
+    ):
+        container = agent_data if container_name is None else agent_data.get(container_name)
+        if isinstance(container, dict) and field_name in container:
+            return container.get(field_name)
+    return None
+
+
+def _agent_has_stable_valid_vote(agent_key: str, agent_data: Dict[str, Any]) -> bool:
+    if not isinstance(agent_data, dict):
+        return False
+    if bool(agent_data.get("technical_error")):
+        return False
+
+    if agent_key == "ag3":
+        try:
+            passed, _reason, _vote_identity = _validate_ag3_strict_contract(agent_data)
+            return bool(passed)
+        except Exception:
+            return False
+
+    status_value = str(agent_data.get("status") or "").strip().casefold()
+    if status_value in {
+        "failed",
+        "partial",
+        "disabled",
+        "error",
+        "technical_error",
+        "technical error",
+        "no_source",
+        "no source",
+        "not_found",
+        "not found",
+        "needs_better_image",
+        "not_banknote_or_unclear",
+    }:
+        return False
+    if bool(agent_data.get("not_counted_in_consensus")):
+        return False
+
+    try:
+        return normalize_agent_vote(agent_data).get("vote_key") is not None
+    except Exception:
+        return False
+
+
+def _is_stable_ag3_abstention(agent_data: Dict[str, Any]) -> bool:
+    if not isinstance(agent_data, dict):
+        return False
+    search_performed = _agent_nested_value(agent_data, "search_performed") is True
+    technical_error = _agent_nested_value(agent_data, "technical_error") is True
+    vote_eligible = _agent_nested_value(agent_data, "vote_eligible") is True
+    try:
+        transient_provider_error = _has_transient_provider_error(agent_data)
+    except Exception:
+        transient_provider_error = False
+    return search_performed and not technical_error and not vote_eligible and not transient_provider_error
+
+
+def _is_retryable_agent_result(agent_data: Dict[str, Any]) -> bool:
+    if not isinstance(agent_data, dict):
+        return True
+    status_value = str(agent_data.get("status") or "").strip().casefold()
+    has_failure_status = status_value in {
+        "failed",
+        "partial",
+        "error",
+        "agent_error",
+        "technical_error",
+        "technical error",
+        "timeout",
+    } or bool(agent_data.get("technical_error"))
+    try:
+        if _has_transient_provider_error(agent_data):
+            return True
+    except Exception:
+        pass
+    try:
+        if has_failure_status and is_transient_agent_error(agent_data):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _classify_cached_agent_reuse(
+    agent_key: str,
+    cached_entry: Optional[Dict[str, Any]],
+    image_fingerprint: Optional[str],
+) -> Dict[str, str]:
+    if not cached_entry:
+        return {"action": "execute", "reason": "no_previous_result"}
+    if cached_entry.get("image_fingerprint") != image_fingerprint:
+        return {"action": "execute", "reason": "image_changed"}
+
+    agent_data = cached_entry.get("data")
+    if _agent_has_stable_valid_vote(agent_key, agent_data):
+        return {"action": "reuse", "reason": "stable_valid"}
+    if agent_key == "ag3" and _is_stable_ag3_abstention(agent_data):
+        return {"action": "reuse", "reason": "stable_abstain"}
+    if _is_retryable_agent_result(agent_data):
+        return {"action": "execute", "reason": "retryable_failure"}
+    return {"action": "reuse", "reason": "stable_nonretryable"}
+
+
+def _project_next_attempt_agent_actions(
+    stable_agent_cache: Dict[str, Dict[str, Any]],
+    agent_image_fingerprints: Dict[str, Optional[str]],
+    enabled_agents: Dict[str, bool],
+) -> Dict[str, Any]:
+    actions: Dict[str, str] = {}
+    reasons: Dict[str, str] = {}
+    executable_agents: List[str] = []
+
+    for agent_key in ("ag1", "ag2", "ag3"):
+        if not enabled_agents.get(agent_key, False):
+            actions[agent_key] = "disabled"
+            reasons[agent_key] = "agent_disabled"
+            continue
+
+        decision = _classify_cached_agent_reuse(
+            agent_key,
+            stable_agent_cache.get(agent_key),
+            agent_image_fingerprints.get(agent_key),
+        )
+        if decision["action"] == "execute":
+            actions[agent_key] = "executed"
+            executable_agents.append(agent_key)
+        else:
+            actions[agent_key] = "reused"
+        reasons[agent_key] = decision["reason"]
+
+    return {
+        "actions": actions,
+        "reasons": reasons,
+        "executable_agents": executable_agents,
+    }
+
+
+def _should_cache_agent_result(agent_key: str, agent_data: Dict[str, Any]) -> bool:
+    if _agent_has_stable_valid_vote(agent_key, agent_data):
+        return True
+    if agent_key == "ag3" and _is_stable_ag3_abstention(agent_data):
+        return True
+    return not _is_retryable_agent_result(agent_data)
+
+
+def _agent_data_to_raw_json(agent_data: Dict[str, Any]) -> str:
+    return json.dumps([agent_data], ensure_ascii=False)
 
 
 
@@ -761,12 +1148,169 @@ def _should_apply_vision_resize(experiment_mode: bool) -> bool:
 
 class RecognitionService:
     @staticmethod
+    def normalize_task_status(value: Any) -> str:
+        text = str(value or "").strip().casefold().replace("-", "_")
+        text = re.sub(r"\s+", "_", text)
+        mapping = {
+            "completed": "completed",
+            "complete": "completed",
+            "success": "completed",
+            "succeeded": "completed",
+            "done": "completed",
+            "completed_with_review": "needs_review",
+            "needs_review": "needs_review",
+            "needs_better_image": "needs_better_image",
+            "no_banknote_detected": "no_banknote_detected",
+            "completed_partial": "completed_partial",
+            "completed_with_limit": "completed_with_limit",
+            "invalid_conclusion": "invalid_conclusion",
+            "failed": "failed",
+            "failure": "failed",
+            "error": "failed",
+            "timeout": "failed",
+            "agent_error": "agent_error",
+            "technical_error": "technical_error",
+            "cancelled": "cancelled",
+            "canceled": "cancelled",
+            "cancelling": "cancelling",
+            "canceling": "cancelling",
+        }
+        return mapping.get(text, text or "processing")
+
+    @staticmethod
+    def is_terminal_task_status(value: Any) -> bool:
+        normalized = RecognitionService.normalize_task_status(value)
+        return normalized in {
+            RecognitionService.normalize_task_status(status)
+            for status in TASK_TERMINAL_STATUSES
+        }
+
+    @staticmethod
+    async def finalize_task(
+        task: Optional[RecognitionTask],
+        status_value: str,
+        stage: Optional[str] = None,
+        progress: int = 100,
+        result_id: Optional[str] = None,
+        result: Optional[Dict[str, Any]] = None,
+        public_error: Optional[str] = None,
+        finished_at: Optional[datetime] = None,
+    ) -> Optional[RecognitionTask]:
+        if not task:
+            return None
+
+        current = await RecognitionTask.get(to_object_id(str(task.id)))
+        if current:
+            task = current
+
+        next_status = RecognitionService.normalize_task_status(status_value)
+        current_status = RecognitionService.normalize_task_status(
+            getattr(task, "status", None)
+        )
+        current_is_terminal = RecognitionService.is_terminal_task_status(
+            current_status
+        )
+
+        if current_is_terminal and current_status != next_status:
+            logger.info(
+                "[RecognitionTask] finalize_skipped_terminal task_id=%s current=%s requested=%s",
+                task.id,
+                current_status,
+                next_status,
+            )
+            return task
+
+        should_save = False
+
+        if getattr(task, "status", None) != next_status:
+            task.status = next_status
+            should_save = True
+
+        next_stage = stage or next_status
+        if getattr(task, "stage", None) != next_stage:
+            task.stage = next_stage
+            should_save = True
+
+        safe_progress = max(0, min(int(progress), 100))
+        if getattr(task, "progress", None) != safe_progress:
+            task.progress = safe_progress
+            should_save = True
+
+        if result_id and getattr(task, "result_id", None) != str(result_id):
+            task.result_id = str(result_id)
+            should_save = True
+
+        if result is not None and getattr(task, "result", None) != result:
+            task.result = result
+            should_save = True
+
+        if public_error is not None:
+            next_error = str(public_error or "")[:1000] or None
+            if getattr(task, "error_message", None) != next_error:
+                task.error_message = next_error
+                should_save = True
+        elif next_status not in {"failed", "agent_error", "technical_error"}:
+            if getattr(task, "error_message", None):
+                task.error_message = None
+                should_save = True
+
+        completed_at = finished_at or now_utc()
+        if getattr(task, "finished_at", None) is None:
+            task.finished_at = completed_at
+            should_save = True
+
+        if next_status == "cancelled" and getattr(task, "cancelled_at", None) is None:
+            task.cancelled_at = completed_at
+            should_save = True
+
+        if should_save:
+            task.updated_at = now_utc()
+            await task.save()
+
+        return task
+
+    @staticmethod
+    async def check_task_cancelled(
+        task: Optional[RecognitionTask],
+    ) -> bool:
+        if not task:
+            return False
+
+        latest = await RecognitionTask.get(to_object_id(str(task.id)))
+        if not latest:
+            return False
+
+        latest_status = RecognitionService.normalize_task_status(
+            getattr(latest, "status", None)
+        )
+
+        if latest_status == "cancelled":
+            raise RecognitionTaskCancelled("Recognition task was cancelled.")
+
+        if RecognitionService.is_terminal_task_status(latest_status):
+            return False
+
+        if bool(getattr(latest, "cancel_requested", False)) or latest_status == "cancelling":
+            await RecognitionService.finalize_task(
+                latest,
+                "cancelled",
+                stage="cancelled",
+                progress=100,
+                public_error="Recognition task was cancelled before completion.",
+            )
+            logger.info("[RecognitionTask] cancellation_checkpoint task_id=%s", latest.id)
+            raise RecognitionTaskCancelled("Recognition task was cancelled.")
+
+        return False
+
+    @staticmethod
     async def update_task(
         task: RecognitionTask,
         stage: str,
         progress: int,
         status_value: Optional[str] = None,
     ) -> RecognitionTask:
+        await RecognitionService.check_task_cancelled(task)
         if status_value:
             task.status = status_value
         task.stage = stage
@@ -781,14 +1325,14 @@ class RecognitionService:
         stage: str,
         error_message: str,
     ) -> RecognitionTask:
-        task.status = "failed"
-        task.stage = stage or "failed"
-        task.progress = 100
-        task.error_message = str(error_message or "Recognition task failed.")[:1000]
-        task.finished_at = now_utc()
-        task.updated_at = now_utc()
-        await task.save()
-        return task
+        finalized = await RecognitionService.finalize_task(
+            task,
+            "failed",
+            stage=stage or "failed",
+            progress=100,
+            public_error=str(error_message or "Recognition task failed.")[:1000],
+        )
+        return finalized or task
 
     @staticmethod
     async def save_task_input_image(
@@ -826,6 +1370,9 @@ class RecognitionService:
                 upload_image_to_cloudinary(image_bytes),
                 timeout=TASK_CLOUDINARY_UPLOAD_TIMEOUT_SECONDS,
             )
+        except RecognitionTaskCancelled:
+            logger.info("[RecognitionTask] pipeline_cancelled task_id=%s", task.id)
+            return
         except asyncio.TimeoutError:
             logger.warning(
                 "[RecognitionTask] cloudinary_upload_timeout task_id=%s timeout=%ss",
@@ -911,6 +1458,14 @@ class RecognitionService:
         logger.info("[Recognition] Start scan task_id=%s", _task_id_log)
 
         started_at = now_utc()
+        pipeline_perf_started_at = time.perf_counter()
+        runtime_timing = {
+            "total_ms": 0,
+            "upload_prepare_ms": 0,
+            "detection_ag0_ms": 0,
+            "crop_preparation_ms": 0,
+            "attempts": [],
+        }
         experiment_model_trace = {
             "ag1_model": (
                 settings.OPENAI_EXPERIMENT_MODEL
@@ -938,10 +1493,17 @@ class RecognitionService:
             )
 
         image_url = ""
+        upload_prepare_started_at = time.perf_counter()
+
+        if task:
+            await RecognitionService.check_task_cancelled(task)
 
         if task and not task.input_image_path:
             logger.info("[RecognitionTask] input image missing before pipeline; saving now task_id=%s", task.id)
             await RecognitionService.save_task_input_image(task, image_bytes)
+
+        if task:
+            await RecognitionService.check_task_cancelled(task)
 
         if not experiment_mode:
             image_url = await RecognitionService.upload_input_image_with_timeout(
@@ -949,11 +1511,20 @@ class RecognitionService:
                 task=task,
             )
 
+        if task:
+            await RecognitionService.check_task_cancelled(task)
+
         if task and not task.input_image_path and not image_url:
             raise RuntimeError("Input image could not be saved or uploaded.")
 
+        runtime_timing["upload_prepare_ms"] = _elapsed_ms(upload_prepare_started_at)
+        detection_ag0_started_at = time.perf_counter()
+
         if task:
             await RecognitionService.update_task(task, "cropping", 30)
+
+        if task:
+            await RecognitionService.check_task_cancelled(task)
 
         rejected_objects: List[Dict[str, Any]] = []
         crop_failure_reason: Optional[str] = None
@@ -999,6 +1570,9 @@ class RecognitionService:
                     "Crop pipeline raised an exception; original image fallback is disabled."
                 ],
             }]
+
+        if task:
+            await RecognitionService.check_task_cancelled(task)
 
         # Defense in depth: only explicit agent_eligible=True objects may reach
         # Agent1/2/3. Any legacy or malformed crop without the field is rejected.
@@ -1050,6 +1624,7 @@ class RecognitionService:
             })
 
         detected_objects = eligible_detected_objects
+        runtime_timing["detection_ag0_ms"] = _elapsed_ms(detection_ag0_started_at)
 
         # --- [3.7 + 3.8 C] Log & Trích xuất Metadata Crop ---
         if task:
@@ -1130,7 +1705,12 @@ class RecognitionService:
                     "aggregator_skipped": True,
                     "billing_skipped": True,
                     "crop_failure_reason": crop_failure_reason,
+                    "attempts_used": 0,
+                    "max_attempts": 0,
                 }
+                runtime_timing["total_ms"] = _elapsed_ms(pipeline_perf_started_at)
+                final_result["runtime_timing"] = dict(runtime_timing)
+                final_result["attempt_policy_trace"] = []
             if experiment_mode:
                 return {
                     "input_info": {
@@ -1178,19 +1758,20 @@ class RecognitionService:
                 created_at=now_utc(),
                 updated_at=now_utc(),
             )
+            if task:
+                await RecognitionService.check_task_cancelled(task)
             await record.insert()
             result_data = serialize_result(record)
 
             if task:
-                task.status = "completed"
-                task.stage = "completed"
-                task.progress = 100
-                task.result_id = str(record.id)
-                task.result = result_data
-                task.error_message = None
-                task.finished_at = now_utc()
-                task.updated_at = now_utc()
-                await task.save()
+                await RecognitionService.finalize_task(
+                    task,
+                    "no_banknote_detected",
+                    stage="no_banknote_detected",
+                    progress=100,
+                    result_id=str(record.id),
+                    result=result_data,
+                )
 
             if debug_mode:
                 return {
@@ -1287,6 +1868,9 @@ class RecognitionService:
             detected_objects = processed_objects
 
         for position, object_item in enumerate(detected_objects, start=1):
+            if task:
+                await RecognitionService.check_task_cancelled(task)
+
             object_index = int(object_item.get("object_index") or position)
             crop_bytes = object_item.get("crop_bytes")
             if not crop_bytes:
@@ -1299,6 +1883,7 @@ class RecognitionService:
 
             # Phân biệt crop thật / fallback ảnh gốc để gắn metadata per object
             _crop_is_fallback = bool(object_item.get("fallback", False))
+            crop_prepare_started_at = time.perf_counter()
 
             # Defensive AG0 gate in case an ineligible object slips through.
             crop_checker = object_item.get("crop_checker") or {}
@@ -1437,11 +2022,61 @@ class RecognitionService:
                     object_item["debug_info"][f"{pfx}_{k}"] = v
             # --- END VISION RESIZE ---
 
+            ag3_public_crop_url = _public_crop_url_for_ag3(object_item, original_image_url=image_url)
+            object_item["debug_info"]["ag3_public_crop_url_available"] = bool(ag3_public_crop_url)
+            if ag3_public_crop_url:
+                object_item["debug_info"]["ag3_public_crop_url"] = _sanitize_public_url(ag3_public_crop_url)
+
+            # --- Mid-pipeline crop preview persistence ---
+            # Persist a minimal, public-safe crop snapshot on the task BEFORE agents run.
+            # This is what the frontend poll reads to show the crop preview during processing.
+            # Only persisted for the first object (position==1) to keep the DB write minimal.
+            # No base64, no bytes, no debug data.
+            # IMPORTANT: Real crop only — never use original image as crop preview.
+            if task and position == 1:
+                _crop_checker_for_preview = object_item.get("crop_checker") or {}
+                _preview_crop_url = _resolve_crop_preview_url(object_item, original_image_url=image_url)
+                _crop_preview_payload = {
+                    "selected_crop_url": _preview_crop_url,
+                    "crop_image_url": _preview_crop_url,
+                    "bbox": object_item.get("bbox"),
+                    "crop_source": object_item.get("crop_source") or object_item.get("source"),
+                    "ag0_action": (
+                        _crop_checker_for_preview.get("action")
+                        or _crop_checker_for_preview.get("ag0_action")
+                        or object_item.get("ag0_action")
+                    ),
+                    "agent_eligible": True,  # Only eligible objects reach this point
+                }
+                # Strip None values to keep it compact
+                _crop_preview_payload = {k: v for k, v in _crop_preview_payload.items() if v is not None}
+                try:
+                    task.crop_preview = _crop_preview_payload
+                    task.updated_at = now_utc()
+                    await task.save()
+                    logger.info(
+                        "[Recognition/CropPreview] persisted crop_preview task_id=%s crop_url_available=%s",
+                        task.id,
+                        bool(_preview_crop_url),
+                    )
+                except Exception as _cp_exc:
+                    logger.warning(
+                        "[Recognition/CropPreview] failed to persist crop_preview task_id=%s error=%s",
+                        task.id, _cp_exc,
+                    )
+            # --- End mid-pipeline crop preview persistence ---
+
             context_for_llm = (
                 f"You are analyzing banknote object #{object_index} cropped from the original image. "
                 "Only identify the banknote inside this crop. "
                 "Do not use information from other banknotes outside this crop."
             )
+            ag3_clean_context = (
+                f"You are analyzing banknote object #{object_index} cropped from the original image. "
+                "Only identify the banknote inside this crop."
+            )
+
+            runtime_timing["crop_preparation_ms"] += _elapsed_ms(crop_prepare_started_at)
 
             final_consensus: Dict[str, Any] = {}
             object_agent_results: List[Dict[str, Any]] = []
@@ -1459,7 +2094,9 @@ class RecognitionService:
                 "aggregator_log": {"attempts": []}
             }
             consensus_trace = []
-            run_max_attempts = 1
+            attempt_policy_trace = []
+            effective_max_attempts = 1
+            stable_agent_cache: Dict[str, Dict[str, Any]] = {}
 
             ag4_conflict_rerun_state = {
                 "triggered": False,
@@ -1471,7 +2108,11 @@ class RecognitionService:
 
             for attempt_idx in range(MAX_CONFLICT_ATTEMPTS):
                 attempt_no = attempt_idx + 1
+                attempt_started_at = time.perf_counter()
                 logger.info("[Recognition/Object] start object_%s attempt=%s/%s", object_index, attempt_no, MAX_CONFLICT_ATTEMPTS)
+
+                if task:
+                    await RecognitionService.check_task_cancelled(task)
                 
                 # --- Capture prompt & raw llm ---
                 llm_debug_log = {} if debug_mode else None
@@ -1500,36 +2141,105 @@ class RecognitionService:
                         }
                     )
 
-                agent_tasks = [
-                    run_agent_with_timeout(
-                        run_agent1_openai(agent1_image_bytes, **agent1_kwargs),
-                        agent_timeout_seconds,
-                        "Agent 1 OpenAI"
-                    ) if enable_agent_1
-                    else build_disabled_agent_result("Agent 1 OpenAI", "Agent 1 bị tắt theo cấu hình admin."),
-                    run_agent_with_timeout(
-                        run_agent2_llm(
-                            agent2_image_bytes,
-                            context_for_llm,
-                            **agent2_kwargs,
-                        ),
-                        agent_timeout_seconds,
-                        "Agent 2 LLM"
-                    ) if enable_agent_2
-                    else build_disabled_agent_result("Agent 2 LLM", "Agent 2 bị tắt theo cấu hình admin."),
-                    run_agent_with_timeout(
-                        run_agent3_lens(agent3_image_bytes, context_for_llm, debug_log=lens_debug_log, experiment_mode=experiment_mode),
-                        35, # Hard timeout 35s cho Agent 3
-                        "Agent 3 Lens"
-                    ) if enable_agent_3
-                    else build_disabled_agent_result("Agent 3 Lens", "Agent 3 bị tắt theo cấu hình admin."),
-                ]
-                
-                if debug_mode and enable_agent_3:
+                agent_image_fingerprints = {
+                    "ag1": _agent_result_image_fingerprint(agent1_image_bytes),
+                    "ag2": _agent_result_image_fingerprint(agent2_image_bytes),
+                    "ag3": _agent_result_image_fingerprint(agent3_image_bytes),
+                }
+                attempt_agent_actions: Dict[str, str] = {}
+                attempt_agent_action_reasons: Dict[str, str] = {}
+                raw_agent_results: Dict[str, Any] = {}
+                agent_durations = {"ag1": 0, "ag2": 0, "ag3": 0}
+                agent_reused = {"ag1": False, "ag2": False, "ag3": False}
+                agent_tasks = []
+                agent_task_slots = []
+
+                def _reuse_or_queue_agent(
+                    agent_key: str,
+                    enabled: bool,
+                    disabled_raw: str,
+                    coro_factory,
+                    timeout_seconds: int,
+                    fallback_label: str,
+                ):
+                    if not enabled:
+                        attempt_agent_actions[agent_key] = "disabled"
+                        attempt_agent_action_reasons[agent_key] = "agent_disabled"
+                        raw_agent_results[agent_key] = disabled_raw
+                        return
+
+                    decision = _classify_cached_agent_reuse(
+                        agent_key,
+                        stable_agent_cache.get(agent_key),
+                        agent_image_fingerprints.get(agent_key),
+                    )
+                    attempt_agent_actions[agent_key] = (
+                        "reused" if decision["action"] == "reuse" else "executed"
+                    )
+                    attempt_agent_action_reasons[agent_key] = decision["reason"]
+
+                    if decision["action"] == "reuse":
+                        agent_reused[agent_key] = True
+                        raw_agent_results[agent_key] = _agent_data_to_raw_json(
+                            stable_agent_cache[agent_key]["data"]
+                        )
+                        return
+
+                    agent_task_slots.append(agent_key)
+                    agent_tasks.append(
+                        run_agent_with_timing(
+                            coro_factory(),
+                            timeout_seconds,
+                            fallback_label,
+                        )
+                    )
+
+                _reuse_or_queue_agent(
+                    "ag1",
+                    enable_agent_1,
+                    build_disabled_agent_result("Agent 1 OpenAI", "Agent 1 bị tắt theo cấu hình admin."),
+                    lambda: run_agent1_openai(agent1_image_bytes, **agent1_kwargs),
+                    agent_timeout_seconds,
+                    "Agent 1 OpenAI",
+                )
+                _reuse_or_queue_agent(
+                    "ag2",
+                    enable_agent_2,
+                    build_disabled_agent_result("Agent 2 LLM", "Agent 2 bị tắt theo cấu hình admin."),
+                    lambda: run_agent2_llm(
+                        agent2_image_bytes,
+                        context_for_llm,
+                        **agent2_kwargs,
+                    ),
+                    100,  # AG2 gets 100s specifically
+                    "Agent 2 LLM",
+                )
+                _reuse_or_queue_agent(
+                    "ag3",
+                    enable_agent_3,
+                    build_disabled_agent_result("Agent 3 Lens", "Agent 3 bị tắt theo cấu hình admin."),
+                    lambda: run_agent3_lens(
+                        agent3_image_bytes,
+                        ag3_clean_context,
+                        debug_log=lens_debug_log,
+                        experiment_mode=experiment_mode,
+                        public_crop_url=ag3_public_crop_url,
+                    ),
+                    35,
+                    "Agent 3 Lens",
+                )
+
+                if debug_mode and enable_agent_3 and attempt_agent_actions.get("ag3") == "executed":
                     from app.agents.agent_3_lens import run_agent3_lens as run_agent3_lens_v1
+                    agent_task_slots.append("ag3_debug_v1")
                     agent_tasks.append(
                         run_agent_with_timeout(
-                            run_agent3_lens_v1(agent3_image_bytes, context_for_llm, debug_log=lens_v1_debug),
+                            run_agent3_lens_v1(
+                                agent3_image_bytes,
+                                ag3_clean_context,
+                                debug_log=lens_v1_debug,
+                                public_crop_url=ag3_public_crop_url,
+                            ),
                             35,
                             "Agent 3 Lens v1"
                         )
@@ -1538,6 +2248,7 @@ class RecognitionService:
                         logger.info(
                             "[Agent3/Debug] Selenium v2 compare skipped by AG3 SerpAPI-only policy."
                         )
+                        agent_task_slots.append("ag3_debug_v2")
                         agent_tasks.append(
                             run_agent_with_timeout(
                                 build_agent3_selenium_policy_disabled_result(),
@@ -1548,38 +2259,60 @@ class RecognitionService:
                     else:
                         from app.agents.agent_3_lens_v2 import run_agent3_lens_v2
 
+                        agent_task_slots.append("ag3_debug_v2")
                         agent_tasks.append(
                             run_agent_with_timeout(
-                                run_agent3_lens_v2(agent3_image_bytes, context_for_llm, debug_log=lens_v2_debug),
+                                run_agent3_lens_v2(agent3_image_bytes, ag3_clean_context, debug_log=lens_v2_debug),
                                 35,
                                 "Agent 3 Lens v2"
                             )
                         )
 
                 try:
-                    results = await asyncio.gather(*agent_tasks, return_exceptions=True)
+                    results = await asyncio.gather(*agent_tasks, return_exceptions=True) if agent_tasks else []
                 except Exception as exc:
                     logger.error("[Pipeline] unexpected gather error: %s", exc)
                     results = [exc for _ in agent_tasks]
 
-                raw_1 = results[0]
-                raw_2 = results[1]
-                raw_3 = results[2]
+                if task:
+                    await RecognitionService.check_task_cancelled(task)
+
+                debug_agent_results = {"ag3_debug_v1": None, "ag3_debug_v2": None}
+                for agent_key, result_value in zip(agent_task_slots, results):
+                    if agent_key in agent_durations:
+                        raw_value, duration_ms = _split_timed_agent_result(result_value)
+                        raw_agent_results[agent_key] = raw_value
+                        agent_durations[agent_key] = duration_ms
+                    else:
+                        debug_agent_results[agent_key] = result_value
+
+                raw_1 = raw_agent_results.get("ag1")
+                raw_2 = raw_agent_results.get("ag2")
+                raw_3 = raw_agent_results.get("ag3")
+                ag1_duration_ms = agent_durations["ag1"]
+                ag2_duration_ms = agent_durations["ag2"]
+                ag3_duration_ms = agent_durations["ag3"]
+                ag3_candidate_duration_ms = 0
 
                 agent1_data = parse_agent_json(raw_1, "Agent 1 failed.")
                 agent2_data = parse_agent_json(raw_2, "Agent 2 failed.")
                 agent3_data = parse_agent_json(raw_3, "Agent 3 failed.")
-                if enable_agent_3:
+                if enable_agent_3 and attempt_agent_actions.get("ag3") == "executed":
+                    if task:
+                        await RecognitionService.check_task_cancelled(task)
+
                     candidate_policy = resolve_agent3_candidate_verification_policy(
-                        agent1_data,
-                        agent2_data,
+                        None,
+                        None,
+                        agent3_result=agent3_data,
                     )
                     candidate_mode = candidate_policy["mode"]
                     candidate_timeout = float(candidate_policy["timeout_seconds"])
+                    candidate_verification_started_at = time.perf_counter()
                     try:
                         candidate_coro = run_agent3_candidate_verification(
-                            agent1_data,
-                            agent2_data,
+                            None,
+                            None,
                             agent3_data,
                             mode=candidate_mode,
                             timeout_seconds=candidate_timeout,
@@ -1593,8 +2326,8 @@ class RecognitionService:
                             agent3_data = await candidate_coro
                     except asyncio.TimeoutError:
                         agent3_data = build_agent3_candidate_timeout_result(
-                            agent1_data,
-                            agent2_data,
+                            None,
+                            None,
                             agent3_data,
                             mode=candidate_mode,
                             timeout_seconds=candidate_timeout,
@@ -1604,6 +2337,12 @@ class RecognitionService:
                             "[Agent3CandidateVerification] skipped after error: %s",
                             exc,
                         )
+                    finally:
+                        ag3_candidate_duration_ms = _elapsed_ms(candidate_verification_started_at)
+                        ag3_duration_ms += ag3_candidate_duration_ms
+                    if task:
+                        await RecognitionService.check_task_cancelled(task)
+
                 if experiment_mode:
                     experiment_model_trace["ag1_model"] = (
                         (agent1_model_trace or {}).get("model")
@@ -1635,6 +2374,17 @@ class RecognitionService:
                     if isinstance(agent_data, dict):
                         agent_data["object_index"] = object_index
 
+                for agent_key, agent_data in (
+                    ("ag1", agent1_data),
+                    ("ag2", agent2_data),
+                    ("ag3", agent3_data),
+                ):
+                    if isinstance(agent_data, dict) and _should_cache_agent_result(agent_key, agent_data):
+                        stable_agent_cache[agent_key] = {
+                            "data": dict(agent_data),
+                            "image_fingerprint": agent_image_fingerprints.get(agent_key),
+                        }
+
                 object_agent_results = [
                     {
                         "agent": "OpenAI",
@@ -1662,10 +2412,20 @@ class RecognitionService:
                         task,
                         f"aggregating_object_{object_index}",
                         min(85, progress_base + 10),
-                    )
+                )
 
+                ag4_duration_ms = 0
                 if enable_aggregator:
+                    if task:
+                        await RecognitionService.check_task_cancelled(task)
+
+                    ag4_started_at = time.perf_counter()
                     final_consensus = await run_aggregator(r1, r2, r3)
+                    ag4_duration_ms = _elapsed_ms(ag4_started_at)
+
+                    if task:
+                        await RecognitionService.check_task_cancelled(task)
+
                     pattern = final_consensus.get("consensus_pattern", "unknown")
                     early_stop_fixed_config = should_early_stop_fixed_provider_config_single_valid_vote(
                         final_consensus,
@@ -1727,18 +2487,42 @@ class RecognitionService:
                         object_index, attempt_no, current_max_attempts, pattern, final_consensus.get('matched_agents')
                     )
                     
-                    final_consensus["attempts_used"] = attempt_no
-                    if attempt_idx == 0:
-                        run_max_attempts = current_max_attempts
-                    final_consensus["max_attempts"] = run_max_attempts
+                    effective_max_attempts = _apply_attempt_diagnostics(
+                        final_consensus,
+                        attempt_no,
+                        pattern,
+                        current_max_attempts,
+                        attempt_policy_trace,
+                        effective_max_attempts,
+                        attempt_agent_actions,
+                    )
                     if early_stop_fixed_config:
                         final_consensus["fixed_provider_config_early_stop"] = True
                         final_consensus["early_stop_reason"] = "fixed_provider_config_single_valid_vote"
                     
-                    if pattern not in ["2/3", "3/3"] and attempt_no < current_max_attempts:
-                        require_rerun = True
+                    retry_stopped_reason = None
+                    would_rerun_by_policy = pattern not in ["2/3", "3/3"] and attempt_no < current_max_attempts
+                    if would_rerun_by_policy:
+                        next_attempt_projection = _project_next_attempt_agent_actions(
+                            stable_agent_cache,
+                            agent_image_fingerprints,
+                            {
+                                "ag1": enable_agent_1,
+                                "ag2": enable_agent_2,
+                                "ag3": enable_agent_3,
+                            },
+                        )
+                        require_rerun = bool(next_attempt_projection["executable_agents"])
+                        if not require_rerun:
+                            retry_stopped_reason = "no_retryable_agents"
+                            final_consensus["retry_stopped_reason"] = retry_stopped_reason
+                            if attempt_policy_trace:
+                                attempt_policy_trace[-1]["retry_stopped_reason"] = retry_stopped_reason
+                                final_consensus["attempt_policy_trace"] = list(attempt_policy_trace)
                     else:
                         require_rerun = False
+
+                    if not require_rerun:
                         if pattern in ["1-1-1", "1-1", "conflict", "1-valid-only"]:
                             final_consensus["status"] = "consensus_failed"
                             if final_consensus.get("consensus_reason") == "technical_or_conflicting_evidence":
@@ -1780,6 +2564,15 @@ class RecognitionService:
                         "max_attempts": 1,
                         "quan_diem_trong_tai": "Aggregator bị tắt theo cấu hình admin.",
                     }
+                    effective_max_attempts = _apply_attempt_diagnostics(
+                        final_consensus,
+                        attempt_no,
+                        "unknown",
+                        1,
+                        attempt_policy_trace,
+                        effective_max_attempts,
+                        attempt_agent_actions,
+                    )
                 final_consensus["object_index"] = object_index
                 
                 def _get_agent_summary(raw_str, agent_name):
@@ -1804,17 +2597,20 @@ class RecognitionService:
                     "matched_agents": final_consensus.get("matched_agents", 0),
                     "decision": "retry" if final_consensus.get("require_rerun") else "completed",
                     "reason": final_consensus.get("quan_diem_trong_tai", ""),
+                    "agents": dict(attempt_agent_actions),
                     "votes": [
                         _get_agent_summary(r1, "OpenAI"),
                         _get_agent_summary(r2, "LLM"),
                         _get_agent_summary(r3, "Visual Search")
                     ]
                 }
+                if final_consensus.get("retry_stopped_reason"):
+                    trace_record["retry_stopped_reason"] = final_consensus.get("retry_stopped_reason")
                 consensus_trace.append(trace_record)
                 
                 if debug_mode:
-                    r3_v1_result = results[3] if enable_agent_3 and len(results) > 3 else None
-                    r3_v2_result = results[4] if enable_agent_3 and len(results) > 4 else None
+                    r3_v1_result = debug_agent_results.get("ag3_debug_v1")
+                    r3_v2_result = debug_agent_results.get("ag3_debug_v2")
 
                     if "agent_1_raw" not in current_debug_object:
                         current_debug_object["agent_1_raw"] = r1
@@ -1840,6 +2636,25 @@ class RecognitionService:
                         "require_rerun": final_consensus.get("require_rerun", False),
                         "votes": [v.get("vote_key") for v in final_consensus.get("valid_votes", [])],
                     })
+
+                attempt_timing = {
+                    "object_index": object_index,
+                    "attempt": attempt_no,
+                    "agents": dict(attempt_agent_actions),
+                    "total_ms": _elapsed_ms(attempt_started_at),
+                    "ag1_ms": ag1_duration_ms,
+                    "ag2_ms": ag2_duration_ms,
+                    "ag3_ms": ag3_duration_ms,
+                    "ag4_ms": ag4_duration_ms,
+                    "ag1_reused": agent_reused["ag1"],
+                    "ag2_reused": agent_reused["ag2"],
+                    "ag3_reused": agent_reused["ag3"],
+                }
+                if ag3_candidate_duration_ms:
+                    attempt_timing["ag3_candidate_verification_ms"] = ag3_candidate_duration_ms
+                if final_consensus.get("retry_stopped_reason"):
+                    attempt_timing["retry_stopped_reason"] = final_consensus.get("retry_stopped_reason")
+                runtime_timing["attempts"].append(attempt_timing)
 
                 if final_consensus.get("require_rerun"):
                     summary_r1 = json.dumps(_get_agent_summary(r1, "OpenAI"), ensure_ascii=False)
@@ -2372,6 +3187,31 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
             else:
                 status_value = "Needs Review"
 
+        flattened_attempt_policy_trace = []
+        for item in detected_results:
+            item_final = item.get("final_result") or {}
+            for trace_item in item_final.get("attempt_policy_trace") or []:
+                if not isinstance(trace_item, dict):
+                    continue
+                policy_item = {
+                    "attempt": trace_item.get("attempt"),
+                    "pattern": trace_item.get("pattern"),
+                    "max_attempts": trace_item.get("max_attempts"),
+                }
+                if isinstance(trace_item.get("agents"), dict):
+                    policy_item["agents"] = dict(trace_item["agents"])
+                if len(detected_results) > 1:
+                    policy_item["object_index"] = item.get("object_index")
+                flattened_attempt_policy_trace.append(policy_item)
+
+        if flattened_attempt_policy_trace:
+            final_consensus["attempt_policy_trace"] = flattened_attempt_policy_trace
+            final_consensus["attempts_used"] = len(runtime_timing.get("attempts") or [])
+            final_consensus["max_attempts"] = max(
+                int(item.get("max_attempts") or 1)
+                for item in flattened_attempt_policy_trace
+            )
+
         if overflow_objects:
             final_consensus["overflow_objects"] = sanitize_for_storage(overflow_objects, keep_crop_base64=False)
             final_consensus["limit_info"] = {
@@ -2470,6 +3310,8 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
 
         final_consensus["resize_debug"] = resize_debug
         final_consensus["models_used"] = models_used
+        runtime_timing["total_ms"] = _elapsed_ms(pipeline_perf_started_at)
+        final_consensus["runtime_timing"] = dict(runtime_timing)
 
         if experiment_mode:
             # Overwrite experiment trace to ensure we have the safe, detailed versions
@@ -2567,10 +3409,15 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
             updated_at=now_utc(),
         )
 
+        if task:
+            await RecognitionService.check_task_cancelled(task)
         await record.insert()
 
         if task:
             await RecognitionService.update_task(task, "saving_result", 95)
+
+        if task:
+            await RecognitionService.check_task_cancelled(task)
 
         try:
             if should_charge_billing:
@@ -2613,14 +3460,14 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
         result_data = serialize_result(record)
 
         if task:
-            task.status = "completed"
-            task.stage = "completed"
-            task.progress = 100
-            task.result_id = str(record.id)
-            task.result = result_data
-            task.finished_at = now_utc()
-            task.updated_at = now_utc()
-            await task.save()
+            await RecognitionService.finalize_task(
+                task,
+                status_value,
+                stage=RecognitionService.normalize_task_status(status_value),
+                progress=100,
+                result_id=str(record.id),
+                result=result_data,
+            )
 
         if debug_mode:
             return {
@@ -2694,7 +3541,7 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
                 "failed",
                 f"Could not save uploaded image: {str(exc)[:300]}",
             )
-            return serialize_task(task)
+            return serialize_user_task(task)
 
         background_job = asyncio.create_task(
             RecognitionService.run_recognition_background_worker(
@@ -2707,7 +3554,49 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
             lambda job: RecognitionService.log_background_task_exception(str(task.id), job)
         )
 
-        return serialize_task(task)
+        return serialize_user_task(task)
+
+    @staticmethod
+    async def cancel_recognition_task(user: User, task_id: str) -> Dict[str, Any]:
+        task = await RecognitionTask.get(to_object_id(task_id))
+
+        if not task:
+            raise HTTPException(status_code=404, detail="Recognition task not found.")
+
+        if task.user_id != str(user.id) and getattr(user, "role", "user") != "admin":
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have access to this task.",
+            )
+
+        status_text = RecognitionService.normalize_task_status(
+            getattr(task, "status", None)
+        )
+
+        if RecognitionService.is_terminal_task_status(status_text):
+            return {
+                "task_id": str(task.id),
+                "status": status_text,
+                "terminal": True,
+                "message": "Task is already terminal.",
+            }
+
+        now = now_utc()
+        task.cancel_requested = True
+        if getattr(task, "cancel_requested_at", None) is None:
+            task.cancel_requested_at = now
+        task.status = "cancelling"
+        task.stage = "cancelling"
+        task.updated_at = now
+        await task.save()
+
+        logger.info("[RecognitionTask] cancel_requested task_id=%s user_id=%s", task.id, user.id)
+        return {
+            "task_id": str(task.id),
+            "status": "cancelling",
+            "terminal": False,
+            "message": "Cancellation requested. The task will stop at the next safe checkpoint.",
+        }
 
     @staticmethod
     async def run_recognition_background_worker(
@@ -2741,24 +3630,19 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
                 timeout=TASK_PIPELINE_TIMEOUT_SECONDS
             )
 
+        except RecognitionTaskCancelled:
+            logger.info("[RecognitionTask] pipeline_cancelled task_id=%s", task.id)
+            return
         except asyncio.TimeoutError:
             logger.exception("[RecognitionTask] pipeline_timeout task_id=%s", task.id)
-            task.status = "failed"
-            task.stage = "failed"
-            task.progress = 100
-            task.error_message = "Task timeout sau 180 giây. Vui lòng quét lại."
-            task.finished_at = now_utc()
-            task.updated_at = now_utc()
-            await task.save()
+            await RecognitionService.fail_task(
+                task,
+                "failed",
+                "Task timeout after 180 seconds. Please scan again.",
+            )
         except Exception as exc:
             logger.exception("[RecognitionTask] pipeline_failed task_id=%s", task.id)
-            task.status = "failed"
-            task.stage = "failed"
-            task.progress = 100
-            task.error_message = str(exc)
-            task.finished_at = now_utc()
-            task.updated_at = now_utc()
-            await task.save()
+            await RecognitionService.fail_task(task, "failed", str(exc))
 
     @staticmethod
     async def get_task_status(user: User, task_id: str) -> Dict[str, Any]:
@@ -2773,7 +3657,35 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
                 detail="You do not have access to this task.",
             )
 
-        return serialize_task(task)
+        public_result = None
+        result_id = getattr(task, "result_id", None)
+
+        if result_id:
+            try:
+                record = await RecognitionRequest.get(to_object_id(str(result_id)))
+            except HTTPException:
+                record = None
+            if record and getattr(record, "user_id", None) == getattr(task, "user_id", None):
+                public_result = serialize_user_result(record)
+        elif getattr(task, "result", None):
+            public_result = serialize_user_result(getattr(task, "result"))
+
+        return serialize_user_task(task, public_result=public_result)
+
+    @staticmethod
+    async def get_task_light_status(user: User, task_id: str) -> Dict[str, Any]:
+        task = await RecognitionTask.get(to_object_id(task_id))
+
+        if not task:
+            raise HTTPException(status_code=404, detail="Recognition task not found.")
+
+        if task.user_id != str(user.id) and getattr(user, "role", "user") != "admin":
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have access to this task.",
+            )
+
+        return serialize_task_light_status(task)
 
     @staticmethod
     async def get_recognition_by_id(user_id: str, record_id: str) -> Dict[str, Any]:
@@ -2788,4 +3700,4 @@ Please re-check the same crop carefully. Focus on visible text, denomination num
                 detail="You do not have access to this result.",
             )
 
-        return serialize_result(result)
+        return serialize_user_result(result)

@@ -64,6 +64,18 @@ AG0_LOW_LIGHT_MIN_YOLO_CONF = float(
 AG0_LOW_LIGHT_OUTER_BORDER_MIN = float(
     os.getenv("AG0_LOW_LIGHT_OUTER_BORDER_MIN", "0.15")
 )
+AG0_FULL_FRAME_REVIEW_AREA_MIN = float(
+    os.getenv("AG0_FULL_FRAME_REVIEW_AREA_MIN", "0.90")
+)
+AG0_FULL_FRAME_REVIEW_BANKNOTE_SCORE_MIN = float(
+    os.getenv("AG0_FULL_FRAME_REVIEW_BANKNOTE_SCORE_MIN", "0.70")
+)
+AG0_FULL_FRAME_REVIEW_DOCUMENT_SCORE_MAX = float(
+    os.getenv("AG0_FULL_FRAME_REVIEW_DOCUMENT_SCORE_MAX", "0.35")
+)
+AG0_FULL_FRAME_REVIEW_SCORE_MARGIN_MIN = float(
+    os.getenv("AG0_FULL_FRAME_REVIEW_SCORE_MARGIN_MIN", "0.30")
+)
 
 # --- Brightness sanity ---
 AG0_BRIGHTNESS_MIN = float(os.getenv("AG0_BRIGHTNESS_MIN", "20.0"))   # quá tối
@@ -861,6 +873,27 @@ def build_shadow_explainability(
         and not poster_layout_reject
         and document_score <= 0.50
     )
+    full_frame_document_combo = (
+        (long_line_density >= 0.72 and rectangle_density >= 0.10)
+        or layout_panel_count >= 5
+        or circle_like_count >= 3
+    )
+    full_frame_banknote_review_allowed = (
+        source == "yolo_crop"
+        and action == "REVIEW"
+        and area_ratio >= AG0_FULL_FRAME_REVIEW_AREA_MIN
+        and aspect_is_banknote_like
+        and quality_support_count >= 2
+        and banknote_score >= AG0_FULL_FRAME_REVIEW_BANKNOTE_SCORE_MIN
+        and document_score <= AG0_FULL_FRAME_REVIEW_DOCUMENT_SCORE_MAX
+        and (banknote_score - document_score) >= AG0_FULL_FRAME_REVIEW_SCORE_MARGIN_MIN
+        and layout_clutter_score < 0.60
+        and not poster_layout_reject
+        and not full_frame_document_combo
+    )
+    if full_frame_banknote_review_allowed:
+        positive_evidence.append("full_frame_banknote_review_allowed")
+
     yolo_review_threshold = (
         AG0_REVIEW_ELIGIBLE_YOLO_BANKNOTE_SCORE
         if (
@@ -921,6 +954,8 @@ def build_shadow_explainability(
             agent_eligible = (
                 not poster_layout_reject
                 and (
+                    full_frame_banknote_review_allowed
+                    or
                     low_light_banknote_protection
                     or (
                         banknote_score >= yolo_review_threshold
@@ -949,6 +984,21 @@ def build_shadow_explainability(
             )
 
     agent_eligible_shadow = agent_eligible
+    if action == "DROP":
+        gate_reason_code = "hard_drop_non_banknote"
+    elif agent_eligible and full_frame_banknote_review_allowed:
+        gate_reason_code = "full_frame_banknote_review_allowed"
+    elif not agent_eligible and (
+        document_score >= AG0_FULL_FRAME_REVIEW_DOCUMENT_SCORE_MAX
+        or document_dominates
+        or strong_document_structure
+        or poster_layout_reject
+    ):
+        gate_reason_code = "review_rejected_document_like"
+    elif not agent_eligible:
+        gate_reason_code = "review_rejected_weak_banknote_evidence"
+    else:
+        gate_reason_code = "review_agent_eligible"
 
     if not agent_eligible:
         if action == "KEEP":
@@ -971,6 +1021,11 @@ def build_shadow_explainability(
     else:
         if action == "KEEP":
             shadow_reason = "AG0 gate allows this crop because it was marked KEEP."
+        elif full_frame_banknote_review_allowed:
+            shadow_reason = (
+                "AG0 gate keeps this near-full-frame YOLO REVIEW agent-eligible "
+                "because banknote_score clearly exceeds document_score and quality is usable."
+            )
         else:
             shadow_reason = (
                 "AG0 gate keeps this uncertain crop agent-eligible for review because it is a STRONG REVIEW "
@@ -1000,6 +1055,8 @@ def build_shadow_explainability(
         "strong_document_structure": bool(strong_document_structure),
         "small_clear_yolo_candidate": bool(small_clear_yolo_candidate),
         "low_light_banknote_protection": bool(low_light_banknote_protection),
+        "full_frame_banknote_review_allowed": bool(full_frame_banknote_review_allowed),
+        "gate_reason_code": gate_reason_code,
         "yolo_review_threshold": round(yolo_review_threshold, 3),
         "area_ratio": round(area_ratio, 5),
         "yolo_conf": round(yolo_confidence, 4),

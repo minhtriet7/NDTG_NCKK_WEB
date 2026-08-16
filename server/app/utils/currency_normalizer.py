@@ -78,6 +78,7 @@ COUNTRY_MAPPING = {
     "lien minh chau au": "Euro Zone",
     "liÃªn minh chÃ¢u Ã¢u": "Euro Zone",
     "liÃªn minh chÃ¢u Ã‚u": "Euro Zone",
+    "khu vuc euro": "Euro Zone",
     "euro zone": "Euro Zone",
     "eurozone": "Euro Zone",
     "european union": "Euro Zone",
@@ -289,7 +290,8 @@ def canonical_country_for_currency(
     if not country:
         return country
     if str(currency_code or "").strip().upper() == "EUR":
-        if _fold_identity_text(country) in EURO_AREA_COUNTRY_KEYS:
+        folded = _fold_identity_text(country)
+        if folded in EURO_AREA_COUNTRY_KEYS or folded in {"eurozone", "euro zone", "khu vuc euro", "europe", "european union", "european union member states", "eu"}:
             return "Euro Zone"
     return country
 

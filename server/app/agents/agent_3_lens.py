@@ -7,7 +7,7 @@ import inspect
 import re
 import time
 import unicodedata
-from typing import Optional, List, Dict, Any, Callable, Awaitable
+from typing import Optional, List, Dict, Any, Callable, Awaitable, Tuple, Union
 from urllib.parse import urlparse
 
 from app.core.config import settings
@@ -25,35 +25,34 @@ from app.services.groq_evidence_reader_service import (
     should_call_groq_evidence_reader,
     GROQ_AVAILABLE as GROQ_EVIDENCE_READER_AVAILABLE,
 )
-from app.utils.currency_normalizer import normalize_agent_vote, normalize_currency_identity
+from app.utils.currency_normalizer import normalize_agent_vote, normalize_currency_identity, normalize_currency_no_infer, normalize_country
 from google.genai import types # 🌟 THÊM IMPORT NÀY ĐỂ ÉP KIỂU JSON
 
 
 CURRENCY_ALIASES = {
     "VND": [
         "vnd", "vnđ", "₫", "vietnamese dong", "viet nam dong",
-        "đồng việt nam", "việt nam đồng",
-        "dong", "dong banknote", "vietnamese dong banknote",
+        "đồng việt nam", "việt nam đồng", "đồng", "dong", "k", "nghìn", "ngàn",
+        "dong banknote", "vietnamese dong banknote",
         "viet nam dong banknote",
     ],
     "USD": [
-        "usd", "us dollar", "u.s. dollar", "$",
-        "đôla mỹ", "đô la mỹ",
+        "usd", "us dollar", "u.s. dollar", "đôla mỹ", "đô la mỹ",
     ],
     "EUR": ["eur", "euro", "euros", "€"],
-    "JPY": ["jpy", "yen", "yên", "¥"],
-    "CNY": ["cny", "yuan", "renminbi", "rmb"],
-    "KRW": ["krw", "won", "₩"],
-    "THB": ["thb", "baht", "฿"],
-    "MYR": ["myr", "ringgit"],
-    "SGD": ["sgd", "singapore dollar"],
-    "IDR": ["idr", "rupiah"],
-    "PHP": ["php", "peso", "philippine peso"],
-    "KHR": ["khr", "riel"],
-    "LAK": ["lak", "kip"],
-    "MMK": ["mmk", "kyat"],
+    "JPY": ["jpy", "yen", "yên", "¥", "￥"],
+    "CNY": ["cny", "yuan", "yuans", "renminbi", "rmb"],
+    "KRW": ["krw", "won", "wons", "₩"],
+    "THB": ["thb", "baht", "bahts", "฿"],
+    "MYR": ["myr", "ringgit", "ringgits"],
+    "SGD": ["sgd", "singapore dollar", "singapore dollars"],
+    "IDR": ["idr", "rupiah", "rupiahs"],
+    "PHP": ["php", "peso", "pesos", "philippine peso", "philippine pesos"],
+    "KHR": ["khr", "riel", "riels"],
+    "LAK": ["lak", "kip", "kips"],
+    "MMK": ["mmk", "kyat", "kyats"],
     "GBP": ["gbp", "pound", "pounds", "pound sterling", "sterling", "£"],
-    "AUD": ["aud", "australian dollar"]
+    "AUD": ["aud", "australian dollar", "australian dollars"],
 }
 
 COUNTRY_ALIASES = {
@@ -80,6 +79,11 @@ COUNTRY_ALIASES = {
 
 UNKNOWN_IDENTITY = "Không xác định"
 AGENT3_DEFAULT_BUDGET_SECONDS = 32.0
+INITIAL_LENS_RESULT_LIMIT = 10
+TARGETED_LENS_RESULT_LIMIT = 10
+AG3_MIN_SELECTED_SOURCES = 3
+AG3_MAX_SELECTED_SOURCES = 5
+AG3_MIN_EXACT_SUPPORT = 3
 PAGE_TEXT_MAX_URLS = 2
 import os
 PAGE_TEXT_TIMEOUT_SECONDS = float(os.getenv("AG3_TEST_PAGE_TEXT_TIMEOUT_SECONDS", 2.5))
@@ -87,11 +91,21 @@ PAGE_TEXT_EXCERPT_MAX_CHARS = 2200
 PAGE_TEXT_FETCH_BYTES_LIMIT = 200000
 PAGE_TEXT_MIN_BUDGET_SECONDS = 5.0
 FORMATTER_MIN_BUDGET_SECONDS = 3.0
-FAST_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS = 2.5
-RESCUE_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS = 10.0
+AG3_POST_UPLOAD_MIN_BUDGET_SECONDS = 12.0
+AG3_UPLOAD_MIN_ATTEMPT_SECONDS = 1.0
+AG3_UPLOAD_MAX_ATTEMPT_SECONDS = 16.0
+AG3_UPLOAD_RETRY_SLEEP_SECONDS = 0.25
+FAST_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS = float(
+    getattr(settings, "AGENT3_FAST_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS", 10.0)
+    or 10.0
+)
+RESCUE_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS = float(
+    getattr(settings, "AGENT3_RESCUE_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS", 10.0)
+    or 10.0
+)
 CANDIDATE_VERIFICATION_BUDGET_SECONDS = RESCUE_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS
 CANDIDATE_SEARCH_QUERY_LIMIT = 2
-CANDIDATE_SEARCH_RESULTS_PER_QUERY = 5
+CANDIDATE_SEARCH_RESULTS_PER_QUERY = 10
 SERPAPI_RATE_LIMIT_MARKERS = (
     "429",
     "run out of searches",
@@ -126,11 +140,50 @@ def _classify_serpapi_error(
     status_code: Optional[int] = None,
 ) -> str:
     explicit_type = str(getattr(error, "error_type", "") or "").strip().lower()
-    if explicit_type in {"rate_limit", "provider_quota_exhausted"}:
+    if explicit_type in {
+        "provider_timeout",
+        "provider_connection_error",
+        "provider_rate_limited",
+        "provider_server_error",
+        "provider_auth_error",
+        "provider_bad_request",
+        "provider_malformed_response",
+        "provider_no_result",
+    }:
         return explicit_type
+    if explicit_type in {"rate_limit", "provider_quota_exhausted"}:
+        return "provider_rate_limited"
+    if explicit_type == "timeout":
+        return "provider_timeout"
+    if _is_timeout_exception(error):
+        return "provider_timeout"
+    if _is_transient_network_exception(error):
+        return "provider_connection_error"
+    if status_code in {401, 403}:
+        return "provider_auth_error"
+    if status_code == 400:
+        return "provider_bad_request"
+    if status_code in {408, 504}:
+        return "provider_timeout"
+    if status_code == 429:
+        return "provider_rate_limited"
+    if isinstance(status_code, int) and 500 <= status_code <= 599:
+        return "provider_server_error"
     message = str(error or "").casefold()
     if status_code == 429 or any(marker in message for marker in SERPAPI_RATE_LIMIT_MARKERS):
-        return "rate_limit"
+        return "provider_rate_limited"
+    if any(token in message for token in ("timeout", "timed out")):
+        return "provider_timeout"
+    if any(token in message for token in ("connection", "network", "dns", "proxy", "ssl")):
+        return "provider_connection_error"
+    if any(token in message for token in ("invalid json", "malformed", "không trả json", "not valid json")):
+        return "provider_malformed_response"
+    if any(token in message for token in ("unauthorized", "forbidden", "auth", "api key", "serpapi_key", "missing key")):
+        return "provider_auth_error"
+    if any(token in message for token in ("bad request", "invalid request", "invalid parameter", "http 400")):
+        return "provider_bad_request"
+    if any(token in message for token in ("http 500", "http 502", "http 503", "http 504", "server error")):
+        return "provider_server_error"
     return "provider_error"
 
 
@@ -227,15 +280,14 @@ POSITIVE_BANKNOTE_KEYWORDS = [
     "polymer note", "denomination", "face value", "one hundred dollars", "one dollar",
     "tờ", "tờ tiền", "tiền giấy", "mệnh giá", "đồng", "đồng tiền",
     "đôla", "đô la",
-    "tiền polymer", "tiền cotton", "tiền lưu niệm", "yen banknote", "euro banknote", 
-    "baht note", "riel note", "kip note", "kyat note", "peso note", "rupiah note", 
+    "tiền polymer", "tiền cotton", "tiền lưu niệm", "yen banknote", "euro banknote",
+    "baht note", "riel note", "kip note", "kyat note", "peso note", "rupiah note",
     "ringgit note", "won note", "yuan note"
 ]
 
 NEGATIVE_EXCHANGE_KEYWORDS = [
-    "exchange rate", "currency converter", "tỷ giá", "quy đổi", "hôm nay", "giá bán", "mua bán",
-    "price", "auction", "shop", "ebay", "collector price", "converted to", "sold for",
-    "marketplace", "collector", "birthday note", "catalog", "catalogue", "mã catalog", "vnd equivalent",
+    "exchange rate", "currency converter", "tỷ giá", "quy đổi", "hôm nay", "giá bán",
+    "converted to", "vnd equivalent",
     "bằng bao nhiêu tiền việt nam", "bang bao nhieu tien viet nam",
     "xuống mức thấp", "xuong muc thap", "record low", "fell to", "drops to",
     "chi tiêu", "chi tieu", "spending", "daily budget", "một ngày chi tiêu",
@@ -244,6 +296,7 @@ NEGATIVE_EXCHANGE_KEYWORDS = [
     "quỹ đen", "quy den", "chiêu biến tờ", "chieu bien to", "biến tờ", "bien to",
     "tiền thật lấy", "tien that lay", "tiền bị rách", "tien bi rach",
 ]
+
 
 CURRENCY_QUERY_NAMES = {
     "VND": "Vietnamese dong",
@@ -285,18 +338,28 @@ def _contains_term(text: str, term: str) -> bool:
     normalized_term = str(term or "").strip().lower()
     if not normalized_term:
         return False
-    if not any(char.isalnum() for char in normalized_term):
-        return normalized_term in normalized_text
-    return re.search(
-        rf"(?<!\w){re.escape(normalized_term)}(?!\w)",
-        normalized_text,
-        flags=re.IGNORECASE,
-    ) is not None
+
+    def _token_match(haystack: str, needle: str) -> bool:
+        if not any(char.isalnum() for char in needle):
+            return needle in haystack
+        return re.search(
+            rf"(?<!\w){re.escape(needle)}(?!\w)",
+            haystack,
+            flags=re.IGNORECASE,
+        ) is not None
+
+    if _token_match(normalized_text, normalized_term):
+        return True
+
+    folded_text = _fold_text_for_markers(normalized_text)
+    folded_term = _fold_text_for_markers(normalized_term)
+    return bool(folded_term and _token_match(folded_text, folded_term))
 
 
 def _fold_text_for_markers(value: Any) -> str:
     text = unicodedata.normalize("NFD", str(value or "").casefold())
     text = "".join(char for char in text if unicodedata.category(char) != "Mn")
+    text = text.replace("đ", "d").replace("Đ", "d")
     return text
 
 
@@ -384,6 +447,248 @@ def _record_stage_trace(
         debug_log.setdefault("stage_trace", []).append(dict(entry))
 
 
+class ImgBBUploadError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        root_error_type: str,
+        retryable: bool = False,
+        status_code: Optional[int] = None,
+        retry_attempted: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.root_error_type = root_error_type
+        self.retryable = bool(retryable)
+        self.status_code = status_code
+        self.retry_attempted = bool(retry_attempted)
+
+
+def _is_valid_public_image_url(url: Optional[str]) -> bool:
+    value = str(url or "").strip()
+    if not value:
+        return False
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return False
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return False
+    if parsed.username or parsed.password:
+        return False
+    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return False
+    if host == "localhost" or host.endswith((".localhost", ".local", ".internal")):
+        return False
+    try:
+        ip_value = ipaddress.ip_address(host)
+        if not ip_value.is_global:
+            return False
+    except ValueError:
+        pass
+
+    path = (parsed.path or "").lower()
+    image_extensions = (
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+        ".gif",
+        ".bmp",
+        ".tif",
+        ".tiff",
+    )
+    if path.endswith(image_extensions):
+        return True
+    if "res.cloudinary.com" in host and "/image/upload/" in path:
+        return True
+    if host in {"i.ibb.co", "ibb.co"}:
+        return True
+    return False
+
+
+def _upload_attempt_timeout(deadline: float) -> float:
+    available = _remaining_budget(deadline) - AG3_POST_UPLOAD_MIN_BUDGET_SECONDS
+    if available < AG3_UPLOAD_MIN_ATTEMPT_SECONDS:
+        raise TimeoutError("Agent 3 upload skipped because retrieval budget would be exhausted.")
+    return min(AG3_UPLOAD_MAX_ATTEMPT_SECONDS, available)
+
+
+def _is_timeout_exception(exc: Exception) -> bool:
+    requests_exceptions = getattr(requests, "exceptions", None)
+    timeout_cls = getattr(requests_exceptions, "Timeout", None)
+    if timeout_cls is not None and isinstance(exc, timeout_cls):
+        return True
+    return isinstance(exc, TimeoutError) or "timeout" in exc.__class__.__name__.casefold()
+
+
+def _is_transient_network_exception(exc: Exception) -> bool:
+    if _is_timeout_exception(exc):
+        return True
+    requests_exceptions = getattr(requests, "exceptions", None)
+    transient_names = (
+        "ConnectionError",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "ProxyError",
+        "SSLError",
+    )
+    for name in transient_names:
+        cls = getattr(requests_exceptions, name, None)
+        if cls is not None and isinstance(exc, cls):
+            return True
+    return any(token in exc.__class__.__name__.casefold() for token in ("connection", "network", "proxy", "ssl"))
+
+
+def _technical_failure_result_json(
+    *,
+    timeout_stage: str,
+    provider_stage: str,
+    root_error_type: str,
+    message: str,
+    deadline: float,
+    run_started_at: float,
+    stage_trace: Optional[List[Dict[str, Any]]] = None,
+    debug_log: Optional[Dict[str, Any]] = None,
+    evidence: Optional[List[Dict[str, Any]]] = None,
+    raw_lens_text: str = "",
+    retry_attempted: bool = False,
+    search_performed: bool = False,
+) -> str:
+    preserved_evidence = list(evidence or [])[:10]
+    evidence_preserved = bool(preserved_evidence)
+    elapsed_ms = int(max(0.0, time.monotonic() - run_started_at) * 1000)
+    remaining_ms = int(_remaining_budget(deadline) * 1000)
+    safe_message = str(message or "Agent 3 technical failure.")[:300]
+    payload = {
+        "quoc_gia": UNKNOWN_IDENTITY,
+        "ma_tien_te": UNKNOWN_IDENTITY,
+        "menh_gia": UNKNOWN_IDENTITY,
+        "mat_tien": UNKNOWN_IDENTITY,
+        "nam_phat_hanh": UNKNOWN_IDENTITY,
+        "chat_lieu": UNKNOWN_IDENTITY,
+        "mo_ta": safe_message,
+        "quan_diem": safe_message,
+        "phuong_phap": "Google Lens SerpApi technical failure",
+        "do_tin_cay": 0.0,
+        "van_ban_nhin_thay": [],
+        "dac_diem_chinh": [],
+        "status": "Failed",
+        "provider": "serpapi",
+        "error_type": "technical_error",
+        "technical_error": True,
+        "not_counted_in_consensus": True,
+        "evidence": preserved_evidence,
+        "raw_text": raw_lens_text,
+    }
+    validated = validate_agent3_identity(payload, evidence=preserved_evidence)
+    technical_fields = {
+        "status": "Failed",
+        "error_type": "technical_error",
+        "technical_error": True,
+        "not_counted_in_consensus": True,
+        "timeout_stage": timeout_stage,
+        "provider_stage": provider_stage,
+        "root_error_type": root_error_type,
+        "elapsed_ms": elapsed_ms,
+        "remaining_ms": remaining_ms,
+        "remaining_ms_at_stage": remaining_ms,
+        "retry_attempted": bool(retry_attempted),
+        "evidence_preserved": evidence_preserved,
+        "search_performed": bool(search_performed),
+        "raw_lens_result_count": len(preserved_evidence),
+        "mo_ta": safe_message,
+        "quan_diem": safe_message,
+        "validation_errors": [f"technical_failure:{root_error_type}"],
+        "stage_trace": list(stage_trace or []),
+        "evidence": preserved_evidence,
+        "raw_text": raw_lens_text,
+    }
+    validated.update(technical_fields)
+
+    summary = dict(validated.get("ag3_verification_summary") or {})
+    summary.update(
+        {
+            "raw_lens_result_count": len(preserved_evidence),
+            "initial_lens_result_count": len(preserved_evidence) if search_performed else 0,
+            "targeted_search_result_count": 0,
+            "total_raw_evidence_count": len(preserved_evidence),
+            "raw_articles": preserved_evidence,
+            "candidate_sources": [],
+            "candidate_source_count": 0,
+            "selected_voting_sources": [],
+            "selected_voting_set": [],
+            "selected_voting_set_size": 0,
+            "selected_source_count": 0,
+            "selected_sources": [],
+            "selection_reason": "not_evaluated_due_to_technical_failure",
+            "promotion_reason": "not_evaluated_due_to_technical_failure",
+            "vote_eligible": False,
+            "vote_created": False,
+            "search_performed": bool(search_performed),
+            "technical_error": True,
+            "timeout_stage": timeout_stage,
+            "provider_stage": provider_stage,
+            "root_error_type": root_error_type,
+            "retry_attempted": bool(retry_attempted),
+            "evidence_preserved": evidence_preserved,
+        }
+    )
+
+    validated["reason"] = f"technical_failure:{root_error_type}"
+    validated["status_reason"] = f"technical_failure:{root_error_type}"
+    validated["not_eligible_reason"] = f"technical_failure:{root_error_type}"
+
+    validated.update(summary)
+    validated.update(technical_fields)
+    validated["ag3_verification_summary"] = summary
+
+    promotion_trace = dict(validated.get("promotion_trace") or {})
+    promotion_trace.update(
+        {
+            "promoted": False,
+            "reason": root_error_type,
+            "timeout_stage": timeout_stage,
+            "provider_stage": provider_stage,
+            "root_error_type": root_error_type,
+            "retry_attempted": bool(retry_attempted),
+            "evidence_preserved": evidence_preserved,
+            "ag3_verification_summary": summary,
+        }
+    )
+    validated["promotion_trace"] = promotion_trace
+
+    provider_trace = dict(validated.get("provider_trace") or {})
+    provider_trace.update(
+        {
+            "primary_provider": "serpapi",
+            "selected_provider": None if not search_performed else "serpapi",
+            "provider_stage": provider_stage,
+            "timeout_stage": timeout_stage,
+            "root_error_type": root_error_type,
+            "elapsed_ms": elapsed_ms,
+            "remaining_ms": remaining_ms,
+            "retry_attempted": bool(retry_attempted),
+            "search_performed": bool(search_performed),
+        }
+    )
+    validated["provider_trace"] = provider_trace
+
+    if debug_log is not None:
+        debug_log["technical_failure_trace"] = {
+            "timeout_stage": timeout_stage,
+            "provider_stage": provider_stage,
+            "root_error_type": root_error_type,
+            "elapsed_ms": elapsed_ms,
+            "remaining_ms": remaining_ms,
+            "retry_attempted": bool(retry_attempted),
+            "evidence_preserved": evidence_preserved,
+            "search_performed": bool(search_performed),
+        }
+    return json.dumps([validated], ensure_ascii=False)
+
+
 def _deadline_result_json(
     *,
     timeout_stage: str,
@@ -394,7 +699,7 @@ def _deadline_result_json(
     stage_trace: Optional[List[Dict[str, Any]]] = None,
     debug_log: Optional[Dict[str, Any]] = None,
 ) -> str:
-    preserved_evidence = list(evidence or [])[:5]
+    preserved_evidence = list(evidence or [])[:10]
     trace_entries = list(stage_trace or [])
     evidence_preserved = bool(preserved_evidence)
     elapsed_ms = int(max(0.0, time.monotonic() - run_started_at) * 1000)
@@ -433,35 +738,47 @@ def _deadline_result_json(
         deadline=deadline,
         status="deadline_fallback",
     )
-    validated.update(
-        {
+
+    is_valid_vote = bool(validated.get("vote_created")) and bool(validated.get("vote_eligible")) and not bool(validated.get("not_counted_in_consensus"))
+
+    update_dict = {
+        "timeout_stage": timeout_stage,
+        "deadline_seconds": round(deadline_seconds, 3),
+        "elapsed_ms": elapsed_ms,
+        "remaining_ms_at_stage": remaining_ms,
+        "evidence_preserved": evidence_preserved,
+        "top5_evidence_count": len(preserved_evidence),
+        "stage_trace": trace_entries,
+        "raw_text": raw_lens_text,
+        "evidence": preserved_evidence,
+        "technical_error": True,
+    }
+
+    if not is_valid_vote:
+        update_dict.update({
             "status": status,
             "error_type": "technical_error",
-            "technical_error": True,
             "not_counted_in_consensus": True,
-            "timeout_stage": timeout_stage,
-            "deadline_seconds": round(deadline_seconds, 3),
-            "elapsed_ms": elapsed_ms,
-            "remaining_ms_at_stage": remaining_ms,
-            "evidence_preserved": evidence_preserved,
-            "top5_evidence_count": len(preserved_evidence),
-            "stage_trace": trace_entries,
-            "raw_text": raw_lens_text,
-            "evidence": preserved_evidence,
-        }
-    )
+        })
+
+    validated.update(update_dict)
+
     promotion_trace = dict(validated.get("promotion_trace") or {})
-    promotion_trace.update(
-        {
+    promo_update = {
+        "timeout_stage": timeout_stage,
+        "deadline_seconds": round(deadline_seconds, 3),
+        "elapsed_ms": elapsed_ms,
+        "remaining_ms_at_stage": remaining_ms,
+        "evidence_preserved": evidence_preserved,
+    }
+
+    if not is_valid_vote:
+        promo_update.update({
             "promoted": False,
             "reason": "deadline_budget_exhausted",
-            "timeout_stage": timeout_stage,
-            "deadline_seconds": round(deadline_seconds, 3),
-            "elapsed_ms": elapsed_ms,
-            "remaining_ms_at_stage": remaining_ms,
-            "evidence_preserved": evidence_preserved,
-        }
-    )
+        })
+
+    promotion_trace.update(promo_update)
     validated["promotion_trace"] = promotion_trace
     provider_trace = dict(validated.get("provider_trace") or {})
     provider_trace.update(
@@ -494,7 +811,119 @@ def _deadline_result_json(
     return json.dumps([validated], ensure_ascii=False)
 
 
+def _has_authoritative_det_vote(det_result: Optional[Dict[str, Any]]) -> bool:
+    """Return True if the deterministic parse result already has a valid, complete AG3 vote.
+
+    This is used to protect an already-valid vote from being erased by a late
+    formatter/Groq deadline that occurs after the vote was deterministically proven.
+
+    The required criteria mirror the fields AG4 reads from the final AG3 result:
+      - vote_created == True
+      - vote_eligible == True
+      - majority_achieved >= 3 (from promotion_trace)
+      - selected_source_count >= 3
+      - vote_identity has country + currency + amount
+    """
+    if not isinstance(det_result, dict):
+        return False
+    summary = det_result.get("ag3_verification_summary") or {}
+    promotion_trace = det_result.get("promotion_trace") or {}
+    # Check top-level + summary vote flags
+    vote_created = (
+        det_result.get("vote_created") is True
+        or summary.get("vote_created") is True
+        or promotion_trace.get("vote_created") is True
+    )
+    vote_eligible = (
+        det_result.get("vote_eligible") is True
+        or summary.get("vote_eligible") is True
+        or promotion_trace.get("vote_eligible") is True
+    )
+    if not (vote_created and vote_eligible):
+        return False
+    # Minimum majority achieved
+    majority_achieved = (
+        promotion_trace.get("majority_achieved")
+        or promotion_trace.get("majority_count")
+        or summary.get("majority_achieved")
+        or summary.get("support_count")
+        or 0
+    )
+    if not isinstance(majority_achieved, (int, float)) or majority_achieved < 3:
+        return False
+    # Minimum selected source count
+    selected_count = (
+        promotion_trace.get("selected_voting_source_count")
+        or promotion_trace.get("selected_source_count")
+        or summary.get("selected_voting_source_count")
+        or summary.get("selected_source_count")
+        or 0
+    )
+    if not isinstance(selected_count, (int, float)) or selected_count < 3:
+        return False
+    # Valid identity
+    vote_identity = (
+        promotion_trace.get("vote_identity")
+        or promotion_trace.get("winning_identity")
+        or summary.get("vote_identity")
+        or summary.get("winning_identity")
+        or {}
+    )
+    if not isinstance(vote_identity, dict):
+        return False
+    country = vote_identity.get("country")
+    currency = vote_identity.get("currency")
+    amount = vote_identity.get("amount")
+    return bool(country and currency and amount is not None)
+
+
+def _det_result_as_final_json(
+    det_result: Dict[str, Any],
+    *,
+    timeout_stage: str,
+    stage_trace: Optional[List[Dict[str, Any]]] = None,
+    debug_log: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Return the authoritative det_result as final AG3 output, annotating
+    that a late optional stage timed out but the vote itself is preserved."""
+    result = dict(det_result)
+    result["late_deadline_stage"] = timeout_stage
+    result["late_deadline_note"] = (
+        f"Optional stage '{timeout_stage}' was skipped due to deadline/budget, "
+        "but the deterministic vote was already created and is preserved."
+    )
+    # Ensure downstream flags are correct
+    result["vote_created"] = True
+    result["vote_eligible"] = True
+    result["technical_error"] = False
+    result["not_counted_in_consensus"] = False
+    result.setdefault("search_performed", True)
+    if stage_trace:
+        result["stage_trace"] = list(stage_trace)
+    if debug_log is not None:
+        debug_log["late_deadline_vote_preserved"] = {
+            "timeout_stage": timeout_stage,
+            "vote_preserved": True,
+        }
+    return json.dumps([result], ensure_ascii=False)
+
+
 def _has_direct_banknote_amount_context(context: str, raw_amount: str) -> bool:
+    # Normalize written-out English denominations before numeric matching.
+    _WRITTEN_AMOUNTS = {
+        "five hundred": 500, "one thousand": 1000, "two thousand": 2000,
+        "five thousand": 5000, "ten thousand": 10000,
+        "one": 1, "two": 2, "five": 5, "ten": 10, "twenty": 20,
+        "fifty": 50, "hundred": 100,
+    }
+    context_normalized = context
+    for word, val in _WRITTEN_AMOUNTS.items():
+        context_normalized = re.sub(
+            rf"\b{re.escape(word)}-?(dollar|\u0111\u00f4|euro|yen|pound|baht|won|rupiah|dong|kip|kyat|riel|ringgit|peso)?\b",
+            lambda m, v=val: f"{v}" + (f"-{m.group(1)}" if m.group(1) else ""),
+            context_normalized,
+            flags=re.IGNORECASE,
+        )
     try:
         amount_pattern = _amount_pattern(int(raw_amount))
     except (TypeError, ValueError):
@@ -504,27 +933,30 @@ def _has_direct_banknote_amount_context(context: str, raw_amount: str) -> bool:
     banknote_words = (
         r"(?:banknote|banknotes|bill|note|currency\s+note|paper\s+money|"
         r"polymer\s+note|denomination|face\s+value|tiền\s+giấy|"
-        r"tờ\s+tiền|tờ|mệnh\s+giá|đồng\s+tiền)"
+        r"tờ\s+tiền|tờ|mệnh\s+giá)"
+        # NOTE: "đồng tiền" removed—it means "currency/coin" in general,
+        # causing false positives like "Top 10 đồng tiền". Use "tờ tiền" instead.
     )
     currency_words = (
         r"(?:vnd|usd|eur|jpy|gbp|krw|thb|idr|dollar|dollars|euro|euros|"
         r"yen|yên|pound|pounds|sterling|won|baht|dong|đồng|rupiah)?"
     )
     symbols = r"[$€¥£₩฿₫]?"
+    descriptors = r"(?:[a-z-]+\s+){0,2}"
     return bool(
         re.search(
-            rf"{symbols}\s*{amount_pattern}\s*{currency_words}\s*{banknote_words}",
-            context,
+            rf"{symbols}\s*{amount_pattern}\s*{currency_words}\s*{descriptors}{banknote_words}",
+            context_normalized,
             flags=re.IGNORECASE,
         )
         or re.search(
-            rf"{banknote_words}\s*(?:of|mệnh\s+giá|:)?\s*{symbols}\s*{amount_pattern}\s*{currency_words}",
-            context,
+            rf"{banknote_words}\s*(?:of|mệnh\s+giá|:)?\s*{descriptors}{symbols}\s*{amount_pattern}\s*{currency_words}",
+            context_normalized,
             flags=re.IGNORECASE,
         )
         or re.search(
-            rf"{currency_words}\s*{amount_pattern}\s*{banknote_words}",
-            context,
+            rf"{currency_words}\s*{amount_pattern}\s*{descriptors}{banknote_words}",
+            context_normalized,
             flags=re.IGNORECASE,
         )
     )
@@ -605,6 +1037,183 @@ def _page_text_identity_terms(text: str) -> List[str]:
     return list(dict.fromkeys(terms))
 
 
+def _source_detected_amount_values(item: Dict[str, Any]) -> List[int]:
+    raw_amounts = item.get("detected_amounts")
+    if raw_amounts is None:
+        return []
+    if isinstance(raw_amounts, (list, tuple, set)):
+        candidates = list(raw_amounts)
+    else:
+        candidates = [raw_amounts]
+    values: List[int] = []
+    for raw in candidates:
+        amount = _parse_amount_token(raw)
+        if amount is not None and amount > 0 and amount not in values:
+            values.append(amount)
+    return values
+
+
+def _confirmed_page_text_identity_from_terms(terms: List[Any]) -> Dict[str, Any]:
+    countries: List[str] = []
+    currencies: List[str] = []
+    amounts: List[int] = []
+    for term in terms or []:
+        raw = str(term or "").strip()
+        if ":" not in raw:
+            continue
+        key, value = raw.split(":", 1)
+        key = key.strip().casefold()
+        value = value.strip()
+        if not value:
+            continue
+        if key == "country" and not _is_unknown_identity(value):
+            countries.append(normalize_country(value) or value)
+        elif key == "currency":
+            currency = _normalize_currency_code(value)
+            if currency:
+                currencies.append(currency)
+        elif key == "amount":
+            amount = _parse_amount_token(value)
+            if amount is not None and amount > 0:
+                amounts.append(amount)
+
+    identity: Dict[str, Any] = {}
+    unique_currencies = list(dict.fromkeys(currencies))
+    unique_amounts = list(dict.fromkeys(amounts))
+    if len(unique_currencies) == 1:
+        identity["currency"] = unique_currencies[0]
+    if len(unique_amounts) == 1:
+        identity["amount"] = unique_amounts[0]
+
+    country_by_key: Dict[str, str] = {}
+    for country in countries:
+        key = _normalize_country_key(country, identity.get("currency"))
+        if not _is_unknown_identity(key):
+            country_by_key.setdefault(key, country)
+    if len(country_by_key) == 1:
+        identity["country"] = next(iter(country_by_key.values()))
+
+    return identity
+
+
+def _page_text_identity_is_compatible(
+    source_identity: Dict[str, Any],
+    page_identity: Dict[str, Any],
+) -> bool:
+    page_country = page_identity.get("country")
+    page_currency = page_identity.get("currency")
+    page_amount = page_identity.get("amount")
+    if (
+        _is_unknown_identity(page_country)
+        or _is_unknown_identity(page_currency)
+        or page_amount is None
+    ):
+        return False
+    if not is_valid_agent3_denomination(page_amount, page_currency):
+        return False
+    if not _country_currency_consistent(page_country, page_currency):
+        return False
+
+    source_country = source_identity.get("detected_country")
+    if not _is_unknown_identity(source_country):
+        if _normalize_country_key(source_country, page_currency) != _normalize_country_key(page_country, page_currency):
+            return False
+
+    source_currency = _normalize_currency_code(source_identity.get("detected_currency"))
+    if not _is_unknown_identity(source_currency) and source_currency != page_currency:
+        return False
+
+    source_amounts = _source_detected_amount_values(source_identity)
+    if source_amounts and (len(source_amounts) != 1 or source_amounts[0] != page_amount):
+        return False
+
+    return True
+
+
+def _restore_unconfirmed_page_text_identity(
+    item: Dict[str, Any],
+    source_identity: Dict[str, Any],
+) -> None:
+    restored = False
+    source_country = source_identity.get("detected_country")
+    source_currency = source_identity.get("detected_currency")
+    source_amounts = _source_detected_amount_values(source_identity)
+
+    if _is_unknown_identity(source_country) and not _is_unknown_identity(item.get("detected_country")):
+        item["detected_country"] = source_country or UNKNOWN_IDENTITY
+        restored = True
+    if _is_unknown_identity(_normalize_currency_code(source_currency)) and not _is_unknown_identity(_normalize_currency_code(item.get("detected_currency"))):
+        item["detected_currency"] = source_currency
+        restored = True
+    if not source_amounts and _source_detected_amount_values(item):
+        item["detected_amounts"] = []
+        restored = True
+
+    if restored:
+        if source_identity.get("content_identity_quality") is not None:
+            item["content_identity_quality"] = source_identity.get("content_identity_quality")
+        elif str(item.get("content_identity_quality") or "").upper() == "PAGE_TEXT_COMPLETE":
+            item["content_identity_quality"] = "PARTIAL_IDENTITY"
+        item["complete_identity"] = bool(source_identity.get("complete_identity"))
+        if not source_identity.get("complete_identity_support"):
+            item.pop("complete_identity_support", None)
+
+
+def _reconcile_page_text_identity(item: Dict[str, Any]) -> bool:
+    terms = list(item.get("page_text_identity_terms") or [])
+    if not terms:
+        return False
+
+    source_identity = item.get("_ag3_pre_page_identity")
+    if not isinstance(source_identity, dict):
+        source_identity = item
+
+    page_identity = _confirmed_page_text_identity_from_terms(terms)
+    
+    has_banknote_context = any("banknote" in str(term).lower() for term in terms)
+    is_complete_strong_page = bool(
+        has_banknote_context
+        and page_identity.get("country") and not _is_unknown_identity(page_identity.get("country"))
+        and page_identity.get("currency") and not _is_unknown_identity(page_identity.get("currency"))
+        and page_identity.get("amount") is not None
+    )
+
+    is_compatible = _page_text_identity_is_compatible(source_identity, page_identity)
+    
+    if not is_compatible and not is_complete_strong_page:
+        if source_identity is not item:
+            _restore_unconfirmed_page_text_identity(item, source_identity)
+        return False
+
+    source_had_missing_field = (
+        _is_unknown_identity(source_identity.get("detected_country"))
+        or _is_unknown_identity(_normalize_currency_code(source_identity.get("detected_currency")))
+        or not _source_detected_amount_values(source_identity)
+    )
+    changed = False
+    
+    if is_complete_strong_page or _is_unknown_identity(item.get("detected_country")):
+        if item.get("detected_country") != page_identity.get("country"):
+            item["detected_country"] = page_identity["country"]
+            changed = True
+            
+    if is_complete_strong_page or _is_unknown_identity(_normalize_currency_code(item.get("detected_currency"))):
+        if _normalize_currency_code(item.get("detected_currency")) != page_identity.get("currency"):
+            item["detected_currency"] = page_identity["currency"]
+            changed = True
+            
+    if is_complete_strong_page or not _source_detected_amount_values(item):
+        if not _source_detected_amount_values(item) or item.get("detected_amounts") != [page_identity.get("amount")]:
+            item["detected_amounts"] = [page_identity["amount"]]
+            changed = True
+
+    if (changed or source_had_missing_field) and (is_compatible or is_complete_strong_page):
+        item["content_identity_quality"] = "PAGE_TEXT_COMPLETE"
+        item["complete_identity_support"] = True
+        item["complete_identity"] = True
+    return changed
+
+
 def _is_obviously_unsafe_page_url(url: str) -> bool:
     try:
         parsed = urlparse(str(url or "").strip())
@@ -624,6 +1233,11 @@ def _is_obviously_unsafe_page_url(url: str) -> bool:
     if literal_ip is not None and not literal_ip.is_global:
         return True
     path = (parsed.path or "").lower()
+
+    if hostname in {"wikipedia.org", "wikimedia.org"} or hostname.endswith(".wikipedia.org") or hostname.endswith(".wikimedia.org"):
+        if path.startswith("/wiki/file:") or path.startswith("/wiki/tập_tin:"):
+            return False
+
     blocked_extensions = (
         ".pdf", ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".zip",
         ".rar", ".7z", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
@@ -683,28 +1297,37 @@ def _page_text_skip_reason(item: Dict[str, Any]) -> Optional[str]:
 def _extract_page_text_excerpt_from_html(
     html_text: str,
     max_chars: int = PAGE_TEXT_EXCERPT_MAX_CHARS,
-) -> str:
+) -> Tuple[str, Optional[str]]:
     text = str(html_text or "")[:PAGE_TEXT_FETCH_BYTES_LIMIT]
-    text = re.sub(r"(?is)<(script|style|noscript|svg|canvas|iframe).*?</\1>", " ", text)
+    if not text.strip():
+        return "", "empty_or_non_html"
+
+    lower = text.lower()
+    if any(m in lower for m in ("type=\"password\"", "type='password'", "<form action=\"/login\"", "<form action='/login'")) or (
+        ("login" in lower or "sign in" in lower or "sso" in lower) and ("enter your password" in lower or "log in to your account" in lower)
+    ):
+        return "", "unreadable_source"
+
+    text_clean = re.sub(r"(?is)<(script|style|noscript|svg|canvas|iframe).*?</\1>", " ", text)
     chunks: List[str] = []
 
-    title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", text)
+    title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", text_clean)
     if title_match:
         chunks.append(title_match.group(1))
 
     meta_match = re.search(
         r"(?is)<meta[^>]+(?:name|property)=['\"](?:description|og:description)['\"][^>]+content=['\"]([^'\"]+)['\"]",
-        text,
+        text_clean,
     ) or re.search(
         r"(?is)<meta[^>]+content=['\"]([^'\"]+)['\"][^>]+(?:name|property)=['\"](?:description|og:description)['\"]",
-        text,
+        text_clean,
     )
     if meta_match:
         chunks.append(meta_match.group(1))
 
     for tag in ("h1", "h2", "p"):
         limit = 3 if tag == "p" else 4
-        for match in re.finditer(rf"(?is)<{tag}[^>]*>(.*?)</{tag}>", text):
+        for match in re.finditer(rf"(?is)<{tag}[^>]*>(.*?)</{tag}>", text_clean):
             chunk = re.sub(r"(?is)<[^>]+>", " ", match.group(1))
             chunk = _compact_text(chunk, 500)
             if chunk:
@@ -713,16 +1336,33 @@ def _extract_page_text_excerpt_from_html(
                 break
 
     if not chunks:
-        chunks.append(re.sub(r"(?is)<[^>]+>", " ", text))
+        chunks.append(re.sub(r"(?is)<[^>]+>", " ", text_clean))
 
-    return _compact_text(" ".join(chunks), max_chars)
+    final_excerpt = _compact_text(" ".join(chunks), max_chars)
+    if not final_excerpt.strip():
+        return "", "empty_or_non_html"
+
+    return final_excerpt, None
 
 
-async def _default_fetch_page_text_excerpt(url: str, timeout_seconds: float) -> str:
-    from app.utils.link_validator import _is_safe_public_http_url
+async def _is_url_safe_and_public(url: str) -> bool:
+    if _is_obviously_unsafe_page_url(url):
+        return False
+    try:
+        import app.utils.link_validator as lv
+        fn = getattr(lv, "_is_safe_public_http_url", None)
+        if fn is not None:
+            return await fn(url)
+    except Exception:
+        pass
+    return not _is_obviously_unsafe_page_url(url)
 
-    if not await _is_safe_public_http_url(url):
-        return ""
+
+async def _default_fetch_page_text_excerpt(url: str, timeout_seconds: float) -> Union[str, Dict[str, Any]]:
+    from urllib.parse import urljoin
+
+    current_url = url
+    max_redirects = 3
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -731,89 +1371,816 @@ async def _default_fetch_page_text_excerpt(url: str, timeout_seconds: float) -> 
         "Accept": "text/html,application/xhtml+xml;q=0.9",
     }
 
-    def _get() -> Any:
-        return requests.get(
-            url,
-            headers=headers,
-            timeout=max(0.1, float(timeout_seconds)),
-            allow_redirects=False,
-        )
+    for attempt in range(max_redirects + 1):
+        if not await _is_url_safe_and_public(current_url):
+            return {
+                "status": "failed",
+                "page_text_excerpt": "",
+                "page_text_checked": False,
+                "page_text_skip_reason": "unsafe_url",
+            }
 
-    response = await asyncio.to_thread(_get)
-    if response.status_code >= 400:
-        return ""
-    content_type = str(response.headers.get("content-type") or "").lower()
-    if content_type and "html" not in content_type and "text/plain" not in content_type:
-        return ""
-    return _extract_page_text_excerpt_from_html(response.text)
+        def _get(target_url: str) -> Any:
+            return requests.get(
+                target_url,
+                headers=headers,
+                timeout=max(0.1, float(timeout_seconds)),
+                allow_redirects=False,
+            )
+
+        try:
+            response = await asyncio.to_thread(_get, current_url)
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get("Location")
+                if not location:
+                    return {
+                        "status": "failed",
+                        "page_text_excerpt": "",
+                        "page_text_checked": False,
+                        "page_text_skip_reason": "redirect_missing_location",
+                    }
+                current_url = urljoin(current_url, location)
+                continue
+            elif response.status_code >= 400:
+                return {
+                    "status": "failed",
+                    "page_text_excerpt": "",
+                    "page_text_checked": False,
+                    "page_text_skip_reason": f"http_{response.status_code}",
+                }
+            else:
+                content_type = str(response.headers.get("content-type") or "").lower()
+                if content_type and "html" not in content_type and "text/plain" not in content_type:
+                    return {
+                        "status": "failed",
+                        "page_text_excerpt": "",
+                        "page_text_checked": False,
+                        "page_text_skip_reason": "empty_or_non_html",
+                    }
+                excerpt, err_reason = _extract_page_text_excerpt_from_html(response.text)
+                if err_reason:
+                    return {
+                        "status": "failed",
+                        "page_text_excerpt": "",
+                        "page_text_checked": False,
+                        "page_text_skip_reason": err_reason,
+                    }
+                return {
+                    "status": "success",
+                    "page_text_excerpt": excerpt,
+                    "page_text_checked": True,
+                    "page_text_skip_reason": None,
+                }
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "page_text_excerpt": "",
+                "page_text_checked": False,
+                "page_text_skip_reason": exc.__class__.__name__,
+            }
+
+    return {
+        "status": "failed",
+        "page_text_excerpt": "",
+        "page_text_checked": False,
+        "page_text_skip_reason": "too_many_redirects",
+    }
+
+
+PAGE_FETCH_CACHE: Dict[str, Dict[str, Any]] = {}
+PAGE_FETCH_FAILURE_CACHE: Dict[str, Dict[str, Any]] = {}
+PAGE_FETCH_CACHE_MAX_ENTRIES = 500
+
+
+def clear_page_fetch_cache():
+    PAGE_FETCH_CACHE.clear()
+    PAGE_FETCH_FAILURE_CACHE.clear()
+
+
+def _clamp_fetch_config(
+    max_concurrency: Optional[int] = None,
+    max_urls: Optional[int] = None,
+    max_urls_per_domain: Optional[int] = None,
+    per_url_timeout_seconds: Optional[float] = None,
+    total_timeout_seconds: Optional[float] = None,
+    cache_ttl_seconds: Optional[float] = None,
+    failure_cache_ttl_seconds: Optional[float] = None,
+) -> Dict[str, Any]:
+    from app.core.config import settings
+
+    def_mc = getattr(settings, "AGENT3_PAGE_FETCH_MAX_CONCURRENCY", 3)
+    def_mu = getattr(settings, "AGENT3_PAGE_TEXT_MAX_URLS", None)
+    if def_mu is None:
+        def_mu = getattr(settings, "AGENT3_PAGE_FETCH_MAX_URLS", 10)
+    def_mud = getattr(settings, "AGENT3_PAGE_FETCH_MAX_URLS_PER_DOMAIN", 2)
+    def_per = getattr(settings, "AGENT3_PAGE_FETCH_PER_URL_TIMEOUT_SECONDS", 2.5)
+    def_tot = getattr(settings, "AGENT3_PAGE_FETCH_TOTAL_TIMEOUT_SECONDS", 5.0)
+    def_ttl = getattr(settings, "AGENT3_PAGE_FETCH_CACHE_TTL_SECONDS", 300.0)
+    def_fttl = getattr(settings, "AGENT3_PAGE_FETCH_FAILURE_CACHE_TTL_SECONDS", 60.0)
+
+    mc = max(1, min(10, int(max_concurrency if max_concurrency is not None else def_mc)))
+    mu = max(1, min(20, int(max_urls if max_urls is not None else def_mu)))
+    mud = max(1, min(5, int(max_urls_per_domain if max_urls_per_domain is not None else def_mud)))
+    tot = max(0.5, min(30.0, float(total_timeout_seconds if total_timeout_seconds is not None else def_tot)))
+    per = max(0.1, min(tot, float(per_url_timeout_seconds if per_url_timeout_seconds is not None else def_per)))
+    ttl = max(10.0, min(3600.0, float(cache_ttl_seconds if cache_ttl_seconds is not None else def_ttl)))
+    fttl = max(5.0, min(600.0, float(failure_cache_ttl_seconds if failure_cache_ttl_seconds is not None else def_fttl)))
+
+    return {
+        "max_concurrency": mc,
+        "max_urls": mu,
+        "max_urls_per_domain": mud,
+        "per_url_timeout_seconds": per,
+        "total_timeout_seconds": tot,
+        "cache_ttl_seconds": ttl,
+        "failure_cache_ttl_seconds": fttl,
+    }
+
+
+def _calculate_fetch_priority(item: Dict[str, Any]) -> Tuple[float, List[str], bool, Optional[str]]:
+    from app.services.evidence_ranker_service import canonicalize_url, get_canonical_domain, classify_source
+
+    url = str(item.get("url") or item.get("link") or "").strip()
+    if not url:
+        return 0.0, ["no_url"], False, "no_url"
+
+    try:
+        parsed = urlparse(url)
+        scheme = (parsed.scheme or "").lower()
+        if scheme not in {"http", "https"}:
+            return 0.0, ["invalid_scheme"], False, "invalid_scheme"
+        if not parsed.hostname or parsed.username or parsed.password:
+            return 0.0, ["unsafe_url"], False, "unsafe_url"
+        hostname = parsed.hostname.strip().lower().rstrip(".")
+        if hostname == "localhost" or hostname.endswith((".localhost", ".local", ".internal")):
+            return 0.0, ["unsafe_url"], False, "unsafe_url"
+        try:
+            literal_ip = ipaddress.ip_address(hostname)
+            if not literal_ip.is_global:
+                return 0.0, ["unsafe_url"], False, "unsafe_url"
+        except ValueError:
+            pass
+    except Exception:
+        return 0.0, ["invalid_scheme"], False, "invalid_scheme"
+
+    if _is_obviously_unsafe_page_url(url):
+        return 0.0, ["unsafe_url"], False, "unsafe_url"
+
+    skip_reason = _page_text_skip_reason(item)
+    if skip_reason:
+        return 0.0, [skip_reason], False, skip_reason
+
+    s_class = classify_source(item)
+    s_trust = str(item.get("source_trust_level") or s_class["source_trust_level"]).upper().strip()
+    if s_trust == "NOISE":
+        return 0.0, ["noise_source"], False, "noise_source"
+    if s_trust == "SOCIAL":
+        return 0.0, ["social_media_source"], False, "social_media_source"
+    if s_trust == "UNREADABLE":
+        return 0.0, ["unreadable_source"], False, "unreadable_source"
+
+    priority = 0.0
+    reasons: List[str] = []
+
+    country = item.get("detected_country")
+    currency = item.get("detected_currency")
+    amounts = item.get("detected_amounts")
+
+    if country is None or currency is None or amounts is None:
+        title = str(item.get("title") or "")
+        snippet = str(item.get("snippet") or "")
+        text = f"{title} {snippet}".strip()
+        if currency is None:
+            from app.services.evidence_ranker_service import _extract_currency
+            currency = _extract_currency(text)
+        if country is None:
+            from app.services.evidence_ranker_service import _extract_country_currency
+            country, _c = _extract_country_currency(text, preferred_currency=currency)
+        if amounts is None:
+            from app.services.evidence_ranker_service import _extract_amounts
+            amounts = _extract_amounts(text, currency=currency)
+
+    has_country = not _is_unknown_identity(country)
+    has_currency = not _is_unknown_identity(currency)
+    has_exact_amount = (isinstance(amounts, list) and len(amounts) == 1)
+
+    rank_reasons = [str(r).lower() for r in item.get("rank_reasons", [])]
+    has_banknote_context = any("banknote" in r or "currency" in r or "amount" in r for r in rank_reasons)
+
+    quality = item.get("content_identity_quality")
+
+    if has_country and has_currency and has_exact_amount:
+        if s_trust == "WEAK_COMMERCIAL":
+            priority += 20.0
+            reasons.append("weak_commercial_complete_exact")
+        elif quality == "PARTIAL_IDENTITY" or not item.get("direct_title_match"):
+            priority += 100.0
+            reasons.append("complete_identity_needs_page_corroboration")
+        else:
+            priority += 70.0
+            reasons.append("trusted_neutral_complete_exact")
+    elif s_trust in ("TRUSTED", "NEUTRAL") and (has_exact_amount or (has_country and has_currency)):
+        priority += 80.0
+        reasons.append("trusted_neutral_partial_identity")
+    elif s_trust == "WEAK_COMMERCIAL":
+        priority += 15.0
+        reasons.append("weak_commercial_partial")
+    elif has_exact_amount and has_currency and not has_country:
+        priority += 60.0
+        reasons.append("amount_currency_missing_country")
+    elif has_country and has_exact_amount and not has_currency:
+        priority += 40.0
+        reasons.append("country_amount_missing_currency")
+    elif has_exact_amount or has_country or has_currency:
+        priority += 30.0
+        reasons.append("partial_identity_signals")
+    else:
+        priority += 10.0
+        reasons.append("general_context_only")
+
+    if item.get("is_mirror"):
+        priority -= 15.0
+        reasons.append("mirror_item")
+
+    return max(0.0, priority), reasons, True, None
+
+
+def _get_page_fetch_cache(canon_url: str) -> Optional[Tuple[Dict[str, Any], str]]:
+    now = time.time()
+    if canon_url in PAGE_FETCH_CACHE:
+        entry = PAGE_FETCH_CACHE[canon_url]
+        if now - entry["timestamp"] < entry["ttl"]:
+            return entry["data"], "success_cache_hit"
+        del PAGE_FETCH_CACHE[canon_url]
+
+    if canon_url in PAGE_FETCH_FAILURE_CACHE:
+        entry = PAGE_FETCH_FAILURE_CACHE[canon_url]
+        if now - entry["timestamp"] < entry["ttl"]:
+            return entry["data"], "failure_cache_hit"
+        del PAGE_FETCH_FAILURE_CACHE[canon_url]
+
+    return None
+
+
+def _set_page_fetch_cache(canon_url: str, data: Dict[str, Any], is_success: bool, ttl: float):
+    if data.get("status") in ("cancelled", "total_timeout_cancelled") or data.get("page_text_skip_reason") == "total_timeout_cancelled":
+        return
+
+    now = time.time()
+    entry = {
+        "timestamp": now,
+        "ttl": ttl,
+        "data": data,
+    }
+    target_cache = PAGE_FETCH_CACHE if is_success else PAGE_FETCH_FAILURE_CACHE
+    target_cache[canon_url] = entry
+
+    if len(target_cache) > PAGE_FETCH_CACHE_MAX_ENTRIES:
+        expired = [k for k, v in target_cache.items() if now - v["timestamp"] >= v["ttl"]]
+        for k in expired:
+            del target_cache[k]
+        if len(target_cache) > PAGE_FETCH_CACHE_MAX_ENTRIES:
+            first_key = next(iter(target_cache))
+            del target_cache[first_key]
 
 
 async def enrich_lens_evidence_with_page_text(
     evidence: List[Dict[str, Any]],
     *,
     deadline: Optional[float] = None,
-    max_urls: int = PAGE_TEXT_MAX_URLS,
-    timeout_seconds: float = PAGE_TEXT_TIMEOUT_SECONDS,
+    max_urls: Optional[int] = None,
+    max_concurrency: Optional[int] = None,
+    max_urls_per_domain: Optional[int] = None,
+    timeout_seconds: Optional[float] = None,
+    total_timeout_seconds: Optional[float] = None,
     min_budget_seconds: float = PAGE_TEXT_MIN_BUDGET_SECONDS,
     fetcher: Optional[Callable[[str, float], Awaitable[Any]]] = None,
-) -> List[Dict[str, Any]]:
-    enriched: List[Dict[str, Any]] = []
-    successful_fetch_count = 0
+    enabled: bool = True,
+    return_trace: bool = False,
+) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], Dict[str, Any]]]:
+    from app.services.evidence_ranker_service import canonicalize_url, get_canonical_domain
+
+    start_time = time.time()
+    cfg = _clamp_fetch_config(
+        max_concurrency=max_concurrency,
+        max_urls=max_urls,
+        max_urls_per_domain=max_urls_per_domain,
+        per_url_timeout_seconds=timeout_seconds,
+        total_timeout_seconds=total_timeout_seconds,
+    )
+
     fetcher = fetcher or _default_fetch_page_text_excerpt
 
-    for item in evidence or []:
-        current = dict(item)
+    # Trace Metrics Counters
+    network_fetch_count = 0
+    completed_count = 0
+    success_count = 0
+    timeout_count = 0
+    error_count = 0
+    cancelled_count = 0
+    cache_hit_count = 0
+    cache_miss_count = 0
+    success_cache_hit_count = 0
+    failure_cache_hit_count = 0
+    deduplicated_count = 0
+    total_timeout_reached = False
+    pending_cancelled_cleanly = True
+
+    from app.core.config import settings
+    page_fetch_globally_enabled = getattr(settings, "AGENT3_PAGE_FETCH_ENABLED", True)
+
+    if not enabled or not page_fetch_globally_enabled:
+        out = []
+        skipped_meta = []
+        for item in evidence or []:
+            c = dict(item)
+            c["page_text_checked"] = "skipped"
+            c["page_text_skip_reason"] = "page_fetch_disabled"
+            c["fetch_selected"] = False
+            out.append(c)
+            skipped_meta.append({
+                "canonical_url": c.get("url") or "",
+                "skip_reason": "page_fetch_disabled",
+            })
+        trace = {
+            "status": "disabled",
+            "requested_url_count": len(evidence or []),
+            "selected_url_count": 0,
+            "skipped_url_count": len(skipped_meta),
+            "deduplicated_url_count": 0,
+            "network_fetch_count": 0,
+            "completed_count": 0,
+            "success_count": 0,
+            "timeout_count": 0,
+            "error_count": 0,
+            "cancelled_count": 0,
+            "cache_hit_count": 0,
+            "cache_miss_count": 0,
+            "success_cache_hit_count": 0,
+            "failure_cache_hit_count": 0,
+            "total_elapsed_ms": round((time.time() - start_time) * 1000, 2),
+            "total_timeout_reached": False,
+            "pending_cancelled_cleanly": True,
+            "per_domain_selected_counts": {},
+            "selected_urls": [],
+            "skipped_urls": skipped_meta,
+            "fetch_results": [],
+        }
+        if out:
+            out[0]["page_fetch_trace"] = trace
+        return (out, trace) if return_trace else out
+
+    total_timeout = cfg["total_timeout_seconds"]
+    if deadline is not None:
+        total_timeout = min(total_timeout, max(0.1, _remaining_budget(deadline)))
+
+    if deadline is not None and _remaining_budget(deadline) < min_budget_seconds:
+        out = []
+        skipped_meta = []
+        for item in evidence or []:
+            c = dict(item)
+            c["page_text_checked"] = "skipped"
+            c["page_text_skip_reason"] = "deadline_budget_low"
+            c["fetch_selected"] = False
+            out.append(c)
+            skipped_meta.append({
+                "canonical_url": c.get("url") or "",
+                "skip_reason": "deadline_budget_low",
+            })
+        trace = {
+            "status": "timeout",
+            "requested_url_count": len(evidence or []),
+            "selected_url_count": 0,
+            "skipped_url_count": len(skipped_meta),
+            "deduplicated_url_count": 0,
+            "network_fetch_count": 0,
+            "completed_count": 0,
+            "success_count": 0,
+            "timeout_count": 0,
+            "error_count": 0,
+            "cancelled_count": 0,
+            "cache_hit_count": 0,
+            "cache_miss_count": 0,
+            "success_cache_hit_count": 0,
+            "failure_cache_hit_count": 0,
+            "total_elapsed_ms": round((time.time() - start_time) * 1000, 2),
+            "total_timeout_reached": True,
+            "pending_cancelled_cleanly": True,
+            "per_domain_selected_counts": {},
+            "selected_urls": [],
+            "skipped_urls": skipped_meta,
+            "fetch_results": [],
+        }
+        if out:
+            out[0]["page_fetch_trace"] = trace
+        return (out, trace) if return_trace else out
+
+    # Step 1: Pre-process each item and compute priority
+    items_prepared: List[Dict[str, Any]] = []
+    canonical_groups: Dict[str, List[int]] = {}
+
+    for idx, raw_item in enumerate(evidence or []):
+        current = dict(raw_item)
+        current["_ag3_pre_page_identity"] = {
+            "detected_country": current.get("detected_country"),
+            "detected_currency": current.get("detected_currency"),
+            "detected_amounts": list(current.get("detected_amounts") or [])
+            if isinstance(current.get("detected_amounts"), (list, tuple, set))
+            else current.get("detected_amounts"),
+            "content_identity_quality": current.get("content_identity_quality"),
+            "complete_identity": current.get("complete_identity"),
+            "complete_identity_support": current.get("complete_identity_support"),
+        }
         current.setdefault("link_checked", bool(current.get("link_alive")))
         current["page_text_checked"] = "skipped"
         current["page_text_skip_reason"] = None
         current["page_text_excerpt_chars"] = 0
         current["page_text_identity_terms"] = []
 
-        if (
-            deadline is not None
-            and _remaining_budget(deadline) < min_budget_seconds
+        raw_url = str(current.get("url") or current.get("link") or "").strip()
+        canon_url = canonicalize_url(raw_url) if raw_url else raw_url
+        if not canon_url:
+            canon_url = raw_url
+        canon_domain = get_canonical_domain(raw_url) if raw_url else ""
+        current["canonical_url"] = canon_url
+        current["canonical_domain"] = canon_domain
+
+        priority, priority_reasons, eligible, skip_reason = _calculate_fetch_priority(current)
+        current["fetch_priority"] = priority
+        current["fetch_priority_reasons"] = priority_reasons
+        current["fetch_selected"] = eligible
+        current["fetch_skip_reason"] = skip_reason
+        current["page_text_skip_reason"] = skip_reason
+
+        items_prepared.append(current)
+
+        if canon_url:
+            if canon_url in canonical_groups:
+                deduplicated_count += 1
+            canonical_groups.setdefault(canon_url, []).append(idx)
+
+    # Step 2: Deduplicate & select candidate URLs to fetch based on priority & domain limits
+    candidate_canon_urls: List[str] = []
+    canonical_url_priority: Dict[str, float] = {}
+
+    for canon_url, idx_list in canonical_groups.items():
+        highest_prio = max(items_prepared[i]["fetch_priority"] for i in idx_list)
+        canonical_url_priority[canon_url] = highest_prio
+
+    # Sort canonical URLs by priority descending
+    sorted_canon_urls = sorted(
+        canonical_groups.keys(),
+        key=lambda u: canonical_url_priority[u],
+        reverse=True,
+    )
+
+    domain_url_counts: Dict[str, int] = {}
+    selected_urls_meta: List[Dict[str, Any]] = []
+    skipped_urls_meta: List[Dict[str, Any]] = []
+
+    for canon_url in sorted_canon_urls:
+        first_idx = canonical_groups[canon_url][0]
+        item = items_prepared[first_idx]
+
+        if not item["fetch_selected"]:
+            for i in canonical_groups[canon_url]:
+                skipped_urls_meta.append({
+                    "canonical_url": canon_url,
+                    "canonical_domain": item["canonical_domain"],
+                    "skip_reason": items_prepared[i]["page_text_skip_reason"] or "insufficient_identity_priority",
+                })
+            continue
+
+        domain = item["canonical_domain"]
+        domain_count = domain_url_counts.get(domain, 0)
+        if domain_count >= cfg["max_urls_per_domain"]:
+            for i in canonical_groups[canon_url]:
+                items_prepared[i]["fetch_selected"] = False
+                items_prepared[i]["fetch_skip_reason"] = "domain_limit"
+                items_prepared[i]["page_text_skip_reason"] = "domain_limit"
+                skipped_urls_meta.append({
+                    "canonical_url": canon_url,
+                    "canonical_domain": domain,
+                    "skip_reason": "domain_limit",
+                })
+            continue
+
+        domain_url_counts[domain] = domain_count + 1
+        candidate_canon_urls.append(canon_url)
+        selected_urls_meta.append({
+            "canonical_url": canon_url,
+            "canonical_domain": domain,
+            "fetch_priority": item["fetch_priority"],
+            "fetch_priority_reasons": item["fetch_priority_reasons"],
+        })
+
+    # Step 3: Sequential or Controlled Concurrency Fetching to stop when max_urls successful fetches reached
+    sem = asyncio.Semaphore(cfg["max_concurrency"])
+    canon_results: Dict[str, Dict[str, Any]] = {}
+    fetch_results_meta: List[Dict[str, Any]] = []
+    successful_fetch_count = 0
+
+    async def _fetch_single(c_url: str) -> Dict[str, Any]:
+        nonlocal network_fetch_count, cache_hit_count, cache_miss_count, success_cache_hit_count, failure_cache_hit_count
+        nonlocal success_count, error_count, timeout_count, cancelled_count, completed_count
+
+        cache_lookup = _get_page_fetch_cache(c_url)
+        if cache_lookup is not None:
+            cached_data, cache_kind = cache_lookup
+            cache_hit_count += 1
+            if cache_kind == "success_cache_hit":
+                success_cache_hit_count += 1
+            else:
+                failure_cache_hit_count += 1
+
+            cached_copy = dict(cached_data)
+            cached_copy["from_cache"] = True
+            cached_copy["cache_status"] = "hit"
+            return cached_copy
+
+        cache_miss_count += 1
+        rep_idx = canonical_groups[c_url][0]
+        rep_item = items_prepared[rep_idx]
+        target_url = str(rep_item.get("url") or rep_item.get("link") or "")
+        per_url_timeout = cfg["per_url_timeout_seconds"]
+
+        fetch_start = time.time()
+        network_fetch_count += 1
+
+        async with sem:
+            try:
+                fetched = fetcher(target_url, per_url_timeout)
+                if inspect.isawaitable(fetched):
+                    fetched = await asyncio.wait_for(fetched, timeout=per_url_timeout)
+
+                elapsed_ms = round((time.time() - fetch_start) * 1000, 2)
+
+                if isinstance(fetched, dict):
+                    excerpt = fetched.get("page_text_excerpt") or fetched.get("text") or ""
+                    status_raw = fetched.get("status")
+                    custom_skip = fetched.get("page_text_skip_reason")
+                else:
+                    raw_str = str(fetched or "")
+                    excerpt, custom_skip = _extract_page_text_excerpt_from_html(raw_str)
+                    status_raw = None
+
+                excerpt = _compact_text(excerpt)
+                if excerpt:
+                    completed_count += 1
+                    success_count += 1
+                    res = {
+                        "status": "success",
+                        "page_text_excerpt": excerpt,
+                        "page_text_checked": True,
+                        "page_text_skip_reason": None,
+                        "page_text_excerpt_chars": len(excerpt),
+                        "page_text_identity_terms": _page_text_identity_terms(excerpt),
+                        "elapsed_ms": elapsed_ms,
+                        "from_cache": False,
+                        "cache_status": "miss",
+                        "error_type": None,
+                        "error_message_safe": None,
+                        "fetch_attempt_count": 1,
+                    }
+                    _set_page_fetch_cache(c_url, res, is_success=True, ttl=cfg["cache_ttl_seconds"])
+                    return res
+                else:
+                    completed_count += 1
+                    skip_reason_final = custom_skip or "empty_or_non_html"
+                    if skip_reason_final in ("unreadable_source", "unreadable"):
+                        status_final = "unreadable"
+                        error_count += 1
+                    else:
+                        status_final = "empty"
+                    res = {
+                        "status": status_final,
+                        "page_text_excerpt": "",
+                        "page_text_checked": False,
+                        "page_text_skip_reason": skip_reason_final,
+                        "page_text_excerpt_chars": 0,
+                        "page_text_identity_terms": [],
+                        "elapsed_ms": elapsed_ms,
+                        "from_cache": False,
+                        "cache_status": "miss",
+                        "error_type": skip_reason_final,
+                        "error_message_safe": None,
+                        "fetch_attempt_count": 1,
+                    }
+                    _set_page_fetch_cache(c_url, res, is_success=False, ttl=cfg["failure_cache_ttl_seconds"])
+                    return res
+            except (asyncio.TimeoutError, TimeoutError):
+                elapsed_ms = round((time.time() - fetch_start) * 1000, 2)
+                timeout_count += 1
+                res = {
+                    "status": "timeout",
+                    "page_text_excerpt": "",
+                    "page_text_checked": False,
+                    "page_text_skip_reason": "per_url_timeout",
+                    "page_text_excerpt_chars": 0,
+                    "page_text_identity_terms": [],
+                    "elapsed_ms": elapsed_ms,
+                    "from_cache": False,
+                    "cache_status": "miss",
+                    "error_type": "TimeoutError",
+                    "error_message_safe": "Per-URL timeout exceeded",
+                    "fetch_attempt_count": 1,
+                }
+                _set_page_fetch_cache(c_url, res, is_success=False, ttl=cfg["failure_cache_ttl_seconds"])
+                return res
+            except Exception as exc:
+                elapsed_ms = round((time.time() - fetch_start) * 1000, 2)
+                error_count += 1
+                res = {
+                    "status": "error",
+                    "page_text_excerpt": "",
+                    "page_text_checked": False,
+                    "page_text_skip_reason": exc.__class__.__name__,
+                    "page_text_excerpt_chars": 0,
+                    "page_text_identity_terms": [],
+                    "elapsed_ms": elapsed_ms,
+                    "from_cache": False,
+                    "cache_status": "miss",
+                    "error_type": exc.__class__.__name__,
+                    "error_message_safe": str(exc)[:200],
+                    "fetch_attempt_count": 1,
+                }
+                _set_page_fetch_cache(c_url, res, is_success=False, ttl=cfg["failure_cache_ttl_seconds"])
+                return res
+
+    # Run tasks up to max_urls successful fetches
+    i = 0
+    tasks_in_flight: Dict[str, asyncio.Task] = {}
+
+    while i < len(candidate_canon_urls) or tasks_in_flight:
+        elapsed = time.time() - start_time
+        if elapsed >= total_timeout:
+            total_timeout_reached = True
+            for c_url, task in list(tasks_in_flight.items()):
+                if not task.done():
+                    task.cancel()
+                    cancelled_count += 1
+                canon_results[c_url] = {
+                    "status": "cancelled",
+                    "page_text_excerpt": "",
+                    "page_text_checked": False,
+                    "page_text_skip_reason": "total_timeout_cancelled",
+                    "page_text_excerpt_chars": 0,
+                    "page_text_identity_terms": [],
+                    "elapsed_ms": round(elapsed * 1000, 2),
+                    "from_cache": False,
+                    "cache_status": "miss",
+                    "error_type": "total_timeout_cancelled",
+                    "error_message_safe": "Cancelled due to total timeout",
+                    "fetch_attempt_count": 1,
+                }
+            if tasks_in_flight:
+                await asyncio.gather(*tasks_in_flight.values(), return_exceptions=True)
+            tasks_in_flight.clear()
+            break
+
+        # Spawn new tasks up to max_concurrency if successful_fetch_count < max_urls
+        while (
+            i < len(candidate_canon_urls)
+            and len(tasks_in_flight) < cfg["max_concurrency"]
+            and successful_fetch_count + len(tasks_in_flight) < cfg["max_urls"]
         ):
-            current["page_text_skip_reason"] = "deadline_budget_low"
-            enriched.append(current)
-            continue
+            c_url = candidate_canon_urls[i]
+            i += 1
+            tasks_in_flight[c_url] = asyncio.create_task(_fetch_single(c_url))
 
-        skip_reason = _page_text_skip_reason(current)
-        if skip_reason:
-            current["page_text_skip_reason"] = skip_reason
-            enriched.append(current)
-            continue
-        if successful_fetch_count >= max_urls:
-            current["page_text_skip_reason"] = "top_n_limit"
-            enriched.append(current)
-            continue
+        if not tasks_in_flight:
+            break
 
-        try:
-            per_url_timeout = max(0.1, float(timeout_seconds))
-            if deadline is not None:
-                per_url_timeout = min(per_url_timeout, _stage_timeout(deadline, per_url_timeout, reserve_seconds=0.25))
-            fetched = fetcher(str(current.get("url") or current.get("link") or ""), per_url_timeout)
-            if inspect.isawaitable(fetched):
-                fetched = await fetched
-            if isinstance(fetched, dict):
-                excerpt = fetched.get("page_text_excerpt") or fetched.get("text") or ""
+        # Wait for at least one task to complete
+        done, _ = await asyncio.wait(
+            tasks_in_flight.values(),
+            return_when=asyncio.FIRST_COMPLETED,
+            timeout=max(0.1, total_timeout - elapsed),
+        )
+
+        for c_url, task in list(tasks_in_flight.items()):
+            if task in done:
+                del tasks_in_flight[c_url]
+                try:
+                    res = task.result()
+                except Exception as exc:
+                    res = {
+                        "status": "error",
+                        "page_text_excerpt": "",
+                        "page_text_checked": False,
+                        "page_text_skip_reason": exc.__class__.__name__,
+                        "page_text_excerpt_chars": 0,
+                        "page_text_identity_terms": [],
+                        "elapsed_ms": 0.0,
+                        "from_cache": False,
+                        "cache_status": "miss",
+                        "error_type": exc.__class__.__name__,
+                        "error_message_safe": str(exc)[:200],
+                        "fetch_attempt_count": 1,
+                    }
+                canon_results[c_url] = res
+                fetch_results_meta.append({
+                    "canonical_url": c_url,
+                    "status": res["status"],
+                    "elapsed_ms": res.get("elapsed_ms", 0.0),
+                    "from_cache": res.get("from_cache", False),
+                    "cache_status": res.get("cache_status", "miss"),
+                    "page_text_chars": res.get("page_text_excerpt_chars", 0),
+                    "error_type": res.get("error_type"),
+                    "error_message_safe": res.get("error_message_safe"),
+                    "fetch_attempt_count": res.get("fetch_attempt_count", 1),
+                })
+                if res.get("page_text_checked"):
+                    successful_fetch_count += 1
+
+    # Any remaining un-fetched candidate URLs beyond max_urls get top_n_limit / global_limit
+    for j in range(i, len(candidate_canon_urls)):
+        c_url = candidate_canon_urls[j]
+        if c_url not in canon_results:
+            for idx in canonical_groups[c_url]:
+                items_prepared[idx]["fetch_selected"] = False
+                items_prepared[idx]["fetch_skip_reason"] = "global_limit"
+                items_prepared[idx]["page_text_skip_reason"] = "top_n_limit"
+                skipped_urls_meta.append({
+                    "canonical_url": c_url,
+                    "canonical_domain": items_prepared[idx]["canonical_domain"],
+                    "skip_reason": "global_limit",
+                })
+
+    # Step 4: Broadcast results back to all items with matching canonical URLs
+    for item in items_prepared:
+        c_url = item.get("canonical_url", "")
+        if c_url in canon_results:
+            res = canon_results[c_url]
+            if res.get("page_text_checked"):
+                item["page_text_excerpt"] = res["page_text_excerpt"]
+                item["page_text_checked"] = True
+                item["page_text_skip_reason"] = None
+                item["page_text_excerpt_chars"] = res["page_text_excerpt_chars"]
+                item["page_text_identity_terms"] = res["page_text_identity_terms"]
+
+                # Merge same-source page identity only when it matches existing source fields.
+                _reconcile_page_text_identity(item)
             else:
-                excerpt = str(fetched or "")
-            excerpt = _compact_text(excerpt)
-            if excerpt:
-                current["page_text_excerpt"] = excerpt
-                current["page_text_checked"] = True
-                current["page_text_excerpt_chars"] = len(excerpt)
-                current["page_text_identity_terms"] = _page_text_identity_terms(excerpt)
-                successful_fetch_count += 1
-            else:
-                current["page_text_checked"] = False
-                current["page_text_skip_reason"] = "empty_or_non_html"
-        except Exception as exc:
-            current["page_text_checked"] = False
-            current["page_text_skip_reason"] = exc.__class__.__name__
-        enriched.append(current)
+                item["page_text_checked"] = False
+                item["page_text_skip_reason"] = res.get("page_text_skip_reason") or "fetch_failed"
 
-    return enriched
+    trace_status = "completed"
+    if total_timeout_reached:
+        trace_status = "timeout"
+    elif not candidate_canon_urls:
+        trace_status = "empty"
+
+    page_fetch_trace = {
+        "status": trace_status,
+        "requested_url_count": len(evidence or []),
+        "selected_url_count": len(candidate_canon_urls),
+        "skipped_url_count": len(skipped_urls_meta),
+        "deduplicated_url_count": deduplicated_count,
+        "network_fetch_count": network_fetch_count,
+        "completed_count": completed_count,
+        "success_count": success_count,
+        "timeout_count": timeout_count,
+        "error_count": error_count,
+        "cancelled_count": cancelled_count,
+        "cache_hit_count": cache_hit_count,
+        "cache_miss_count": cache_miss_count,
+        "success_cache_hit_count": success_cache_hit_count,
+        "failure_cache_hit_count": failure_cache_hit_count,
+        "total_elapsed_ms": round((time.time() - start_time) * 1000, 2),
+        "total_timeout_reached": total_timeout_reached,
+        "pending_cancelled_cleanly": pending_cancelled_cleanly,
+        "per_domain_selected_counts": domain_url_counts,
+        "selected_urls": selected_urls_meta,
+        "skipped_urls": skipped_urls_meta,
+        "fetch_results": fetch_results_meta,
+    }
+
+    if items_prepared:
+        items_prepared[0]["page_fetch_trace"] = page_fetch_trace
+
+    if return_trace:
+        return items_prepared, page_fetch_trace
+
+    return items_prepared
+
+
+def enrich_lens_evidence_with_page_text_sync(
+    evidence: List[Dict[str, Any]],
+    **kwargs: Any,
+) -> Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], Dict[str, Any]]]:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop is not None and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(lambda: asyncio.run(enrich_lens_evidence_with_page_text(evidence, **kwargs)))
+            return future.result()
+    else:
+        return asyncio.run(enrich_lens_evidence_with_page_text(evidence, **kwargs))
 
 
 def _is_unknown_identity(value: Any) -> bool:
@@ -837,6 +2204,8 @@ def _currency_from_denomination(value: Any) -> Optional[str]:
     excluded = {
         "UNC", "PMG", "GEM", "NEW", "THE", "AND", "OLD",
         "NAM", "BIN", "TON", "COT", "SER", "PCS",
+        # Grading/condition/note type codes that must never become currency codes
+        "EPQ", "GMT", "UTC", "NMT", "FRN",
     }
     if re.fullmatch(r"[A-Za-z]{3}", text):
         code = text.upper()
@@ -896,7 +2265,11 @@ def _normalize_currency_code(value: Any) -> Optional[str]:
 
 def _parse_amount_token(raw_value: Any) -> Optional[int]:
     text = str(raw_value or "").strip()
-    short_match = re.search(r"(?<!\w)(\d{1,3})\s*[kK](?!\w)", text)
+    folded = _fold_text_for_markers(text)
+    if re.search(r"(?<!\w)(?:mot|one)\s+(?:nghin|ngan|thousand)(?!\w)", folded):
+        return 1000
+
+    short_match = re.search(r"(?<!\w)(\d{1,3})\s*(?:k|nghìn|nghin|ngàn|ngan)\b", text, flags=re.IGNORECASE)
     if short_match:
         return int(short_match.group(1)) * 1000
 
@@ -908,6 +2281,12 @@ def _parse_amount_token(raw_value: Any) -> Optional[int]:
         return None
 
     token = re.sub(r"\s+", "", match.group(1))
+    if re.fullmatch(r"\d+[.,]\d{1,2}", token):
+        try:
+            return int(float(token.replace(",", ".")))
+        except (TypeError, ValueError):
+            return None
+
     decimal_match = re.fullmatch(r"(\d+)[.,]00", token)
     if decimal_match:
         return int(decimal_match.group(1))
@@ -949,80 +2328,284 @@ def _identity_text_for_amounts(item: Dict[str, Any]) -> str:
     )
 
 
+def _parse_word_amount_val(text: str) -> Optional[int]:
+    folded = _fold_text_for_markers(text)
+    if "nghin" in folded or "ngan" in folded or "thousand" in folded:
+        if re.search(r"\b(nam|five)\b", folded):
+            if "muoi" in folded or "fifty" in folded:
+                return 50000
+            elif "tram" in folded or "hundred" in folded:
+                return 500000
+            return 5000
+        elif re.search(r"\b(hai|two)\b", folded):
+            if "muoi" in folded or "twenty" in folded:
+                return 20000
+            elif "tram" in folded or "hundred" in folded:
+                return 200000
+            return 2000
+        elif re.search(r"\b(mot|one)\b", folded):
+            if "tram" in folded or "hundred" in folded:
+                return 100000
+            return 1000
+        elif re.search(r"\b(muoi|ten)\b", folded):
+            return 10000
+    return None
+
+
+def _has_explicit_denomination_prefix(folded_prefix: str) -> bool:
+    return bool(re.search(r"(?:menh\s+gia|denomination|face\s+value)\s*(?:is|la|:)?\s*$", folded_prefix))
+
+
+def _has_currency_unit_context(folded_prefix: str, folded_suffix: str, folded_window: str) -> bool:
+    suffix_clean = folded_suffix.lstrip()
+    if re.match(r"^(?:vnd|vnđ|₫|dong|đồng|usd|eur|€|jpy|¥|gbp|£|thb|฿|khr|lak|mmk|kyats?|riels?|kips?|bahts?|pesos?|rubles?|yuans?|wons?|₩|ringgits?|rupiahs?|dollars?|dola|dôla|đôla|sgd|singapore\s+dollars?)\b", suffix_clean):
+        return True
+    if re.match(r"^\$", suffix_clean) and not re.match(r"^\$\s*\d", suffix_clean):
+        return True
+    prefix_clean = folded_prefix.rstrip()
+    if re.search(r"(?:vnd|vnđ|₫|usd|\$|eur|€|jpy|¥|gbp|£|thb|฿|khr|lak|mmk|won|₩|dollars?|dola|dôla|đôla|sgd|singapore\s+dollars?)\s*$", prefix_clean):
+        return True
+    return False
+
+
+def _has_price_sale_amount_context(folded_prefix: str, folded_suffix: str, folded_window: str) -> bool:
+    price_prefix = bool(
+        re.search(
+            r"(?:price|gia\s+ban|gia\s+chi|gia\s+tu|gia\s+tri|gia|tri\s+gia|dinh\s+gia|"
+            r"worth|valued\s+at|valuation|sold\s+for|paid|payment|purchase\s+price|"
+            r"selling\s+price|buy|sell|mua|nguoi\s+mua|co\s+nguoi\s+mua|ban|rao\s+ban|"
+            r"auction|sale|for\s+sale|discount|cost|tra)\s*(?:is|la|:|voi)?\s*$",
+            folded_prefix,
+        )
+    )
+    if price_prefix:
+        return True
+
+    price_unit_suffix = bool(re.match(r"\s*(?:cu|trieu|million)\b", folded_suffix))
+    if not price_unit_suffix:
+        return False
+    return any(
+        _contains_term(folded_window, marker)
+        for marker in (
+            "price", "gia", "gia ban", "gia tri", "tri gia", "dinh gia",
+            "worth", "valuation", "sold for", "paid", "payment",
+            "buy", "sell", "mua", "nguoi mua", "co nguoi mua",
+            "ban", "rao ban", "auction", "sale", "for sale", "cost", "tra",
+        )
+    )
+
+
+def _build_span_result(raw: str, amount: Optional[int], category: str, is_denomination: bool, confidence: float, reason: str, start: int, end: int) -> Dict[str, Any]:
+    return {
+        "raw": raw,
+        "amount": amount,
+        "category": category,
+        "is_denomination": is_denomination,
+        "confidence": confidence,
+        "reason": reason,
+        "start": start,
+        "end": end,
+    }
+
+
+def classify_numeric_span(
+    text: str,
+    match: Optional[Any] = None,
+    amount: Optional[int] = None,
+    match_type: str = "number",
+) -> List[Dict[str, Any]]:
+    """
+    Classify numeric spans in text into:
+    - denomination
+    - year
+    - serial
+    - percentage
+    - price
+    - conversion
+    - quantity
+    - model
+    - unknown
+    """
+    original_text = str(text or "")
+    if not original_text.strip():
+        return []
+
+    # 1. Word-form amounts
+    word_pattern = re.compile(
+        r"(?<!\w)(?P<word>(?:năm|nam|hai|một|mot|ba|bốn|bon|sáu|sau|bảy|bay|tám|tam|chín|chin|mười|muoi|hai\s+mươi|nam\s+muoi|mot\s+tram|năm\s+trăm|hai\s+trăm|five|two|one|three|four|six|seven|eight|nine|ten|twenty|fifty|one\s+hundred)\s+(?:nghìn|ngàn|nghin|ngan|thousand))\b",
+        flags=re.IGNORECASE,
+    )
+    word_matches = list(word_pattern.finditer(original_text))
+
+    # 2. Number tokens
+    number_pattern = re.compile(
+        r"(?<!\w)(?P<short>\d{1,3})\s*(?:k|nghìn|nghin|ngàn|ngan)\b"
+        r"|(?<!\d)(?P<number>\d{1,3}(?:[.,\s]\d{3})+|\d+(?:[.,]\d+)*)(?!\d)",
+        flags=re.IGNORECASE,
+    )
+    number_matches = list(number_pattern.finditer(original_text))
+
+    all_matches = []
+    for wm in word_matches:
+        val = _parse_word_amount_val(wm.group("word"))
+        if val:
+            all_matches.append((wm.start(), wm.end(), wm, val, "word"))
+
+    for nm in number_matches:
+        val = _parse_amount_token(nm.group(0))
+        if val is not None:
+            if not any(wm.start() <= nm.start() < wm.end() for wm in word_matches):
+                m_type = "word" if nm.group("short") else "number"
+                all_matches.append((nm.start(), nm.end(), nm, val, m_type))
+
+    all_matches.sort(key=lambda x: x[0])
+    raw_matches_list = [item[2] for item in all_matches]
+
+    spans: List[Dict[str, Any]] = []
+    for index, (start, end, m, val, m_type) in enumerate(all_matches):
+        span_info = _classify_single_span_details(original_text, m, val, raw_matches_list, index, match_type=m_type)
+        spans.append(span_info)
+
+    if match is not None:
+        for s in spans:
+            if s["start"] == match.start() and s["end"] == match.end():
+                return [s]
+        amount_val = amount if amount is not None else _parse_amount_token(match.group(0))
+        return [_classify_single_span_details(original_text, match, amount_val, [match], 0, match_type=match_type)]
+
+    return spans
+
+
+def _classify_single_span_details(
+    text: str,
+    match: Any,
+    amount: Optional[int],
+    matches: List[Any],
+    match_index: int,
+    match_type: str = "number",
+) -> Dict[str, Any]:
+    raw_token = match.group(0)
+    start = match.start()
+    end = match.end()
+
+    prefix = text[max(0, start - 50):start]
+    if any(sep in prefix for sep in (".", ";", "\n")):
+        prefix = re.split(r"[.;\n]", prefix)[-1]
+    suffix = text[end:min(len(text), end + 50)]
+    if any(sep in suffix for sep in (".", ";", "\n")):
+        suffix = re.split(r"[.;\n]", suffix)[0]
+    local_window = text[max(0, start - 80):min(len(text), end + 80)]
+
+    folded_prefix = _fold_text_for_markers(prefix)
+    folded_suffix = _fold_text_for_markers(suffix)
+    folded_window = _fold_text_for_markers(local_window)
+
+    if re.search(r"[\ufffd\u25fd\u25fe]$", prefix):
+        return _build_span_result(raw_token, amount, "unknown", False, 0.5, "corrupted_symbol_prefix", start, end)
+
+    # --- 1. Phone number or Model code ---
+    digits_only = re.sub(r"\D", "", raw_token)
+    has_phone_prefix = any(_contains_term(folded_prefix, p) for p in ("sdt", "sđt", "dt", "phone", "tel", "zalo", "lh", "lien he", "contact"))
+    has_model_prefix = (
+        any(_contains_term(folded_prefix, p) for p in ("model", "ma", "mã", "ref", "sku", "part", "item no", "code", "bo loc", "bộ lọc", "pmg", "grade", "epq"))
+        or bool(re.search(r"(?:#|\bno\.?|\bnum\.?|\blot\s*#?)\s*$", folded_prefix, re.IGNORECASE))
+    )
+
+    if (len(digits_only) >= 9 and (digits_only.startswith("0") or digits_only.startswith("84") or has_phone_prefix)) or has_model_prefix:
+        return _build_span_result(raw_token, amount, "model", False, 0.95, "model_or_phone_number", start, end)
+
+    # --- 2. Percentage ---
+    if suffix.lstrip().startswith("%") or re.match(r"\s*(?:percent|percentage|phan\s+tram)\b", folded_suffix):
+        return _build_span_result(raw_token, amount, "percentage", False, 0.98, "percentage_suffix", start, end)
+
+    # --- 3. Serial Number ---
+    has_letter_prefix = bool(re.search(r"\b[A-Za-z]{1,4}\s*#?\s*$", prefix)) and len(digits_only) >= 5
+    has_serial_prefix = bool(re.search(r"(?:serial|seri|so\s+seri|serial\s+no|seri\s+no|s/n|sn|serial\s+#|seri\s+dep)\s*(?:no\.?|number|#|:)?\s*$", folded_prefix))
+
+    if (has_letter_prefix or has_serial_prefix) and not _has_explicit_denomination_prefix(folded_prefix) and not _has_currency_unit_context(folded_prefix, folded_suffix, folded_window):
+        return _build_span_result(raw_token, amount, "serial", False, 0.95, "serial_number_pattern", start, end)
+
+    # --- 4. Year / Year Range ---
+    looks_like_year_range = bool(re.search(r"\b(1[7-9]\d\d|20\d\d)\s*[-/–—]\s*(1[7-9]\d\d|20\d\d)\b", local_window))
+    has_year_marker = _has_year_number_marker(local_window)
+    has_series_year = bool(
+        re.search(r"(?:series|seri|star)\s*$", folded_prefix)
+        or re.search(r"^\s*(?:star|series|frn|federal reserve note|unc|edition)\b", folded_suffix)
+        or re.search(r"\b(?:series|seri|star)\s*(1[7-9]\d\d|20\d\d)\b", folded_window)
+        or re.search(r"\b(1[7-9]\d\d|20\d\d)\s*(?:star|series|frn|federal reserve note|unc|edition)\b", folded_window)
+    )
+
+    if amount is not None and 1700 <= amount <= 2100:
+        is_currency_bound = _has_explicit_denomination_prefix(folded_prefix) or _has_currency_unit_context(folded_prefix, folded_suffix, folded_window)
+        if not is_currency_bound and (looks_like_year_range or has_year_marker or has_series_year or not _has_price_sale_amount_context(folded_prefix, folded_suffix, folded_window)):
+            return _build_span_result(raw_token, amount, "year", False, 0.95, "year_marker_or_range", start, end)
+
+    # --- 5. Quantity ---
+    has_quantity_suffix = bool(re.match(r"\s*(?:sold|da\s+ban|pcs?|pieces?|bundle|brick|lots?|quantity|qty|bo|cuon|tap)\b", folded_suffix))
+    has_quantity_prefix = bool(re.search(r"(?:quantity|qty|lot\s+of|bundle\s+of|lot|bo)\s*(?:of|:)?\s*$", folded_prefix))
+
+    if (has_quantity_suffix or has_quantity_prefix) and not _has_explicit_denomination_prefix(folded_prefix):
+        return _build_span_result(raw_token, amount, "quantity", False, 0.95, "quantity_marker", start, end)
+
+    # --- 6. Currency Conversion / Exchange Rate ---
+    has_conversion_keyword = any(_contains_term(folded_window, kw) for kw in ("sang", "doi sang", "to", "out of", "into", "exchange rate", "ty gia", "quy doi", "converter", "conversion", "rate", "="))
+    has_conversion_pattern = bool(
+        re.search(r"\d+[\d.,\s]*\s+[A-Z]{3}\s+(?:sang|to|doi\s+sang|out\s+of|=)\s+[A-Z]{3}", folded_window, re.IGNORECASE)
+        or re.search(r"\d+[\d.,\s]*\s+[A-Z]{3}\s*=\s*\d+[\d.,\s]*\s+[A-Z]{3}", folded_window, re.IGNORECASE)
+        or (has_conversion_keyword and not _has_explicit_denomination_prefix(folded_prefix) and any(kw in folded_window for kw in ("sang", "doi sang", "exchange rate", "ty gia", "quy doi")))
+    )
+
+    if has_conversion_pattern and not _has_explicit_denomination_prefix(folded_prefix):
+        return _build_span_result(raw_token, amount, "conversion", False, 0.95, "conversion_exchange_rate", start, end)
+
+    # --- 7. Commercial Price / Sale Price ---
+    has_price_prefix = bool(re.search(r"(?:price|gia\s+ban|gia|sold\s+for|buy|sell|auction|sale|for\s+sale|discount|gia\s+chi|gia\s+tu|us\s+\$|usd\s+\$)\s*(?:is|la|:)?\s*$", folded_prefix))
+    has_banknote_suffix = bool(re.match(r"\s*(?:banknote|notes?|bills?|paper\s+money|tờ\s+tiền|mệnh\s+giá|frn|federal\s+reserve\s+note)\b", folded_suffix))
+    is_float_price = (bool(re.search(r"^\s*\$\s*\d+(?:\.\d{1,2})?$", raw_token)) or (prefix.rstrip().endswith("$") and not _has_explicit_denomination_prefix(folded_prefix))) and not has_banknote_suffix
+    has_price_sale_context = _has_price_sale_amount_context(folded_prefix, folded_suffix, folded_window)
+
+    if (has_price_prefix or has_price_sale_context or is_float_price) and not _has_explicit_denomination_prefix(folded_prefix):
+        return _build_span_result(raw_token, amount, "price", False, 0.95, "commercial_price_prefix", start, end)
+
+    # --- 8. Denomination ---
+    has_explicit_denom_prefix = _has_explicit_denomination_prefix(folded_prefix)
+    has_currency_unit = _has_currency_unit_context(folded_prefix, folded_suffix, folded_window)
+    has_banknote_context = any(_contains_term(folded_window, kw) for kw in ("banknote", "banknotes", "note", "notes", "bill", "bills", "paper money", "tien giay", "to tien", "menh gia", "face value", "frn", "federal reserve note", "to", "tờ", "dong", "đồng"))
+
+    if (has_explicit_denom_prefix or has_currency_unit or match_type == "word" or (has_banknote_context and amount is not None and amount > 0)):
+        conf = 0.95 if (has_explicit_denom_prefix or match_type == "word") else 0.85
+        return _build_span_result(raw_token, amount, "denomination", True, conf, "valid_denomination_context", start, end)
+
+    # --- 9. Unknown ---
+    return _build_span_result(raw_token, amount, "unknown", False, 0.5, "lacks_banknote_context", start, end)
+
+
 def _ignored_amount_reason_for_match(
     text: str,
     match: Any,
     amount: int,
     matches: List[Any],
     match_index: int,
+    match_type: str = "number",
 ) -> Optional[str]:
-    raw = match.group(0)
-    local_context = text[max(0, match.start() - 72):match.end() + 72]
-    folded_context = _fold_text_for_markers(local_context)
-    prefix = text[max(0, match.start() - 40):match.start()]
-    suffix = text[match.end():match.end() + 32]
-    folded_prefix = _fold_text_for_markers(prefix)
-    folded_suffix = _fold_text_for_markers(suffix)
-    direct_denomination = _has_explicit_denomination_context(local_context, amount)
-
-    if suffix.lstrip().startswith("%") or re.match(r"\s*(?:percent|percentage|phan\s+tram)\b", folded_suffix):
-        return "ignored_percentage_number"
-
-    has_prior_non_year_amount = any(
-        prior is not None and not 1800 <= prior <= 2100
-        for prior in (_parse_amount_token(previous.group(0)) for previous in matches[:match_index])
-    )
-    looks_like_year = (
-        1800 <= amount <= 2100
-        and (
-            (not direct_denomination and _has_year_number_marker(local_context))
-            or has_prior_non_year_amount
-            or re.search(
-                rf"(?<!\d){re.escape(raw)}(?!\d)\s*(?:unc|series|edition)",
-                folded_context,
-            )
-        )
-    )
-    if looks_like_year:
-        return "ignored_year_number"
-
-    looks_like_serial = bool(
-        re.search(
-            r"(?:serial|seri|so\s+seri|serial\s+dep|seri\s+dep)\s*(?:no\.?|number|#|:)?\s*$",
-            folded_prefix,
-        )
-    )
-    if not direct_denomination and looks_like_serial:
-        return "ignored_serial_number"
-
-    looks_like_grade = bool(
-        re.search(r"(?:pmg|pcgs|grade)\s*$", folded_prefix)
-        or re.match(r"\s*(?:epq|unc|au|ef|vf|xf)\b", folded_suffix)
-    )
-    if not direct_denomination and (
-        looks_like_grade
-    ):
-        return "ignored_grade_number"
-
-    looks_like_quantity = bool(
-        re.match(r"\s*(?:pcs?|pieces?|bundle|brick|lots?|quantity|qty)\b", folded_suffix)
-        or re.search(r"(?:lot|bundle|brick|quantity|qty)\s*(?:of|:)?\s*$", folded_prefix)
-    )
-    if not direct_denomination and (
-        looks_like_quantity
-    ):
-        return "ignored_listing_quantity"
-
-    looks_like_commercial = bool(
-        re.search(
-            r"(?:price|gia\s+ban|sold\s+for|buy|sell|auction|sale|for\s+sale|contact|call|cart|lien\s+he)\s*(?:is|la|:)?\s*$",
-            folded_prefix,
-        )
-        or re.match(r"\s*(?:price|gia\s+ban|sold|sale|for\s+sale)\b", folded_suffix)
-    )
-    if not direct_denomination and looks_like_commercial:
-        return "weak_shop_conflict_ignored"
-
+    spans = classify_numeric_span(text, match=match, amount=amount, match_type=match_type)
+    if spans:
+        span = spans[0]
+        if not span["is_denomination"]:
+            cat = span["category"]
+            if cat == "percentage":
+                return "ignored_percentage_number"
+            elif cat == "year":
+                return "ignored_year_number"
+            elif cat == "serial":
+                return "ignored_serial_number"
+            elif cat == "model":
+                return "ignored_grade_number"
+            elif cat == "quantity":
+                return "ignored_listing_quantity"
+            elif cat in ("price", "conversion"):
+                return "weak_shop_conflict_ignored"
+            return f"ignored_{cat}_number"
     return None
 
 
@@ -1034,8 +2617,9 @@ def _identity_text_amounts_with_ignored(
     text = _identity_text_for_amounts(item)
     text = re.sub(r"(?<!\w)one\s+dollar(?!\w)", "1 dollar", text, flags=re.IGNORECASE)
     pattern = re.compile(
-        r"(?<!\w)(?P<short>\d{1,3})\s*[kK](?!\w)"
-        r"|(?<!\d)(?P<number>\d{1,3}(?:[.,\s]\d{2,3}){1,3}|\d{1,7})(?!\d)"
+        r"(?<!\w)(?P<short>\d{1,3})\s*(?P<unit>k|nghìn|nghin|ngàn|ngan)\b"
+        r"|(?<!\d)(?P<number>\d{1,3}(?:[.,\s]\d{2,3}){1,3}|\d{1,7})(?!\d)",
+        flags=re.IGNORECASE,
     )
     amounts: List[int] = []
     ignored: List[Dict[str, Any]] = []
@@ -1046,7 +2630,8 @@ def _identity_text_amounts_with_ignored(
         if not is_valid_agent3_denomination(amount, currency):
             continue
 
-        reason = _ignored_amount_reason_for_match(text, match, amount, matches, match_index)
+        match_type = "word" if match.group("short") else "number"
+        reason = _ignored_amount_reason_for_match(text, match, amount, matches, match_index, match_type=match_type)
         if reason:
             ignored.append(
                 {
@@ -1059,6 +2644,37 @@ def _identity_text_amounts_with_ignored(
             continue
         if amount not in amounts:
             amounts.append(amount)
+
+    folded_text = _fold_text_for_markers(text)
+    for phrase_match in re.finditer(
+        r"(?<!\w)(?:mot|one)\s+(?:nghin|ngan|thousand)(?!\w)",
+        folded_text,
+        flags=re.IGNORECASE,
+    ):
+        amount = 1000
+        if not is_valid_agent3_denomination(amount, currency):
+            continue
+        local_context = text[
+            max(0, phrase_match.start() - 72):phrase_match.end() + 72
+        ]
+        folded_context = _fold_text_for_markers(local_context)
+        has_currency_or_banknote_context = (
+            _has_explicit_denomination_context(local_context, amount)
+            or any(
+                _contains_term(folded_context, marker)
+                for marker in (
+                    "vnd", "dong", "banknote", "note", "bill",
+                    "currency", "paper money", "tien giay", "to tien",
+                    "menh gia",
+                )
+            )
+        )
+        if has_currency_or_banknote_context and amount not in amounts:
+            amounts.append(amount)
+    amounts = _drop_non_catalog_amounts_when_catalog_amount_exists(amounts, currency)
+    multi_context_amounts = _multi_denomination_context_amounts(text, currency)
+    if len(multi_context_amounts) >= 2:
+        amounts = multi_context_amounts
     return amounts, ignored
 
 
@@ -1189,6 +2805,117 @@ def _raw_valid_denomination_mentions(text: str, currency: Optional[str]) -> List
     return amounts
 
 
+def _drop_non_catalog_amounts_when_catalog_amount_exists(
+    amounts: List[Any],
+    currency: Optional[str],
+) -> List[Any]:
+    allowed = ALLOWED_DENOMINATIONS.get(str(currency or "").upper())
+    if not allowed:
+        return amounts
+
+    parsed_pairs = [(raw, _parse_amount_token(raw)) for raw in amounts or []]
+    has_catalog_amount = any(amount in allowed for _raw, amount in parsed_pairs)
+    if not has_catalog_amount:
+        return amounts
+
+    cleaned: List[Any] = []
+    for raw, amount in parsed_pairs:
+        if amount is not None and amount not in allowed:
+            continue
+        cleaned.append(amount if amount is not None else raw)
+    return cleaned
+
+
+def _multi_denomination_context_amounts(
+    text: str,
+    currency: Optional[str],
+) -> List[int]:
+    original_text = str(text or "")
+    if not original_text.strip():
+        return []
+
+    allowed = ALLOWED_DENOMINATIONS.get(str(currency or "").upper())
+    number_pattern = re.compile(
+        r"(?<!\d)(?P<number>\d{1,3}(?:[.,\s]\d{3})+|\d{1,7})(?!\d)",
+        flags=re.IGNORECASE,
+    )
+    matches: List[Dict[str, Any]] = []
+    amounts: List[int] = []
+    for match in number_pattern.finditer(original_text):
+        amount = _parse_amount_token(match.group("number"))
+        if amount is None or amount <= 0:
+            continue
+        if allowed is not None:
+            if amount not in allowed:
+                continue
+        elif not is_valid_agent3_denomination(amount, currency):
+            continue
+        matches.append({"amount": amount, "start": match.start(), "end": match.end()})
+        if amount not in amounts:
+            amounts.append(amount)
+
+    if len(amounts) < 2:
+        return []
+
+    folded_text = _fold_text_for_markers(original_text)
+    has_plural_multi_marker = bool(
+        re.search(
+            r"\b(?:cac|nhieu|multiple|several|distinct|different)\s+"
+            r"(?:menh\s+gia|denominations?)\b",
+            folded_text,
+            flags=re.IGNORECASE,
+        )
+        or re.search(
+            r"\bdenominations\b",
+            folded_text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    sorted_matches = sorted(matches, key=lambda item: item["start"])
+    for left, right in zip(sorted_matches, sorted_matches[1:]):
+        if left["amount"] == right["amount"]:
+            continue
+        before = _fold_text_for_markers(original_text[max(0, left["start"] - 48):left["start"]])
+        between = _fold_text_for_markers(original_text[left["end"]:right["start"]])
+        explicit_range_start = bool(re.search(r"(?:\btu\b|\bfrom\b|\bbetween\b)\s*$", before))
+        range_connector = bool(
+            re.search(r"\b(?:den|toi|to|through|thru|and)\b", between)
+            or re.fullmatch(r"\s*[-/\u2013\u2014]\s*", between)
+        )
+        list_connector = bool(re.search(r"\b(?:va|and|or|hoac)\b|[,;/]", between))
+        if range_connector and (explicit_range_start or re.search(r"\b(?:den|toi|to|through|thru)\b", between)):
+            return amounts
+        if list_connector and has_plural_multi_marker:
+            return amounts
+
+    direct_context_count = 0
+    for match in sorted_matches:
+        prefix = _fold_text_for_markers(original_text[max(0, match["start"] - 56):match["start"]])
+        suffix = _fold_text_for_markers(original_text[match["end"]:min(len(original_text), match["end"] + 56)])
+        has_prefix_context = bool(
+            re.search(
+                r"(?:menh\s+gia|denomination|face\s+value|"
+                r"tien\s+giay|to\s+tien|banknotes?|notes?|bills?)"
+                r"(?:\s+tien|\s+menh\s+gia)?\s*(?:is|la|:)?\s*$",
+                prefix,
+                flags=re.IGNORECASE,
+            )
+        )
+        has_suffix_context = bool(
+            re.match(
+                r"\s*(?:vnd|dong|usd|dollars?|eur|euros?)?\s*"
+                r"(?:banknotes?|notes?|bills?|tien\s+giay|to\s+tien)\b",
+                suffix,
+                flags=re.IGNORECASE,
+            )
+        )
+        if has_prefix_context or has_suffix_context:
+            direct_context_count += 1
+
+    return amounts if direct_context_count >= 2 else []
+
+
 def _denomination_list_context_reason(
     item: Dict[str, Any],
     currency: Optional[str],
@@ -1206,21 +2933,31 @@ def _denomination_list_context_reason(
 
     has_list_marker = any(marker in identity_text for marker in DENOMINATION_LIST_MARKERS)
     has_catalog_source = any(marker in source_text for marker in DENOMINATION_LIST_SOURCE_MARKERS)
-    if has_catalog_source:
-        return "catalog_denomination_list"
     if has_list_marker:
-        return "denomination_family_list"
+        return "catalog_denomination_list" if has_catalog_source else "denomination_family_list"
     return None
 
 
-def is_valid_agent3_denomination(amount: Optional[int], currency: Optional[str]) -> bool:
-    if amount is None or not currency:
+def is_valid_agent3_denomination(amount: Optional[int], currency: Optional[str] = None) -> bool:
+    if amount is None or amount <= 0:
         return False
+    if currency:
+        code = str(currency).upper()
+        if not re.fullmatch(r"[A-Z]{3}", code):
+            return False
+    return amount <= 100_000_000
+
+
+def is_denomination_catalog_match(amount: Optional[int], currency: Optional[str] = None) -> bool:
+    if amount is None or amount <= 0:
+        return False
+    if not currency:
+        return True
     code = str(currency).upper()
     allowed = ALLOWED_DENOMINATIONS.get(code)
-    if allowed is not None:
-        return amount in allowed
-    return bool(re.fullmatch(r"[A-Z]{3}", code) and 0 < amount <= 10_000_000)
+    if allowed is None:
+        return True
+    return amount in allowed
 
 
 def _normalize_country_key(value: Any, currency: Optional[str] = None) -> str:
@@ -1315,7 +3052,6 @@ WEAK_EVIDENCE_HINTS = (
     "sold for",
     "collector",
     "collector price",
-    "collector marketplace",
     "birthday note",
     "serial dep",
     "seri dep",
@@ -1389,6 +3125,7 @@ def normalize_lens_evidence(
     evidence: Optional[List[Dict[str, Any]]],
     provider: str = "unknown",
 ) -> List[Dict[str, Any]]:
+    from app.services.evidence_ranker_service import get_canonical_domain
     """Normalize SerpAPI and Selenium evidence into one JSON-safe schema."""
     normalized_items: List[Dict[str, Any]] = []
     default_provider = str(provider or "unknown").strip().lower() or "unknown"
@@ -1417,25 +3154,62 @@ def normalize_lens_evidence(
         except (TypeError, ValueError):
             rank = index
         try:
-            score = float(raw.get("score") or 0.0)
+            score = float(raw_item.get("score") if raw_item.get("score") is not None else (raw.get("score") or 0.0))
         except (TypeError, ValueError):
             score = 0.0
-
-        raw_amounts = raw.get("detected_amounts") or []
-        if not isinstance(raw_amounts, (list, tuple, set)):
-            raw_amounts = [raw_amounts]
-
-        rank_reasons = raw.get("rank_reasons") or []
-        if not isinstance(rank_reasons, list):
-            rank_reasons = [str(rank_reasons)]
 
         title = str(raw.get("title") or raw.get("text") or "").strip()
         snippet = str(raw.get("snippet") or raw.get("description") or "").strip()
         source = str(raw.get("source") or raw.get("source_name") or domain or "").strip()
         page_text_excerpt = _compact_text(raw.get("page_text_excerpt"))
 
+        rank_reasons = raw_item.get("rank_reasons") or raw.get("rank_reasons") or []
+        if not isinstance(rank_reasons, list):
+            rank_reasons = [str(rank_reasons)]
+
+        identity_text = " ".join((title, snippet, page_text_excerpt))
+        explicit_banknote_context = (
+            _has_explicit_banknote_phrase(identity_text)
+            or _has_explicit_banknote_url_path(raw)
+        )
+        can_infer_unknown_identity = bool(page_text_excerpt or raw.get("page_text_identity_terms"))
+        detected_curr = _normalize_currency_code(raw.get("detected_currency"))
+        if _is_unknown_identity(detected_curr) and (
+            "detected_currency" not in raw or can_infer_unknown_identity
+        ):
+            detected_curr = _normalize_currency_code(identity_text)
+
+        detected_coun = raw.get("detected_country")
+        if _is_unknown_identity(detected_coun) and (
+            "detected_country" not in raw or can_infer_unknown_identity
+        ):
+            from app.services.evidence_ranker_service import _extract_country_currency
+            detected_coun, _c = _extract_country_currency(identity_text, preferred_currency=detected_curr)
+
+        if "detected_amounts" in raw and raw["detected_amounts"] is not None:
+            raw_amounts = list(raw["detected_amounts"]) if isinstance(raw["detected_amounts"], (list, tuple, set)) else [raw["detected_amounts"]]
+        else:
+            temp_item = {"title": title, "snippet": snippet, "page_text_excerpt": page_text_excerpt}
+            raw_amounts, _ignored = _identity_text_amounts_with_ignored(temp_item, detected_curr)
+        raw_amounts = _drop_non_catalog_amounts_when_catalog_amount_exists(list(raw_amounts), detected_curr)
+        multi_context_amounts = _multi_denomination_context_amounts(identity_text, detected_curr)
+        if len(multi_context_amounts) >= 2:
+            raw_amounts = multi_context_amounts
+        metadata_context_item = {
+            "title": title,
+            "snippet": snippet,
+            "page_text_excerpt": page_text_excerpt,
+            "detected_country": detected_coun,
+            "detected_currency": detected_curr,
+            "detected_amounts": list(raw_amounts),
+            "rank_reasons": rank_reasons,
+        }
+        metadata_banknote_context = _has_metadata_banknote_context(metadata_context_item)
+
         normalized_items.append(
             {
+                "evidence_origin": raw.get("evidence_origin", "lens_visual_match"),
+                "is_candidate_assisted": raw.get("is_candidate_assisted", False),
                 "provider": item_provider,
                 "bucket": bucket,
                 "rank": rank,
@@ -1446,33 +3220,79 @@ def normalize_lens_evidence(
                 "domain": domain,
                 "score": round(max(0.0, score), 4),
                 "rank_reasons": [str(reason) for reason in rank_reasons],
-                "detected_country": raw.get("detected_country"),
-                "detected_currency": raw.get("detected_currency"),
+                "detected_country": detected_coun,
+                "detected_currency": detected_curr,
                 "detected_amounts": list(raw_amounts),
                 "link_checked": bool(raw.get("link_checked")),
                 "link_alive": raw.get("link_alive"),
                 "page_text_checked": raw.get("page_text_checked", "skipped"),
+                "page_fetch_status": raw.get("page_fetch_status"),
+                "fetch_status": raw.get("fetch_status"),
                 "page_text_skip_reason": raw.get("page_text_skip_reason"),
                 "page_text_excerpt": page_text_excerpt,
                 "page_text_excerpt_chars": len(page_text_excerpt),
                 "page_text_identity_terms": list(raw.get("page_text_identity_terms") or []),
+                "content_identity_quality": raw.get("content_identity_quality"),
+                "has_banknote_context": (
+                    True
+                    if explicit_banknote_context or metadata_banknote_context
+                    else raw.get("has_banknote_context")
+                    if raw.get("has_banknote_context") is not None
+                    else raw.get("banknote_context")
+                    if raw.get("banknote_context") is not None
+                    else explicit_banknote_context
+                ),
                 "query": str(raw.get("query") or "").strip(),
                 "evidence_type": str(raw.get("evidence_type") or "lens").strip(),
                 "is_candidate_assisted": bool(raw.get("is_candidate_assisted")),
+                "qualified_source": raw.get("qualified_source"),
+                # --- Prompt 2 source classification & dedupe annotations ---
+                # Preserved as-is so verify_lens_evidence_identity can use them
+                # without re-running classify_source or deduplicate_and_count_evidence.
+                "source_trust_level": raw.get("source_trust_level"),        # TRUSTED/NEUTRAL/WEAK_COMMERCIAL/NOISE/...
+                "source_class": raw.get("source_class"),
+                "is_mirror": raw.get("is_mirror"),                          # bool from Prompt 2 dedupe
+                "is_duplicate_url": raw.get("is_duplicate_url"),            # bool from Prompt 2 dedupe
+                "domain_first": raw.get("domain_first"),                    # bool: first URL for this canonical domain
+                "is_independent": raw.get("is_independent"),                # bool from Prompt 2 dedupe
+                "canonical_domain": (
+                    raw.get("canonical_domain")
+                    or get_canonical_domain(url or source or domain)
+                    or domain
+                    or source
+                ),
+                "canonical_url": (
+                    raw.get("canonical_url")
+                    or url
+                ),
+                "mirror_group_id": raw.get("mirror_group_id"),              # int from Prompt 2 dedupe
+                "mirror_reason": raw.get("mirror_reason"),                  # str from Prompt 2 dedupe
+                "mirror_similarity": raw.get("mirror_similarity"),          # float from Prompt 2 dedupe
+                # --------------------------------------------------------
+                "_ag3_pre_page_identity": raw.get("_ag3_pre_page_identity"),
                 "raw": original_raw,
             }
+
         )
+        _reconcile_page_text_identity(normalized_items[-1])
 
     normalized_items.sort(key=lambda item: (item["rank"], -item["score"]))
     return normalized_items
 
 
 def _is_trusted_evidence(item: Dict[str, Any]) -> bool:
-    text = " ".join(
+    annotated = str(item.get("source_trust_level") or "").upper().strip()
+    if annotated == "TRUSTED":
+        return True
+    if annotated in {"STRONG_NEUTRAL", "ESTABLISHED_CATALOG", "NEUTRAL", "WEAK_COMMERCIAL", "NOISE", "SOCIAL", "UNREADABLE", "UNKNOWN"}:
+        return False
+    # Unannotated fallback: check domain, source, url ONLY (never title)
+    domain_source = " ".join(
         str(item.get(key) or "")
-        for key in ("title", "source", "domain", "url")
+        for key in ("domain", "source", "url")
     ).lower()
-    return any(hint in text for hint in TRUSTED_EVIDENCE_HINTS)
+    return any(hint in domain_source for hint in TRUSTED_EVIDENCE_HINTS)
+
 
 
 def _is_weak_evidence(item: Dict[str, Any]) -> bool:
@@ -1495,6 +3315,179 @@ def _evidence_noise_reason(item: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _content_identity_quality_is_noise(item: Dict[str, Any]) -> bool:
+    if str(item.get("content_identity_quality") or "").upper().strip() != "NOISE":
+        return False
+    return not (
+        _has_metadata_banknote_context(item)
+        and _item_has_simple_usable_identity(item)
+    )
+
+
+def _metadata_identity_field_count(item: Dict[str, Any]) -> int:
+    country_known = not _is_unknown_identity(item.get("detected_country"))
+    currency_known = not _is_unknown_identity(_normalize_currency_code(item.get("detected_currency")))
+    amounts = item.get("detected_amounts")
+    denomination_known = isinstance(amounts, list) and len(amounts) == 1
+    if denomination_known:
+        try:
+            denomination_known = int(amounts[0]) > 0
+        except (TypeError, ValueError):
+            denomination_known = False
+    return int(country_known) + int(currency_known) + int(denomination_known)
+
+
+def _has_metadata_banknote_context(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    if _evidence_noise_reason(item) or _is_non_banknote_numismatic_object(item):
+        return False
+
+    identity_text = _evidence_identity_text(item)
+    currency = _normalize_currency_code(item.get("detected_currency")) or _normalize_currency_code(identity_text)
+    amounts, _ignored = _identity_text_amounts_with_ignored(
+        {"title": item.get("title"), "snippet": item.get("snippet"), "page_text_excerpt": ""},
+        currency,
+    )
+    if len(amounts) != 1:
+        return False
+
+    direct_context = _has_direct_banknote_amount_context(identity_text, amounts[0])
+    title_or_snippet = " ".join(
+        str(item.get(key) or "")
+        for key in ("title", "snippet")
+    ).casefold()
+    metadata_signal = any(
+        _contains_term(title_or_snippet, marker)
+        for marker in (
+            "file", "tap tin", ".jpg", ".jpeg", ".png", "catalog", "catalogue",
+            "unc", "p-", "tien co", "tien xua",
+        )
+    )
+    issue_year_signal = bool(
+        _item_has_simple_exact_identity(item)
+        and re.search(r"\b(?:1[7-9]\d\d|20\d\d)\b", title_or_snippet)
+    )
+    return bool(direct_context or metadata_signal or issue_year_signal)
+
+
+def _item_has_simple_usable_identity(item: Dict[str, Any]) -> bool:
+    return _metadata_identity_field_count(item) >= 2
+
+
+def _item_has_simple_exact_identity(item: Dict[str, Any]) -> bool:
+    return _metadata_identity_field_count(item) == 3
+
+
+def _item_effective_trust_level(item: Dict[str, Any]) -> str:
+    """Return the effective trust level for an evidence item.
+
+    Priority order:
+    1. Explicit Prompt 2 annotation via 'source_trust_level' field.
+       Recognised values: TRUSTED, NEUTRAL, WEAK_COMMERCIAL, NOISE,
+       SOCIAL, UNREADABLE (case-insensitive).
+    2. Keyword-based heuristic fallback (for pre-Prompt-2 / unannotated items):
+       - _is_trusted_evidence  → TRUSTED
+       - _is_weak_evidence     → WEAK_COMMERCIAL
+       - else                  → NEUTRAL
+
+    The fallback ensures backward-compatibility with test fixtures that do not
+    yet carry source_trust_level annotations from Prompt 2 classify_source.
+    """
+    annotated = str(item.get("source_trust_level") or item.get("source_class") or "").upper().strip()
+    if annotated in {"STRONG_NEUTRAL", "ESTABLISHED_CATALOG"}:
+        return "NEUTRAL"
+    if annotated == "UNKNOWN":
+        return "UNKNOWN"
+    known = {"TRUSTED", "NEUTRAL", "WEAK_COMMERCIAL", "NOISE", "SOCIAL", "UNREADABLE"}
+    if annotated in known:
+        return annotated
+    # Fallback for unannotated (pre-Prompt-2) items
+    if _is_trusted_evidence(item):
+        return "TRUSTED"
+    if _is_weak_evidence(item):
+        return "WEAK_COMMERCIAL"
+    return "NEUTRAL"
+
+
+def _item_supports_complete_identity(
+    item: Dict[str, Any],
+    selected_identity: Dict[str, Any],
+) -> bool:
+    """Determine whether an evidence item supports the full complete identity."""
+    if not isinstance(item, dict) or not isinstance(selected_identity, dict):
+        return False
+    country = selected_identity.get("country")
+    currency = str(selected_identity.get("currency") or "").strip().upper()
+    try:
+        amount = int(selected_identity.get("amount"))
+    except (TypeError, ValueError):
+        return False
+
+    if item.get("content_identity_quality") == "PARTIAL_IDENTITY":
+        return False
+
+    trust = _item_effective_trust_level(item)
+    if trust in ("NOISE", "SOCIAL", "UNREADABLE"):
+        return False
+
+    support = _evidence_support_for_identity(item, country, currency, amount)
+    return bool(
+        support["supports"]
+        and support.get("country_match")
+        and support.get("currency_match")
+        and support["exact_amount_support"]
+    )
+
+
+
+def _amount_signal_terms(text: str, amount: int) -> List[str]:
+    amount_regex = rf"(?<!\d){_amount_pattern(amount)}(?!\d)"
+    terms: List[str] = []
+    if re.search(amount_regex, text or "", flags=re.IGNORECASE):
+        terms.append(str(amount))
+    if amount >= 1000 and amount % 1000 == 0:
+        short_amount = amount // 1000
+        if re.search(
+            rf"(?<!\w){short_amount}\s*(?:k|nghìn|ngàn)(?!\w)",
+            text or "",
+            flags=re.IGNORECASE,
+        ):
+            terms.append(f"{short_amount}k")
+    if amount == 1000 and re.search(
+        r"(?<!\w)(?:mot|one)\s+(?:nghin|ngan|thousand)(?!\w)",
+        _fold_text_for_markers(text),
+        flags=re.IGNORECASE,
+    ):
+        terms.append("mot nghin")
+    return list(dict.fromkeys(terms))
+
+
+def _canonical_source_key(item: Dict[str, Any]) -> str:
+    raw_domain = str(item.get("domain") or "").strip().lower()
+    raw_url = str(item.get("url") or item.get("link") or "").strip()
+    if not raw_domain and raw_url:
+        try:
+            raw_domain = urlparse(raw_url).netloc.lower()
+        except Exception:
+            raw_domain = ""
+    domain = raw_domain.split("@")[-1].split(":")[0].strip(".")
+    for prefix in ("www.", "m.", "mobile."):
+        if domain.startswith(prefix):
+            domain = domain[len(prefix):]
+    if domain:
+        labels = [label for label in domain.split(".") if label]
+        if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in {
+            "ac", "co", "com", "edu", "gov", "net", "org",
+        }:
+            return ".".join(labels[-3:])
+        if len(labels) >= 2:
+            return ".".join(labels[-2:])
+        return domain
+    source = _fold_text_for_markers(item.get("source") or "").strip()
+    return source or raw_url.casefold()
+
+
 def _identity_text_signals(
     item: Dict[str, Any],
     country: Any,
@@ -1514,13 +3507,7 @@ def _identity_text_signals(
     title_lower = re.sub(r"(?<!\w)one\s+dollar(?!\w)", "1 dollar", title_lower)
 
     amount_regex = rf"(?<!\d){_amount_pattern(amount)}(?!\d)"
-    amount_terms = []
-    if re.search(amount_regex, combined):
-        amount_terms.append(str(amount))
-    if amount >= 1000 and amount % 1000 == 0:
-        short_amount = amount // 1000
-        if re.search(rf"(?<!\w){short_amount}\s*k(?!\w)", combined, flags=re.IGNORECASE):
-            amount_terms.append(f"{short_amount}k")
+    amount_terms = _amount_signal_terms(combined, amount)
 
     currency_terms = []
     for alias in CURRENCY_ALIASES.get(currency, [currency.lower()]):
@@ -1539,6 +3526,9 @@ def _identity_text_signals(
         if alias and _contains_term(combined, alias):
             currency_terms.append(alias)
             break
+    if not currency_terms and item.get("detected_country"):
+        if _normalize_country_key(item.get("detected_country"), currency) == country_key:
+            currency_terms.append(f"detected:{item.get('detected_country')}")
     if (
         currency == "VND"
         and country_key == "vietnam"
@@ -1547,7 +3537,8 @@ def _identity_text_signals(
         currency_terms.append("amount+đồng@vietnam")
 
     money_terms = []
-    for keyword in POSITIVE_BANKNOTE_KEYWORDS:
+    from app.services.evidence_ranker_service import BANKNOTE_KEYWORDS
+    for keyword in BANKNOTE_KEYWORDS:
         if _contains_term(combined, keyword):
             money_terms.append(keyword)
             break
@@ -1563,7 +3554,7 @@ def _identity_text_signals(
         money_terms.append("tiền")
     direct_banknote_context = _has_direct_banknote_amount_context(combined, amount)
     money_context_signal = bool(money_terms) or direct_banknote_context
-    title_amount_signal = re.search(amount_regex, title_lower) is not None
+    title_amount_signal = bool(_amount_signal_terms(title_lower, amount))
 
     return {
         "amount_signal": amount_signal,
@@ -1580,15 +3571,29 @@ def _structured_evidence_candidate(
     item: Dict[str, Any],
 ) -> tuple[Optional[Dict[str, Any]], List[str]]:
     errors: List[str] = []
-    country = item.get("detected_country")
+    text = _evidence_identity_text(item)
+    can_infer_unknown_identity = bool(item.get("page_text_excerpt") or item.get("page_text_identity_terms"))
     currency = _normalize_currency_code(item.get("detected_currency"))
+    if _is_unknown_identity(currency) and (
+        "detected_currency" not in item or can_infer_unknown_identity
+    ):
+        currency = _normalize_currency_code(text)
+    country = item.get("detected_country")
+    if _is_unknown_identity(country) and (
+        "detected_country" not in item or can_infer_unknown_identity
+    ):
+        from app.services.evidence_ranker_service import _extract_country_currency
+        country, _c = _extract_country_currency(text, preferred_currency=currency)
 
     if _is_unknown_identity(country):
         errors.append("country_missing")
     if _is_unknown_identity(currency):
         errors.append("currency_missing")
 
-    valid_amounts = _identity_text_amounts(item, currency)
+    if "detected_amounts" in item and isinstance(item.get("detected_amounts"), list):
+        valid_amounts = item["detected_amounts"]
+    else:
+        valid_amounts = _identity_text_amounts(item, currency)
 
     if len(valid_amounts) != 1:
         errors.append("amount_not_allowed")
@@ -1609,6 +3614,8 @@ def _structured_evidence_candidate(
     weak_source = _is_weak_evidence(item)
     trusted_source = _is_trusted_evidence(item)
     return {
+        "evidence_origin": item.get("evidence_origin", "lens_visual_match"),
+        "is_candidate_assisted": item.get("is_candidate_assisted", False),
         "country": str(country).strip(),
         "country_key": _normalize_country_key(country, currency),
         "currency": currency,
@@ -1620,10 +3627,7 @@ def _structured_evidence_candidate(
             trusted_source or signals["direct_title_match"]
         ),
         "signals": signals,
-        "source_key": (
-            str(item.get("domain") or "").lower()
-            or str(item.get("source") or "").strip().lower()
-        ),
+        "source_key": _canonical_source_key(item),
         "evidence": item,
     }, []
 
@@ -1635,11 +3639,8 @@ def _evidence_support_for_identity(
     amount: int,
 ) -> Dict[str, Any]:
     signals = _identity_text_signals(item, country, currency, amount)
-    title_snippet_item = {
-        "title": str(item.get("title") or ""),
-        "snippet": str(item.get("snippet") or ""),
-        "page_text_excerpt": "",
-    }
+    title_snippet_item = dict(item)
+    title_snippet_item["page_text_excerpt"] = ""
     title_snippet_signals = _identity_text_signals(
         title_snippet_item,
         country,
@@ -1693,11 +3694,15 @@ def _evidence_support_for_identity(
         (_is_unknown_identity(detected_country) or country_match)
         and (not detected_currency or currency_match)
     )
-    detected_amount_list, ignored_amounts = (
-        _identity_text_amounts_with_ignored(item, currency)
-        if metadata_matches_identity
-        else ([], [])
-    )
+    if "detected_amounts" in item and isinstance(item.get("detected_amounts"), list):
+        detected_amount_list = item["detected_amounts"]
+        ignored_amounts = []
+    else:
+        detected_amount_list, ignored_amounts = (
+            _identity_text_amounts_with_ignored(item, currency)
+            if metadata_matches_identity
+            else ([], [])
+        )
     title_snippet_amount_list, _ignored_title_amounts = (
         _identity_text_amounts_with_ignored(title_snippet_item, currency)
         if metadata_matches_identity
@@ -1712,10 +3717,17 @@ def _evidence_support_for_identity(
     title_snippet_amounts = set(title_snippet_amount_list)
     page_text_amounts = set(page_text_amount_list)
     weak_source = _is_weak_evidence(item)
+    complete_page_text_terms = _has_complete_page_text_identity_terms(
+        list(item.get("page_text_identity_terms") or []),
+        country=country,
+        currency=currency,
+        amount=amount,
+    )
+    if complete_page_text_terms:
+        denomination_list_reason = None
     direct_title_or_snippet_support = bool(
         amount in title_snippet_amounts
         and title_snippet_signals["direct_match"]
-        and not weak_source
         and not denomination_list_reason
     )
     # Weak-source exact support: social/video domain with clear banknote identity in title.
@@ -1728,14 +3740,11 @@ def _evidence_support_for_identity(
     )
     weak_page_text_support = bool(
         weak_source
-        and amount in page_text_amounts
-        and page_text_signals["direct_match"]
+        and ((amount in page_text_amounts and page_text_signals["direct_match"]) or complete_page_text_terms)
         and not denomination_list_reason
     )
     page_text_support = bool(
-        amount in page_text_amounts
-        and page_text_signals["direct_match"]
-        and not weak_source
+        ((amount in page_text_amounts and page_text_signals["direct_match"]) or complete_page_text_terms)
         and not denomination_list_reason
     )
     amount_match = amount in detected_amounts or signals["amount_signal"]
@@ -1759,11 +3768,7 @@ def _evidence_support_for_identity(
             str(item.get("rank") or ""),
         )
     )
-    independent_key = (
-        str(item.get("domain") or "").strip().lower()
-        or str(item.get("source") or "").strip().lower()
-        or evidence_key
-    )
+    independent_key = _canonical_source_key(item) or evidence_key
     conflicting_amounts: List[int] = []
     conflict_ignored_amounts: List[Dict[str, Any]] = list(ignored_amounts)
     if not denomination_list_reason:
@@ -1792,10 +3797,14 @@ def _evidence_support_for_identity(
         "source": str(item.get("source") or item.get("domain") or "").strip(),
         "rank": item.get("rank"),
         "weak_source": weak_source,
+        "trusted_source": _is_trusted_evidence(item),
+        "country_match": bool(country_match),
+        "currency_match": bool(currency_match),
         "signals": signals,
         "exact_amount_support": bool(
             direct_title_or_snippet_support or page_text_support
         ),
+
         "direct_title_or_snippet_support": direct_title_or_snippet_support,
         "weak_exact_support": weak_exact_support,
         "weak_page_text_support": weak_page_text_support,
@@ -1830,19 +3839,100 @@ def _has_complete_page_text_identity_terms(
     )
 
 
+def _has_exact_title_snippet_money_phrase(ev_item: Dict[str, Any]) -> bool:
+    """Return True when title or snippet contains a direct money phrase that:
+    1. Has exactly one primary denomination matching detected_amounts.
+    2. Has a currency signal (word or symbol adjacent to the amount).
+    3. Has a banknote context word (banknote, bill, tờ tiền, mệnh giá, etc.).
+
+    This is the relaxed eligibility path: page fetch success is NOT required
+    when title/snippet already provide an exact identity.
+    """
+    amounts = ev_item.get("detected_amounts") or []
+    if not isinstance(amounts, list) or len(amounts) != 1:
+        return False
+    amount = amounts[0]
+    try:
+        amount = int(amount)
+    except (TypeError, ValueError):
+        return False
+
+    title = str(ev_item.get("title") or "").strip()
+    snippet = str(ev_item.get("snippet") or "").strip()
+    # Priority: title first, then title+snippet together.
+    for text in (title, f"{title} {snippet}"):
+        res = _has_direct_banknote_amount_context(text, str(amount))
+        if res:
+            return True
+    return False
+
+
 def verify_lens_evidence_identity(
     evidence: List[Dict[str, Any]],
     provider: str = "unknown",
 ) -> tuple[Optional[Dict[str, Any]], Dict[str, Any], List[str]]:
-    """Verify identity using the same conservative rules for every AG3 provider."""
-    normalized_evidence = normalize_lens_evidence(evidence, provider=provider)[:5]
+    """Verify identity using the same conservative rules for every AG3 provider.
+
+    Noise filtering priority (Prompt 2 integration):
+    - If an item has source_trust_level annotated by Prompt 2 classify_source,
+      we use THAT as ground truth.
+    - source_trust_level == 'NOISE' → noise (filtered out of consensus).
+    - source_trust_level in {'TRUSTED','NEUTRAL','WEAK_COMMERCIAL'} → NOT noise,
+      even if the keyword-based _evidence_noise_reason would have flagged it.
+    - Items without source_trust_level fall back to _evidence_noise_reason.
+    """
+    def _item_effective_trust_level(item: Dict[str, Any]) -> str:
+        if not isinstance(item, dict):
+            return "UNREADABLE"
+        trust = str(item.get("source_trust_level") or item.get("source_class") or "").upper().strip()
+        text = f"{item.get('source', '')} {item.get('title', '')} {item.get('snippet', '')} {item.get('url', '')}".lower()
+        if any(kw in text for kw in ("stock photo", "stock image", "royalty-free", "shop listing", "auction", "giá bán", "gia ban")):
+            return "WEAK_COMMERCIAL"
+        if trust in {"STRONG_NEUTRAL", "ESTABLISHED_CATALOG"}:
+            return "NEUTRAL"
+        if trust:
+            return trust
+        from app.services.evidence_ranker_service import classify_source
+        res = classify_source(item)
+        return str(res.get("source_trust_level") or "").upper().strip()
+
+    def _item_is_noise(item: Dict[str, Any]) -> bool:
+        """Return True only if this item is genuinely noise for verifier purposes."""
+        if _content_identity_quality_is_noise(item):
+            return True
+        if _is_non_banknote_numismatic_object(item):
+            return True
+        noise_reason = _evidence_noise_reason(item)
+        if noise_reason:
+            return True
+        trust = _item_effective_trust_level(item)
+        if trust in ("NOISE", "UNREADABLE", "SOCIAL"):
+            return True
+        if trust in ("TRUSTED", "NEUTRAL", "WEAK_COMMERCIAL"):
+            return False
+        return False
+
+    def _item_noise_reason(item: Dict[str, Any]) -> str:
+        """Return a human-readable noise reason or empty string."""
+        if _content_identity_quality_is_noise(item):
+            return "content_identity_quality:NOISE"
+        trust = str(item.get("source_trust_level") or "").upper()
+        if trust == "NOISE":
+            return f"source_trust_level:NOISE"
+        if _is_non_banknote_numismatic_object(item):
+            return "non_banknote_numismatic_object"
+        if trust in ("TRUSTED", "NEUTRAL", "WEAK_COMMERCIAL"):
+            return ""
+        return _evidence_noise_reason(item) or ""
+
+    normalized_evidence = normalize_lens_evidence(evidence, provider=provider)
     noise_evidence = [
-        (item, _evidence_noise_reason(item))
+        (item, _item_noise_reason(item))
         for item in normalized_evidence
-        if _evidence_noise_reason(item)
+        if _item_is_noise(item)
     ]
     consensus_evidence = [
-        item for item in normalized_evidence if not _evidence_noise_reason(item)
+        item for item in normalized_evidence if not _item_is_noise(item)
     ]
     page_text_checked_count = sum(
         1 for item in normalized_evidence if item.get("page_text_checked") is True
@@ -1870,13 +3960,23 @@ def verify_lens_evidence_identity(
         "exact_amount_support_count": 0,
         "support_signal_count": 0,
         "independent_source_count": 0,
+        "strong_independent_source_count": 0,
         "trusted_source_count": 0,
+        "trusted_exact_count": 0,
+        "strong_exact_count": 0,
+        "weak_exact_count": 0,
+        "weak_page_text_count": 0,
+        "weak_independent_source_count": 0,
         "direct_title_or_snippet_support_count": 0,
         "page_text_checked_count": page_text_checked_count,
         "page_text_support_count": 0,
         "page_text_used_for_identity": False,
         "independent_conflicting_amount_support_count": 0,
         "top_score": 0.0,
+        "selected_voting_set_size": 0,
+        "selected_source_count": 0,
+        "vote_eligible": False,
+        "vote_created": False,
         "conflicting_denominations": [],
         "top5_evidence_count": len(normalized_evidence),
         "noise_filtered_count": len(noise_evidence),
@@ -1897,16 +3997,68 @@ def verify_lens_evidence_identity(
         return None, base_trace, ["no_strong_evidence"]
 
     if not consensus_evidence:
+        if any(_item_effective_trust_level(item) in ("WEAK_COMMERCIAL", "SOCIAL") for item in normalized_evidence):
+            base_trace["reason"] = "weak_commercial_source_not_counted"
+            return None, base_trace, ["weak_commercial_source_not_counted"]
         base_trace["reason"] = "noise_only"
         return None, base_trace, ["noise_only"]
 
-    candidates: List[Dict[str, Any]] = []
-    candidate_errors = set()
+    # Rule 10 — usable source pool: ALL non-NOISE banknote-context independent domains,
+    # including partials (country+currency without denomination).
+    usable_domains: set = set()
+    usable_items: List[Dict[str, Any]] = []
     for item in consensus_evidence:
+        s_trust = str(item.get("source_trust_level") or "").upper().strip()
+        if s_trust in ("NOISE", "SOCIAL", "UNREADABLE"):
+            continue
+        dom = str(item.get("canonical_domain") or item.get("domain") or "").strip().lower()
+        if not dom or dom in ("", "unknown", "none", "null"):
+            continue
+        if not item.get("banknote_context") and not _item_has_banknote_context(item):
+            continue
+        if not _item_has_simple_usable_identity(item):
+            continue
+        if dom not in usable_domains:
+            usable_domains.add(dom)
+            usable_items.append(item)
+
+    total_usable_independent_sources = len(usable_domains)
+    base_trace["total_usable_independent_sources"] = total_usable_independent_sources
+    base_trace["usable_source_count"] = total_usable_independent_sources
+
+    # EXACTLY 5 best independent usable sources
+    selected_voting_items = usable_items[:5]
+    selected_voting_source_count = len(selected_voting_items)
+    selected_domains = [
+        str(item.get("canonical_domain") or item.get("domain") or "").strip().lower()
+        for item in selected_voting_items
+    ]
+    selected_independent_domain_count = len(set(selected_domains))
+
+    base_trace["selected_voting_source_count"] = selected_voting_source_count
+    base_trace["selected_domains"] = selected_domains
+    base_trace["selected_independent_domain_count"] = selected_independent_domain_count
+    base_trace["selected_voting_sources"] = [item.get("url") or item.get("link") or "" for item in selected_voting_items]
+
+    raw_candidates: List[Dict[str, Any]] = []
+    candidate_errors = set()
+
+    for item in selected_voting_items:
         candidate, errors = _structured_evidence_candidate(item)
         candidate_errors.update(errors)
         if candidate:
-            candidates.append(candidate)
+            raw_candidates.append(candidate)
+
+    # Deduplicate by canonical domain (source_key), keeping the one with highest score
+    candidates_by_domain: Dict[str, Dict[str, Any]] = {}
+    for cand in raw_candidates:
+        domain = cand["source_key"]
+        if domain not in candidates_by_domain or cand["score"] > candidates_by_domain[domain]["score"]:
+            candidates_by_domain[domain] = cand
+
+    candidates: List[Dict[str, Any]] = list(candidates_by_domain.values())
+    total_qualified_independent_sources = len(candidates)
+    base_trace["qualified_source_count"] = total_qualified_independent_sources
 
     if not candidates:
         errors = sorted(candidate_errors or {"no_strong_evidence"})
@@ -1953,19 +4105,57 @@ def verify_lens_evidence_identity(
         direct_title_support_records: Dict[str, Dict[str, Any]] = {}
         support_signal_records: Dict[str, Dict[str, Any]] = {}
         independent_support_sources = set()
+        strong_independent_support_sources = set()
+        trusted_independent_support_sources = set()
         denomination_list_filtered_records: Dict[str, Dict[str, Any]] = {}
-        # RC3: separate tracking for weak-source exact signals
+        strong_exact_records: Dict[str, Dict[str, Any]] = {}
+        trusted_exact_records: Dict[str, Dict[str, Any]] = {}
+        # Separate tracking for weak-source exact signals. They are evidence,
+        # but policy must not let one weak source carry a vote alone.
         weak_exact_records: Dict[str, Dict[str, Any]] = {}
         weak_page_text_records: Dict[str, Dict[str, Any]] = {}
         weak_independent_sources = set()
         ignored_amount_records: Dict[str, Dict[str, Any]] = {}
-        for item in consensus_evidence:
+        seen_domains_in_group = set()
+        for item in selected_voting_items:
             support = _evidence_support_for_identity(
                 item,
                 group["records"][0]["country"],
                 group["records"][0]["currency"],
                 group["records"][0]["amount"],
             )
+            trust_level = _item_effective_trust_level(item)
+            is_valid_source = trust_level not in ("NOISE", "SOCIAL", "UNREADABLE")
+            has_complete_exact_support = bool(
+                support["exact_amount_support"]
+                and support.get("country_match")
+                and support.get("currency_match")
+                and (
+                    item.get("content_identity_quality") != "PARTIAL_IDENTITY"
+                    or support.get("direct_title_or_snippet_support")
+                    or support.get("page_text_support")
+                )
+                and is_valid_source
+            )
+            canon_domain = item.get("canonical_domain") or support["independent_key"]
+            is_mirror_item = bool(item.get("is_mirror"))
+            is_dup_url = bool(item.get("is_duplicate_url"))
+            domain_first_item = item.get("domain_first", None)
+
+            if domain_first_item is not None:
+                is_first_domain = bool(domain_first_item)
+            else:
+                is_first_domain = canon_domain not in seen_domains_in_group
+                if is_first_domain and canon_domain:
+                    seen_domains_in_group.add(canon_domain)
+
+            counts_as_independent = (
+                has_complete_exact_support
+                and not is_mirror_item
+                and not is_dup_url
+                and is_first_domain
+            )
+
             if support["supports"] and support["evidence_key"]:
                 if support["evidence_key"] not in support_records:
                     support_records[support["evidence_key"]] = support
@@ -1973,33 +4163,37 @@ def verify_lens_evidence_identity(
                         auxiliary_support_count += 1
             if support["exact_amount_support"] and support["evidence_key"]:
                 exact_amount_support_records.setdefault(support["evidence_key"], support)
+                if counts_as_independent and canon_domain:
+                    independent_support_sources.add(canon_domain)
+                if trust_level in ("TRUSTED", "NEUTRAL"):
+                    strong_exact_records.setdefault(support["evidence_key"], support)
+                    if counts_as_independent and canon_domain:
+                        strong_independent_support_sources.add(canon_domain)
+                if trust_level == "TRUSTED" or support.get("trusted_source"):
+                    trusted_exact_records.setdefault(support["evidence_key"], support)
+                    if counts_as_independent and canon_domain:
+                        trusted_independent_support_sources.add(canon_domain)
+
             if support["direct_title_or_snippet_support"] and support["evidence_key"]:
                 direct_title_support_records.setdefault(support["evidence_key"], support)
                 support_signal_records.setdefault(
                     f"title:{support['evidence_key']}",
                     support,
                 )
-                independent_support_sources.add(support["independent_key"])
-            # RC3: weak-source exact matches (YouTube/social with banknote identity)
-            # contribute to independent source count and signal count separately.
-            elif (
+            if (
                 support.get("weak_exact_support") or support.get("weak_page_text_support")
             ) and support["evidence_key"]:
                 weak_exact_records.setdefault(support["evidence_key"], support)
                 if support.get("weak_page_text_support"):
                     weak_page_text_records.setdefault(support["evidence_key"], support)
-                support_signal_records.setdefault(
-                    f"weak:{support['evidence_key']}",
-                    support,
-                )
-                weak_independent_sources.add(support["independent_key"])
+                if support["independent_key"]:
+                    weak_independent_sources.add(support["independent_key"])
             if support["page_text_support"] and support["evidence_key"]:
                 page_text_support_records.setdefault(support["evidence_key"], support)
                 support_signal_records.setdefault(
                     f"page:{support['evidence_key']}",
                     support,
                 )
-                independent_support_sources.add(support["independent_key"])
             for conflicting_amount in support["conflicting_amounts"]:
                 by_source = conflict_records.setdefault(conflicting_amount, {})
                 source_key = support["independent_key"]
@@ -2027,15 +4221,21 @@ def verify_lens_evidence_identity(
         group["context_support_count"] = group["support_count"]
         group["exact_amount_support_count"] = len(exact_amount_support_records)
         group["support_signal_count"] = len(support_signal_records)
+        group["strong_exact_count"] = len(strong_exact_records)
+        group["trusted_exact_count"] = len(trusted_exact_records)
         group["weak_exact_count"] = len(weak_exact_records)
         group["weak_page_text_count"] = len(weak_page_text_records)
         group["weak_independent_source_count"] = len(
             {s for s in weak_independent_sources if s}
         )
-        # Strong independent sources exclude stock/shop/social/collector listings.
-        # Weak exact matches stay visible in trace but cannot carry promotion.
         group["independent_source_count"] = len(
             {source for source in independent_support_sources if source}
+        )
+        group["strong_independent_source_count"] = len(
+            {source for source in strong_independent_support_sources if source}
+        )
+        group["trusted_independent_source_count"] = len(
+            {source for source in trusted_independent_support_sources if source}
         )
         group["direct_title_or_snippet_support_count"] = len(
             direct_title_support_records
@@ -2104,6 +4304,14 @@ def verify_lens_evidence_identity(
             ),
             default=0.0,
         )
+        group["top_trusted_direct_score"] = max(
+            (
+                support["score"]
+                for support in trusted_exact_records.values()
+                if support["signals"]["direct_match"]
+            ),
+            default=0.0,
+        )
 
     ranked_groups = sorted(
         groups.items(),
@@ -2123,12 +4331,54 @@ def verify_lens_evidence_identity(
         reverse=True,
     )
     top_candidate_key, top_candidate_group = ranked_groups[0]
+    from app.services.evidence_ranker_service import deduplicate_and_count_evidence
+    dedupe_stats = deduplicate_and_count_evidence(consensus_evidence)
+    base_trace["raw_evidence_count"] = dedupe_stats["raw_evidence_count"]
+
+    initial_lens_result_count = dedupe_stats.get("initial_lens_result_count", 0)
+    targeted_search_result_count = dedupe_stats.get("targeted_search_result_count", 0)
+    total_raw_evidence_count = dedupe_stats.get("total_raw_evidence_count", 0)
+
+    base_trace["initial_lens_result_count"] = initial_lens_result_count
+    base_trace["targeted_search_result_count"] = targeted_search_result_count
+    base_trace["total_raw_evidence_count"] = total_raw_evidence_count
+
+    supporting_evidence_count = top_candidate_group["support_count"]
+    duplicate_evidence_count = dedupe_stats.get("duplicate_url_count", 0) + dedupe_stats.get("duplicate_domain_count", 0)
+    excluded_evidence_count = dedupe_stats.get("noise_source_count", 0) + dedupe_stats.get("unreadable_source_count", 0)
+    partial_evidence_count = dedupe_stats.get("partial_identity_count", 0)
+    conflicting_evidence_count = total_raw_evidence_count - (supporting_evidence_count + partial_evidence_count + excluded_evidence_count + duplicate_evidence_count)
+    if conflicting_evidence_count < 0:
+        conflicting_evidence_count = 0
+
+    base_trace["supporting_evidence_count"] = supporting_evidence_count
+    base_trace["conflicting_evidence_count"] = conflicting_evidence_count
+    base_trace["partial_evidence_count"] = partial_evidence_count
+    base_trace["excluded_evidence_count"] = excluded_evidence_count
+    base_trace["duplicate_evidence_count"] = duplicate_evidence_count
+
+    base_trace["usable_evidence_count"] = dedupe_stats["usable_evidence_count"]
+    base_trace["unique_url_count"] = dedupe_stats["unique_url_count"]
+    base_trace["unique_domain_count"] = dedupe_stats["unique_domain_count"]
+    base_trace["mirror_content_count"] = dedupe_stats["mirror_content_count"]
+    base_trace["duplicate_url_count"] = dedupe_stats["duplicate_url_count"]
+    base_trace["duplicate_domain_count"] = dedupe_stats["duplicate_domain_count"]
     base_trace["support_count"] = top_candidate_group["support_count"]
     base_trace["context_support_count"] = top_candidate_group["context_support_count"]
     base_trace["exact_amount_support_count"] = top_candidate_group["exact_amount_support_count"]
     base_trace["support_signal_count"] = top_candidate_group["support_signal_count"]
     base_trace["independent_source_count"] = top_candidate_group["independent_source_count"]
+    base_trace["strong_independent_source_count"] = top_candidate_group[
+        "strong_independent_source_count"
+    ]
     base_trace["trusted_source_count"] = top_candidate_group["trusted_count"]
+    base_trace["trusted_exact_count"] = top_candidate_group["trusted_exact_count"]
+    base_trace["strong_exact_count"] = top_candidate_group["strong_exact_count"]
+    base_trace["weak_exact_count"] = top_candidate_group.get("weak_exact_count", 0)
+    base_trace["weak_page_text_count"] = top_candidate_group.get("weak_page_text_count", 0)
+    base_trace["weak_independent_source_count"] = top_candidate_group.get(
+        "weak_independent_source_count", 0
+    )
     base_trace["direct_title_or_snippet_support_count"] = top_candidate_group[
         "direct_title_or_snippet_support_count"
     ]
@@ -2152,7 +4402,7 @@ def verify_lens_evidence_identity(
             "identity_complete": True,
             "amount_allowed": True,
             "direct_title_or_snippet_match": bool(
-                top_candidate_group["direct_title_or_snippet_support_count"] >= 2
+                top_candidate_group["direct_title_or_snippet_support_count"] >= 1
             ),
             "source_trusted": bool(top_candidate_group["trusted_count"]),
             "multiple_evidence_agreement": bool(
@@ -2217,9 +4467,10 @@ def verify_lens_evidence_identity(
         is_minor_noise = False
         if conflict["support_count"] == 1:
             candidate_dominant = candidate_support_count >= 3
+            winning_margin = candidate_support_count - conflict["support_count"]
             is_low_rank = all(r > 3 for r in conflict.get("evidence_ranks", [])) if conflict.get("evidence_ranks") else False
             is_low_score = conflict.get("max_score", 0.0) < 7.0
-            if candidate_dominant or is_low_rank or is_low_score:
+            if (candidate_dominant and winning_margin >= 2) or is_low_rank or is_low_score:
                 is_minor_noise = True
 
         if is_minor_noise:
@@ -2240,6 +4491,16 @@ def verify_lens_evidence_identity(
 
     if true_explicit_conflicts:
         base_trace["conflicting_denominations"] = true_explicit_conflicts
+        max_conflict_support = max(
+            (conflict.get("support_count", 0) for conflict in true_explicit_conflicts),
+            default=0,
+        )
+        majority_can_record_conflict = bool(
+            total_qualified_independent_sources >= 5
+            and top_candidate_group.get("independent_source_count", 0) >= 3
+            and candidate_support_count >= 3
+            and candidate_support_count > max_conflict_support
+        )
         near_top_conflict = any(
             conflict["support_count"] >= 2
             and top_candidate_group["max_score"] - conflict.get("max_score", 0.0) <= 2.0
@@ -2259,9 +4520,39 @@ def verify_lens_evidence_identity(
                 else "conflicting_denominations_in_lens_evidence"
             )
         )
+        cross_identity_amount_conflict = any(
+            int(conflict.get("amount") or 0) in (item.get("detected_amounts") or [])
+            and (
+                (
+                    _normalize_currency_code(item.get("detected_currency"))
+                    and _normalize_currency_code(item.get("detected_currency")) != top_candidate_key[1]
+                )
+                or (
+                    not _is_unknown_identity(item.get("detected_country"))
+                    and _normalize_country_key(item.get("detected_country"), item.get("detected_currency")) != top_candidate_key[0]
+                )
+            )
+            for conflict in true_explicit_conflicts
+            for item in normalized_evidence
+        )
+        if cross_identity_amount_conflict:
+            reason = "conflicting_evidence"
         base_trace["reason"] = reason
-        base_trace["checks"]["conflict_check_passed"] = False
-        return None, base_trace, [reason]
+        if majority_can_record_conflict:
+            base_trace["trusted_conflict"] = any(
+                any(
+                    str(item.get("source_class") or item.get("source_trust_level") or "").upper().strip()
+                    in {"TRUSTED", "STRONG_NEUTRAL"}
+                    for item in normalized_evidence
+                    if amount in (item.get("detected_amounts") or [])
+                )
+                for amount in [conflict.get("amount") for conflict in true_explicit_conflicts]
+            )
+            base_trace["checks"]["conflict_check_passed"] = "recorded_but_majority_retained"
+            base_trace.setdefault("recorded_conflict_reasons", []).append(reason)
+        else:
+            base_trace["checks"]["conflict_check_passed"] = False
+            return None, base_trace, [reason]
 
     same_currency_conflicts = []
     for other_key, other_group in ranked_groups[1:]:
@@ -2303,105 +4594,237 @@ def verify_lens_evidence_identity(
             group["exact_amount_support_count"]
             for _key, group in same_currency_conflicts
         )
-        near_top_conflict = any(
-            top_candidate_group["max_score"] - other_group["max_score"] <= 2.0
-            for _key, other_group in same_currency_conflicts
-        )
-        significant_mixed_evidence = any(
-            other_group["max_score"] >= 7.0
-            for _key, other_group in same_currency_conflicts
-        )
-        if near_top_conflict or significant_mixed_evidence:
-            reason = (
-                "near_top_conflicting_denomination"
-                if near_top_conflict
-                else "mixed_denomination_lens_evidence"
+        competing_blocking_clusters = [
+            (other_key, other_group) for other_key, other_group in same_currency_conflicts
+            if other_group["independent_source_count"] >= 2
+            or (top_candidate_group["independent_source_count"] - other_group["independent_source_count"] < 2)
+        ]
+        if competing_blocking_clusters:
+            near_top_conflict = any(
+                top_candidate_group["max_score"] - other_group["max_score"] <= 2.0
+                for _key, other_group in competing_blocking_clusters
             )
-            base_trace["reason"] = reason
-            base_trace["checks"]["conflict_check_passed"] = False
-            return None, base_trace, [reason]
+            significant_mixed_evidence = any(
+                other_group["max_score"] >= 7.0
+                for _key, other_group in competing_blocking_clusters
+            )
+            if near_top_conflict or significant_mixed_evidence:
+                reason = (
+                    "near_top_conflicting_denomination"
+                    if near_top_conflict
+                    else "mixed_denomination_lens_evidence"
+                )
+                base_trace["reason"] = reason
+                majority_can_record_conflict = bool(
+                    total_qualified_independent_sources >= 5
+                    and top_candidate_group.get("independent_source_count", 0) >= 3
+                    and top_candidate_group.get("exact_amount_support_count", 0) > max(
+                        other_group.get("exact_amount_support_count", 0)
+                        for _key, other_group in competing_blocking_clusters
+                    )
+                )
+                if majority_can_record_conflict:
+                    base_trace["trusted_conflict"] = True
+                    base_trace["checks"]["conflict_check_passed"] = "recorded_but_majority_retained"
+                    base_trace.setdefault("recorded_conflict_reasons", []).append(reason)
+                else:
+                    base_trace["checks"]["conflict_check_passed"] = False
+                    return None, base_trace, [reason]
 
     qualified = []
     for key, group in groups.items():
-        # Original strict path: requires 3+ signal sources and 2+ independent trusted exact matches.
+        has_blocking_conflict = any(
+            g["independent_source_count"] >= 2 or (group["independent_source_count"] - g["independent_source_count"] < 2)
+            for k, g in groups.items()
+            if k != key and k[:2] == key[:2] and k[2] != key[2]
+        )
+        no_conflict = not has_blocking_conflict
+        complete_page_text_terms = _has_complete_page_text_identity_terms(
+            group.get("page_text_identity_terms") or [],
+            country=group["records"][0]["country"],
+            currency=group["records"][0]["currency"],
+            amount=group["records"][0]["amount"],
+        )
+        has_non_weak_anchor = (
+            group["strong_exact_count"] >= 1
+            or group["trusted_exact_count"] >= 1
+            or group["strong_independent_source_count"] >= 1
+        )
+        single_trusted_direct = (
+            group["trusted_exact_count"] >= 1
+            and group["direct_title_or_snippet_support_count"] >= 1
+            and group.get("top_trusted_direct_score", 0.0) >= 8.0
+            and no_conflict
+        )
+        two_independent_direct_exact = (
+            group["independent_source_count"] >= 2
+            and group["direct_title_or_snippet_support_count"] >= 2
+            and group["exact_amount_support_count"] >= 2
+            and has_non_weak_anchor
+            and no_conflict
+            and any(
+                _item_effective_trust_level(record["evidence"])
+                in ("TRUSTED", "NEUTRAL")
+                for record in group["records"]
+            )
+        )
         multiple_agreement = (
             group["support_signal_count"] >= 3
             and group["independent_source_count"] >= 2
             and group["direct_title_or_snippet_support_count"] >= 2
             and group["exact_amount_support_count"] >= 2
-            and group["independent_conflicting_amount_support_count"] == 0
+            and has_non_weak_anchor
+            and no_conflict
             and (
                 group["independent_source_count"] > 2
                 or group["page_text_support_count"] >= 1
             )
+            and any(
+                _item_effective_trust_level(record["evidence"])
+                in ("TRUSTED", "NEUTRAL")
+                for record in group["records"]
+            )
         )
-        # RC4: Relaxed path — handles YouTube+Wikipedia or similar weak+trusted combos.
-        # Requires:
-        #   - 2+ independent domains (trusted OR weak-exact combined)
-        #   - Total exact signals (trusted direct + weak exact) >= 2
-        #   - At least 1 trusted/non-weak exact source OR page_text confirmed
-        #   - No dominant conflicting denomination (< 2 independent conflicting sources)
-        total_exact_signals = (
-            group["exact_amount_support_count"]
-            + group.get("weak_exact_count", 0)
-        )
-        trusted_direct_exact = group["exact_amount_support_count"]  # non-weak sources
+        trusted_direct_exact = group["strong_exact_count"] + group["trusted_exact_count"]
         has_trusted_anchor = (
             trusted_direct_exact >= 1
             or group["page_text_support_count"] >= 1
             or group.get("trusted_count", 0) >= 1
         )
-        weak_multi_source = (
-            not multiple_agreement
-            and group["support_signal_count"] >= 3
-            and group["independent_source_count"] >= 3
-            and group["direct_title_or_snippet_support_count"] >= 3
-            and group["exact_amount_support_count"] >= 3
-            and total_exact_signals >= 3
-            and has_trusted_anchor
-            and group["independent_conflicting_amount_support_count"] == 0
+        weak_multi_source = False
+
+        competing_domain_counts = [
+            g["independent_source_count"] for k, g in groups.items() if k != key
+        ]
+        max_competing_domains = max(competing_domain_counts) if competing_domain_counts else 0
+        winning_margin = group["independent_source_count"] - max_competing_domains
+        group["max_competing_domain_count"] = max_competing_domains
+        group["winning_margin"] = winning_margin
+
+        two_thirds_majority = bool(
+            total_qualified_independent_sources >= 3
+            and group["independent_source_count"] >= 2
+            and group["independent_source_count"] / total_qualified_independent_sources >= 2.0 / 3.0
+            and no_conflict
+            and complete_page_text_terms
         )
+
+        three_fifths_majority = bool(
+            total_qualified_independent_sources >= 5
+            and group["independent_source_count"] >= 3
+            and group["independent_source_count"] / total_qualified_independent_sources >= 3.0 / 5.0
+            and (no_conflict or winning_margin >= 1)
+            and complete_page_text_terms
+        )
+
+        three_of_five_complete_identity = bool(
+            group["independent_source_count"] >= 3
+            and group["exact_amount_support_count"] >= 3
+            and max_competing_domains >= 1
+            and (winning_margin >= 1 or max_competing_domains < 2)
+            and any(
+                _item_effective_trust_level(record["evidence"]) in ("TRUSTED", "NEUTRAL")
+                for record in group["records"]
+            )
+        )
+
         page_text_identity_support = (
             not multiple_agreement
             and not weak_multi_source
             and group["max_score"] >= 9.0
             and group["support_signal_count"] >= 2
-            and group["independent_source_count"] >= 1
+            and group["independent_source_count"] >= 2
             and group["direct_title_or_snippet_support_count"] >= 1
             and group["exact_amount_support_count"] >= 1
             and group["page_text_support_count"] >= 1
-            and group["independent_conflicting_amount_support_count"] == 0
-            and not all(record["weak_source"] for record in group["records"])
-            and _has_complete_page_text_identity_terms(
-                group.get("page_text_identity_terms") or [],
-                country=group["records"][0]["country"],
-                currency=group["records"][0]["currency"],
-                amount=group["records"][0]["amount"],
+            and no_conflict
+            and complete_page_text_terms
+            and (has_non_weak_anchor or group["independent_source_count"] >= 2)
+            and any(
+                _item_effective_trust_level(record["evidence"])
+                in ("TRUSTED", "NEUTRAL")
+                and bool(record["evidence"].get("page_text_excerpt"))
+                for record in group["records"]
             )
         )
-        if multiple_agreement or weak_multi_source or page_text_identity_support:
+        if (
+            single_trusted_direct
+            or two_independent_direct_exact
+            or two_thirds_majority
+            or three_fifths_majority
+            or page_text_identity_support
+            or multiple_agreement
+            or weak_multi_source
+            or three_of_five_complete_identity
+        ):
             group["multiple_agreement"] = (
-                multiple_agreement or weak_multi_source or page_text_identity_support
+                two_independent_direct_exact
+                or multiple_agreement
+                or weak_multi_source
+                or page_text_identity_support
+                or three_of_five_complete_identity
+                or two_thirds_majority
+                or three_fifths_majority
             )
+            group["single_trusted_direct"] = single_trusted_direct
+            group["two_independent_direct_exact"] = two_independent_direct_exact
             group["weak_multi_source"] = weak_multi_source
             group["page_text_identity_support"] = page_text_identity_support
+            group["three_of_five_complete_identity"] = three_of_five_complete_identity
+            group["two_thirds_majority"] = two_thirds_majority
+            group["three_fifths_majority"] = three_fifths_majority
             group["auxiliary_agreement"] = (
                 (multiple_agreement or weak_multi_source)
                 and group["auxiliary_support_count"] >= 1
             )
-            if page_text_identity_support:
+            if single_trusted_direct:
+                group["promotion_path"] = "trusted_direct_exact"
+            elif three_fifths_majority:
+                group["promotion_path"] = "qualified_three_of_five"
+            elif three_of_five_complete_identity:
+                group["promotion_path"] = "three_of_five_complete_identity"
+            elif two_independent_direct_exact:
+                group["promotion_path"] = "two_independent_direct_exact"
+            elif two_thirds_majority:
+                group["promotion_path"] = "qualified_two_of_three"
+            elif page_text_identity_support:
                 group["promotion_path"] = "page_text_identity_support"
             elif weak_multi_source:
-                # Tag for transparency in trace
                 group["promotion_path"] = "weak_multi_source"
             else:
                 group["promotion_path"] = "strict_multi_agreement"
             qualified.append((key, group))
 
+    candidate_clusters_list = []
+    for grp_key, grp_val in ranked_groups:
+        candidate_clusters_list.append({
+            "cluster_key": f"{grp_key[0]}/{grp_key[1]}/{grp_key[2]}",
+            "country": grp_key[0],
+            "currency": grp_key[1],
+            "amount": grp_key[2],
+            "support_count": len(grp_val.get("records") or []),
+            "independent_domain_count": grp_val.get("independent_source_count", 0),
+            "domains": list(grp_val.get("independent_sources") or []),
+            "max_score": grp_val.get("max_score", 0.0),
+            "trusted_count": grp_val.get("trusted_count", 0),
+            "neutral_count": grp_val.get("neutral_count", 0),
+            "weak_commercial_count": grp_val.get("weak_commercial_count", 0),
+        })
+    base_trace["candidate_clusters"] = candidate_clusters_list
+    if qualified:
+        base_trace["winning_cluster"] = candidate_clusters_list[0]
+
     if not qualified:
+        base_trace["selected_identity"] = None
+        base_trace["selected_evidence"] = None
         if top_candidate_group["independent_conflicting_amount_support_count"] > 0:
             reason = "conflicting_denominations_in_lens_evidence"
             base_trace["checks"]["conflict_check_passed"] = False
+        elif (
+            top_candidate_group.get("page_text_support_count", 0) >= 1
+            and top_candidate_group.get("independent_source_count", 0) < 2
+        ):
+            reason = "page_text_not_corroborated"
         elif all(record["weak_source"] for record in candidates):
             reason = (
                 "single_untrusted_page_text_source"
@@ -2409,6 +4832,18 @@ def verify_lens_evidence_identity(
                 and top_candidate_group.get("weak_independent_source_count", 0) <= 1
                 else "weak_commercial_source_not_counted"
             )
+
+        elif (
+            top_candidate_group["independent_source_count"] >= 2
+            and top_candidate_group["exact_amount_support_count"] >= 2
+            and top_candidate_group["direct_title_or_snippet_support_count"] >= 2
+            and all(
+                _item_effective_trust_level(record["evidence"]) == "WEAK_COMMERCIAL"
+                for record in top_candidate_group["records"]
+            )
+        ):
+            reason = "weak_commercial_only"
+
         elif top_candidate_group["support_signal_count"] < 3:
             reason = "insufficient_support_signals"
         elif top_candidate_group["independent_source_count"] < 2:
@@ -2448,7 +4883,17 @@ def verify_lens_evidence_identity(
     base_trace["exact_amount_support_count"] = top_group["exact_amount_support_count"]
     base_trace["support_signal_count"] = top_group["support_signal_count"]
     base_trace["independent_source_count"] = top_group["independent_source_count"]
+    base_trace["strong_independent_source_count"] = top_group[
+        "strong_independent_source_count"
+    ]
     base_trace["trusted_source_count"] = top_group["trusted_count"]
+    base_trace["trusted_exact_count"] = top_group["trusted_exact_count"]
+    base_trace["strong_exact_count"] = top_group["strong_exact_count"]
+    base_trace["weak_exact_count"] = top_group.get("weak_exact_count", 0)
+    base_trace["weak_page_text_count"] = top_group.get("weak_page_text_count", 0)
+    base_trace["weak_independent_source_count"] = top_group.get(
+        "weak_independent_source_count", 0
+    )
     base_trace["direct_title_or_snippet_support_count"] = top_group[
         "direct_title_or_snippet_support_count"
     ]
@@ -2467,6 +4912,16 @@ def verify_lens_evidence_identity(
             len(top_group["records"]) >= 2 and len(other_group["records"]) >= 2
         )
         if other_key != top_key and (scores_are_close or both_have_repeated_support):
+            majority_can_record_conflict = bool(
+                total_qualified_independent_sources >= 5
+                and top_group.get("independent_source_count", 0) >= 3
+                and top_group.get("exact_amount_support_count", 0) > other_group.get("exact_amount_support_count", 0)
+            )
+            if majority_can_record_conflict:
+                base_trace["trusted_conflict"] = True
+                base_trace["checks"]["conflict_check_passed"] = "recorded_but_majority_retained"
+                base_trace.setdefault("recorded_conflict_reasons", []).append("conflicting_evidence")
+                continue
             base_trace["reason"] = "conflicting_evidence"
             base_trace["checks"]["conflict_check_passed"] = False
             return None, base_trace, ["conflicting_evidence"]
@@ -2487,23 +4942,59 @@ def verify_lens_evidence_identity(
             key=lambda record: (record["score"], int(record["trusted"])),
         )
     support_count = top_group["support_count"]
-    confidence = min(
-        0.95,
-        max(0.65, 0.65 + min(best["score"], 10.0) / 50.0 + min(support_count - 1, 2) * 0.03),
-    )
-    if top_group.get("auxiliary_agreement"):
-        confidence = min(confidence, 0.85)
-    if top_group.get("page_text_identity_support"):
-        confidence = min(confidence, 0.80)
-
-    if top_group.get("page_text_identity_support"):
-        reason = "page_text_identity_support"
-    elif top_group.get("weak_multi_source"):
-        reason = "promoted_weak_multi_source_evidence"
-    elif top_group.get("auxiliary_agreement"):
-        reason = "promoted_from_lens_evidence"
+    if top_group.get("single_trusted_direct") or top_group.get("page_text_identity_support") or top_group.get("three_fifths_majority") or top_group.get("two_thirds_majority") or top_group.get("three_of_five_complete_identity") or top_group.get("two_independent_direct_exact"):
+        if top_group.get("single_trusted_direct"):
+            reason = "trusted_direct_exact"
+        elif top_group.get("page_text_identity_support"):
+            reason = "page_text_identity_support"
+        elif top_group.get("three_fifths_majority"):
+            reason = "qualified_three_of_five"
+        elif top_group.get("three_of_five_complete_identity") and top_group.get("ignored_amounts"):
+            reason = "three_of_five_complete_identity"
+        elif top_group.get("three_of_five_complete_identity"):
+            reason = "three_of_five_complete_identity"
+        elif top_group.get("two_independent_direct_exact"):
+            reason = "two_independent_direct_exact"
+        elif top_group.get("two_thirds_majority"):
+            reason = "qualified_two_of_three"
+        else:
+            reason = "two_independent_direct_exact"
+        promotion_path = reason
+        confidence = min(
+            0.95,
+            max(0.65, 0.65 + min(best["score"], 10.0) / 50.0 + min(support_count - 1, 2) * 0.03),
+        )
+        if top_group.get("auxiliary_agreement"):
+            confidence = min(confidence, 0.85)
+        if top_group.get("three_of_five_complete_identity"):
+            dom_cnt = top_group["independent_source_count"]
+            all_weak = all(
+                _item_effective_trust_level(record["evidence"]) == "WEAK_COMMERCIAL"
+                for record in top_group["records"]
+            )
+            if all_weak:
+                confidence = 0.80
+            elif dom_cnt >= 5:
+                confidence = 0.95
+            elif dom_cnt == 4:
+                confidence = 0.90
+            else:
+                confidence = max(confidence, 0.80)
+            base_trace["confidence_basis"] = "three_of_five_complete_identity"
+            base_trace["supporting_domain_count"] = dom_cnt
+            base_trace["supporting_evidence_count"] = support_count
+            base_trace["competing_domain_count"] = top_group.get("independent_conflicting_amount_support_count", 0)
+            base_trace["winning_margin"] = top_group.get("winning_margin", dom_cnt)
     else:
-        reason = "multiple_independent_evidence_agreement"
+        confidence = min(
+            0.95,
+            max(0.65, 0.65 + min(best["score"], 10.0) / 50.0 + min(support_count - 1, 2) * 0.03),
+        )
+        if top_group.get("auxiliary_agreement"):
+            confidence = min(confidence, 0.85)
+        reason = "two_independent_direct_exact"
+        promotion_path = reason
+
 
     selected_item = best["evidence"]
     selected_evidence = {
@@ -2520,8 +5011,9 @@ def verify_lens_evidence_identity(
             "promoted": True,
             "provider": selected_item.get("provider") or str(provider or "unknown").lower(),
             "reason": reason,
-            "promotion_path": top_group.get("promotion_path", "strict"),
+            "promotion_path": promotion_path,
             "weak_exact_count": top_group.get("weak_exact_count", 0),
+
             "weak_page_text_count": top_group.get("weak_page_text_count", 0),
             "weak_independent_source_count": top_group.get("weak_independent_source_count", 0),
             "selected_identity": {
@@ -2534,7 +5026,7 @@ def verify_lens_evidence_identity(
                 "identity_complete": True,
                 "amount_allowed": True,
                 "direct_title_or_snippet_match": bool(
-                    top_group["direct_title_or_snippet_support_count"] >= 2
+                    top_group["direct_title_or_snippet_support_count"] >= 1
                 ),
                 "source_trusted": bool(best["trusted"]),
                 "multiple_evidence_agreement": bool(top_group.get("multiple_agreement")),
@@ -2547,7 +5039,12 @@ def verify_lens_evidence_identity(
             "exact_amount_support_count": top_group["exact_amount_support_count"],
             "support_signal_count": top_group["support_signal_count"],
             "independent_source_count": top_group["independent_source_count"],
+            "strong_independent_source_count": top_group[
+                "strong_independent_source_count"
+            ],
             "trusted_source_count": top_group["trusted_count"],
+            "trusted_exact_count": top_group["trusted_exact_count"],
+            "strong_exact_count": top_group["strong_exact_count"],
             "direct_title_or_snippet_support_count": top_group[
                 "direct_title_or_snippet_support_count"
             ],
@@ -2572,7 +5069,12 @@ def verify_lens_evidence_identity(
         "exact_amount_support_count": top_group["exact_amount_support_count"],
         "support_signal_count": top_group["support_signal_count"],
         "independent_source_count": top_group["independent_source_count"],
+        "strong_independent_source_count": top_group[
+            "strong_independent_source_count"
+        ],
         "trusted_source_count": top_group["trusted_count"],
+        "trusted_exact_count": top_group["trusted_exact_count"],
+        "strong_exact_count": top_group["strong_exact_count"],
         "direct_title_or_snippet_support_count": top_group[
             "direct_title_or_snippet_support_count"
         ],
@@ -2589,6 +5091,44 @@ def verify_lens_evidence_identity(
         "reason": reason,
         "selected_evidence": selected_evidence,
     }
+    # Rule 10: EXACTLY 5 independent usable sources, >=3 must agree on exact identity.
+    _selected_source_count = base_trace.get("selected_voting_source_count", 0)
+    _selected_domain_count = base_trace.get("selected_independent_domain_count", 0)
+
+    # Check the top exact group's support (within the 5 selected items).
+    # We use exact_amount_support_count as the majority_count metric.
+    _majority_count = top_group.get("exact_amount_support_count", 0)
+
+    base_trace["majority_count"] = _majority_count
+    base_trace["majority_required"] = 3
+    base_trace["vote_eligible"] = False
+    base_trace["vote_created"] = False
+
+    identity_valid = bool(
+        best.get("country") and best.get("currency") and best.get("amount") is not None
+    )
+
+    if (
+        _selected_source_count == 5
+        and _selected_domain_count == 5
+        and _majority_count >= 3
+        and identity_valid
+    ):
+        base_trace["vote_eligible"] = True
+        base_trace["vote_created"] = True
+
+    base_trace["vote_identity"] = {
+        "country": best["country"],
+        "currency": best["currency"],
+        "amount": best["amount"],
+    } if base_trace["vote_created"] else {}
+
+    base_trace["majority_achieved"] = _majority_count
+    base_trace["selected_voting_set_size"] = _selected_source_count
+
+    if base_trace["vote_created"]:
+        base_trace["winning_identity"] = base_trace["vote_identity"]
+    base_trace["selected_source_count"] = base_trace["selected_voting_set_size"]
     return promotion, base_trace, []
 
 
@@ -2679,13 +5219,34 @@ def _evidence_supports_identity(
 def validate_agent3_identity(
     item: Dict[str, Any],
     evidence: Optional[List[Dict[str, Any]]] = None,
+    groq_extractions: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Normalize V1/V2 output and prevent unsupported Lens votes."""
     normalized = dict(item or {})
     status = str(normalized.get("status") or "").strip().lower()
     provider = str(normalized.get("provider") or "unknown").strip().lower() or "unknown"
+    technical_failure = bool(normalized.get("technical_error")) or status in {"failed", "error", "technical_error"}
+    raw_evidence_input = evidence if evidence is not None else normalized.get("evidence") or []
+    initial_evidence_input: List[Dict[str, Any]] = []
+    targeted_evidence_input: List[Dict[str, Any]] = []
+    for raw_item in raw_evidence_input or []:
+        if not isinstance(raw_item, dict):
+            continue
+        is_targeted = bool(raw_item.get("is_candidate_assisted")) or str(
+            raw_item.get("evidence_type") or raw_item.get("mode") or ""
+        ).strip().lower() in {
+            "candidate_verification",
+            "targeted_candidate_verification",
+            "targeted_search",
+        }
+        if is_targeted:
+            if len(targeted_evidence_input) < TARGETED_LENS_RESULT_LIMIT:
+                targeted_evidence_input.append(raw_item)
+        elif len(initial_evidence_input) < INITIAL_LENS_RESULT_LIMIT:
+            initial_evidence_input.append(raw_item)
+    limited_evidence_input = initial_evidence_input + targeted_evidence_input
     normalized_evidence = normalize_lens_evidence(
-        evidence if evidence is not None else normalized.get("evidence") or [],
+        limited_evidence_input,
         provider=provider,
     )
     normalized["evidence"] = normalized_evidence
@@ -2713,6 +5274,9 @@ def validate_agent3_identity(
         provider=provider,
     )
     normalized["promotion_trace"] = promotion_trace
+    normalized["trace"] = promotion_trace
+    normalized["vote_eligible"] = bool(promotion_trace.get("vote_eligible"))
+    normalized["vote_created"] = bool(promotion_trace.get("vote_created"))
 
     verification_reason = str(promotion_trace.get("reason") or "")
     confidence_cap_reasons = {
@@ -2796,7 +5360,10 @@ def validate_agent3_identity(
         )
         if accepted_identity["reason"] == "page_text_identity_support":
             confidence = min(confidence, 0.80)
-        if accepted_identity["reason"] == "promoted_from_lens_evidence":
+        if accepted_identity["reason"] in {
+            "promoted_from_lens_evidence",
+            "two_independent_direct_exact",
+        }:
             confidence = min(confidence, 0.85)
         confidence_valid = True
         status = "completed"
@@ -2824,7 +5391,9 @@ def validate_agent3_identity(
         validation_errors.append("country_missing")
     if _is_unknown_identity(currency):
         validation_errors.append("currency_missing")
-    if not is_valid_agent3_denomination(amount, currency):
+    if amount is None:
+        validation_errors.append("amount_not_allowed")
+    elif not is_valid_agent3_denomination(amount, currency):
         validation_errors.append("denomination_not_allowed")
     if not confidence_valid or confidence < 0.55:
         validation_errors.append("confidence_too_low")
@@ -2841,6 +5410,9 @@ def validate_agent3_identity(
         status == "completed"
         and accepted_identity is not None
         and not validation_errors
+        and amount is not None
+        and currency is not None
+        and country is not None
     )
 
     normalized["ma_tien_te"] = currency or UNKNOWN_IDENTITY
@@ -2871,29 +5443,44 @@ def validate_agent3_identity(
                 )
             normalized.pop("error_type", None)
             normalized.pop("technical_error", None)
-        return normalized
-
-    if status == "disabled":
-        normalized["status"] = "Disabled"
-    elif status in {"failed", "fail", "error", "technical_error", "technical error"}:
-        normalized["status"] = "Failed"
     else:
-        normalized["status"] = "Partial"
-    normalized["quoc_gia"] = UNKNOWN_IDENTITY
-    normalized["menh_gia"] = UNKNOWN_IDENTITY
-    normalized["ma_tien_te"] = UNKNOWN_IDENTITY
-    normalized["currency_code"] = UNKNOWN_IDENTITY
-    if normalized["status"] in {"Failed", "Disabled"}:
-        normalized.setdefault("mo_ta", "Agent 3 không tạo được kết quả hợp lệ.")
-        normalized.setdefault("quan_diem", normalized.get("mo_ta"))
-    else:
-        normalized["mo_ta"] = "Có bằng chứng nhưng không đủ chắc để tính phiếu."
-        normalized["quan_diem"] = (
-            "Google Lens có dữ liệu tham khảo nhưng danh tính tiền giấy chưa được "
-            "evidence xác nhận đầy đủ."
+        if status == "disabled":
+            normalized["status"] = "Disabled"
+        elif status in {"failed", "fail", "error", "technical_error", "technical error"}:
+            normalized["status"] = "Failed"
+        else:
+            normalized["status"] = "Partial"
+        normalized["quoc_gia"] = UNKNOWN_IDENTITY
+        normalized["menh_gia"] = UNKNOWN_IDENTITY
+        normalized["ma_tien_te"] = UNKNOWN_IDENTITY
+        normalized["currency_code"] = UNKNOWN_IDENTITY
+        if normalized["status"] in {"Failed", "Disabled"}:
+            normalized.setdefault("mo_ta", "Agent 3 không tạo được kết quả hợp lệ.")
+            normalized.setdefault("quan_diem", normalized.get("mo_ta"))
+        else:
+            normalized["mo_ta"] = "Có bằng chứng nhưng không đủ chắc để tính phiếu."
+            normalized["quan_diem"] = (
+                "Google Lens có dữ liệu tham khảo nhưng danh tính tiền giấy chưa được "
+                "evidence xác nhận đầy đủ."
+            )
+        normalized["not_counted_in_consensus"] = True
+        normalized["validation_errors"] = validation_errors
+    if identity_complete and accepted_identity:
+        normalized["quoc_gia"] = str(country).strip()
+        normalized["menh_gia"] = f"{amount} {currency}"
+        normalized["ma_tien_te"] = currency or UNKNOWN_IDENTITY
+        normalized["currency_code"] = currency or UNKNOWN_IDENTITY
+        normalized["status"] = "Completed"
+        normalized["not_counted_in_consensus"] = False
+        normalized["validation_errors"] = []
+        normalized["mo_ta"] = (
+            "Google Lens confirmed the banknote identity from ranked structured evidence."
         )
-    normalized["not_counted_in_consensus"] = True
-    normalized["validation_errors"] = validation_errors
+        normalized["quan_diem"] = (
+            f"AG3 selected {country} / {currency} / {amount} from its own Lens evidence cluster."
+        )
+        normalized.pop("error_type", None)
+        normalized.pop("technical_error", None)
     conflict_error_reasons = {
         "conflicting_denominations_in_lens_evidence",
         "mixed_denomination_lens_evidence",
@@ -2902,6 +5489,952 @@ def validate_agent3_identity(
         "initial_identity_conflict",
         "candidate_lens_identity_conflict",
     }
+    if "no_source_evidence" in verification_errors:
+        normalized.setdefault("error_type", "no_source")
+    elif verification_reason in conflict_error_reasons or any(
+        reason in verification_errors for reason in conflict_error_reasons
+    ):
+        normalized["error_type"] = "conflicting_evidence"
+    else:
+        normalized.setdefault("error_type", "insufficient_evidence")
+
+
+    # Calculate Backend Response Contract metrics & item dispositions
+    raw_lens_result_count = len(normalized_evidence)
+
+    exclusion_reason_counts: Dict[str, int] = {}
+    eligible_items = []
+    usable_items: List[Dict[str, Any]] = []  # banknote-context items not hard-excluded (may be PARTIAL)
+
+    p_amount = accepted_identity.get("amount") if (identity_complete and accepted_identity) else None
+    p_currency = accepted_identity.get("currency") if (identity_complete and accepted_identity) else None
+
+    for ev_item in normalized_evidence:
+        s_trust = str(ev_item.get("source_trust_level") or "").upper().strip()
+        s_class = str(ev_item.get("source_class") or "").upper().strip()
+        if not s_trust or s_trust in {"NONE", "NULL"} or not s_class or s_class in {"NONE", "NULL"}:
+            from app.services.evidence_ranker_service import classify_source
+            classification = classify_source(ev_item)
+            if not s_trust or s_trust in {"NONE", "NULL"}:
+                s_trust = str(classification.get("source_trust_level") or "UNKNOWN").upper().strip()
+            if not s_class or s_class in {"NONE", "NULL"}:
+                s_class = str(classification.get("source_class") or s_trust or "UNKNOWN").upper().strip()
+            if not ev_item.get("canonical_domain") or str(ev_item.get("canonical_domain")).lower() in {"", "unknown"}:
+                ev_item["canonical_domain"] = classification.get("canonical_domain") or ev_item.get("canonical_domain")
+            if not ev_item.get("canonical_url"):
+                ev_item["canonical_url"] = classification.get("canonical_url") or ev_item.get("canonical_url")
+        if not s_trust or s_trust in {"NONE", "NULL"}:
+            s_trust = "UNKNOWN"
+        if not s_class or s_class in {"NONE", "NULL"}:
+            s_class = s_trust or "UNKNOWN"
+
+        if groq_extractions:
+            d = str(ev_item.get("canonical_domain") or ev_item.get("domain") or "").strip().lower()
+            if d and d in groq_extractions:
+                gx = groq_extractions[d]
+                if gx.get("banknote_relevant"):
+                    if gx.get("country"): ev_item["detected_country"] = gx["country"]
+                    if gx.get("currency"): ev_item["detected_currency"] = gx["currency"]
+                    if gx.get("denomination"): ev_item["detected_amounts"] = [gx["denomination"]]
+                else:
+                    ev_item["detected_country"] = None
+                    ev_item["detected_currency"] = None
+                    ev_item["detected_amounts"] = []
+        is_dup = ev_item.get("is_duplicate_url") is True
+        is_mir = ev_item.get("is_mirror") is True or ev_item.get("domain_first") is False
+        noise_r = _evidence_noise_reason(ev_item)
+        has_banknote = _item_has_banknote_context(ev_item)
+
+        # Structured per-item diagnostics
+        ev_item["raw_title"] = str(ev_item.get("title") or "")
+        ev_item["raw_snippet"] = str(ev_item.get("snippet") or "")
+        ev_item["raw_url"] = str(ev_item.get("url") or ev_item.get("link") or "")
+        ev_item["raw_domain"] = str(ev_item.get("domain") or "")
+        ev_item["canonical_domain"] = str(ev_item.get("canonical_domain") or ev_item.get("domain") or "unknown")
+        ev_item["raw_lens_score"] = ev_item.get("score") or ev_item.get("raw_lens_score")
+        ev_item["raw_rank"] = ev_item.get("raw_rank") or ev_item.get("rank") or ev_item.get("position")
+        page_excerpt = _compact_text(
+            ev_item.get("page_text_excerpt") or ev_item.get("web_page_text_excerpt") or ""
+        )
+        if page_excerpt:
+            ev_item["page_text_excerpt"] = page_excerpt
+            ev_item["web_page_text_excerpt"] = page_excerpt
+        page_terms = ev_item.get("page_text_identity_terms") or []
+        has_page_evidence = bool(page_excerpt or page_terms)
+        raw_fetch_status = str(ev_item.get("fetch_status") or ev_item.get("page_fetch_status") or "").strip().lower()
+        raw_page_checked = ev_item.get("page_text_checked")
+        if has_page_evidence and raw_fetch_status in {"", "not_attempted", "skipped", "none", "null"}:
+            ev_item["fetch_attempted"] = True
+            ev_item["fetch_status"] = "success"
+            ev_item["page_fetch_status"] = "success"
+            ev_item["page_text_checked"] = True
+        elif raw_fetch_status in {"failed", "failure", "timeout"} or raw_page_checked in {"failed", "timeout"}:
+            ev_item["fetch_attempted"] = True
+            ev_item["fetch_status"] = "timeout" if raw_fetch_status == "timeout" or raw_page_checked == "timeout" else "failed"
+            ev_item["page_fetch_status"] = ev_item["fetch_status"]
+            ev_item["page_text_checked"] = False
+        elif raw_page_checked is True or raw_fetch_status in {"success", "fetched", "checked"}:
+            ev_item["fetch_attempted"] = True
+            ev_item["fetch_status"] = "success"
+            ev_item["page_fetch_status"] = "success"
+            ev_item["page_text_checked"] = True
+        else:
+            ev_item["fetch_attempted"] = False
+            ev_item["fetch_status"] = "not_attempted"
+            ev_item["page_fetch_status"] = "not_attempted"
+            ev_item["page_text_checked"] = False
+        ev_item["source_trust_level"] = s_trust
+        ev_item["source_class"] = s_class
+        ev_item["banknote_context"] = has_banknote
+        ev_item["has_banknote_context"] = has_banknote
+        ev_item["extracted_country"] = ev_item.get("detected_country")
+        ev_item["extracted_currency"] = ev_item.get("detected_currency")
+        ev_item["extracted_denomination"] = ev_item.get("detected_amounts")
+        ev_item["complete_identity"] = _is_complete_identity_item(ev_item)
+        # Use identity_text (title/snippet/page_text_excerpt only) for object_type — not source/domain brand names.
+        # If the item has banknote context (has_banknote=True), it is always a banknote regardless of brand name.
+        identity_text_l = _evidence_identity_text(ev_item).lower()
+        _title_snippet_l = " ".join([
+            str(ev_item.get("title") or ""),
+            str(ev_item.get("snippet") or ""),
+        ]).lower()
+        _has_explicit_banknote_kw = any(
+            kw in _title_snippet_l
+            for kw in ("banknote", "currency note", "paper money", "note", "bill")
+        )
+        if has_banknote or _has_explicit_banknote_kw:
+            ev_item["object_type"] = "banknote"
+        elif _is_non_banknote_numismatic_object(ev_item):
+            # Only classify as coin when title/snippet/page_text explicitly describe a coin/medal,
+            # not because the brand/source/domain name contains 'coin'.
+            ev_item["object_type"] = "coin"
+        elif "medal" in identity_text_l:
+            ev_item["object_type"] = "medal"
+        else:
+            ev_item["object_type"] = "unknown"
+        ev_item["independent_domain"] = bool(ev_item.get("domain_first") is not False and not is_dup and not is_mir)
+        ev_item["selected_for_ag3_internal_vote"] = False
+        canonical_domain_ok = str(ev_item.get("canonical_domain") or "").strip().lower() not in {"", "unknown", "none", "null"}
+        content_quality = str(ev_item.get("content_identity_quality") or "").upper().strip()
+        content_quality_noise = _content_identity_quality_is_noise(ev_item)
+        if content_quality == "NOISE" and not content_quality_noise:
+            content_quality = "COMPLETE_EXACT" if _item_has_simple_exact_identity(ev_item) else "PARTIAL_IDENTITY"
+            ev_item["content_identity_quality"] = content_quality
+        structured_content_enough = bool(
+            (ev_item.get("complete_identity") or _item_has_simple_exact_identity(ev_item))
+            and content_quality != "PARTIAL_IDENTITY"
+            and not content_quality_noise
+        )
+        has_verifiable_content = bool(
+            has_page_evidence
+            or structured_content_enough
+        )
+        qualified_source = bool(
+            has_banknote
+            and canonical_domain_ok
+            and s_trust not in {"NOISE", "SOCIAL", "UNREADABLE"}
+            and not content_quality_noise
+            and ev_item.get("object_type") == "banknote"
+            and not is_dup
+            and not is_mir
+            and _item_has_simple_usable_identity(ev_item)
+        )
+        ev_item["qualified_source"] = qualified_source
+        ev_item["exact_identity_source"] = (
+            "title" if _has_direct_banknote_amount_context(str(ev_item.get("title") or ""), str((ev_item.get("detected_amounts") or [None])[0] or ""))
+            else "page_text" if has_page_evidence
+            else "metadata"
+        )
+
+
+        if s_trust in ("SOCIAL", "UNREADABLE") or ev_item.get("page_text_skip_reason") == "social_media_source":
+            exclusion_reason_counts["social_source"] = exclusion_reason_counts.get("social_source", 0) + 1
+            ev_item["evidence_disposition"] = "excluded"
+            ev_item["evidence_reason"] = "social_source"
+            ev_item["excluded_reason"] = "source_below_trust_threshold"
+            ev_item["eligible"] = False
+            ev_item["badge"] = "Social source"
+        elif content_quality_noise:
+            exclusion_reason_counts["noise"] = exclusion_reason_counts.get("noise", 0) + 1
+            ev_item["evidence_disposition"] = "excluded"
+            ev_item["evidence_reason"] = "content_identity_noise"
+            ev_item["excluded_reason"] = "content_identity_quality_noise"
+            ev_item["eligible"] = False
+            ev_item["badge"] = "Noise"
+        elif _is_non_banknote_numismatic_object(ev_item):
+            exclusion_reason_counts["non_banknote_numismatic_object"] = exclusion_reason_counts.get("non_banknote_numismatic_object", 0) + 1
+            ev_item["evidence_disposition"] = "excluded"
+            ev_item["evidence_reason"] = "non_banknote_numismatic_object"
+            ev_item["excluded_reason"] = "non_banknote_numismatic_object"
+            ev_item["eligible"] = False
+            ev_item["badge"] = "Non-banknote object"
+        elif is_dup or is_mir:
+            exclusion_reason_counts["duplicate_domain"] = exclusion_reason_counts.get("duplicate_domain", 0) + 1
+            ev_item["evidence_disposition"] = "duplicate"
+            ev_item["evidence_reason"] = "duplicate_domain" if is_dup else "mirror_duplicate"
+            ev_item["excluded_reason"] = "duplicate_canonical_domain"
+            ev_item["eligible"] = False
+            ev_item["badge"] = "Duplicate domain"
+        elif noise_r or s_trust == "NOISE":
+            exclusion_reason_counts["noise"] = exclusion_reason_counts.get("noise", 0) + 1
+            ev_item["evidence_disposition"] = "excluded"
+            ev_item["evidence_reason"] = "unrelated_noise"
+            ev_item["excluded_reason"] = "unrelated_finance_page" if "lãi" in str(ev_item.get("snippet") or "").lower() else "unreadable_page"
+            ev_item["eligible"] = False
+            ev_item["badge"] = "Noise"
+        elif not has_banknote:
+            exclusion_reason_counts["not_banknote_context"] = exclusion_reason_counts.get("not_banknote_context", 0) + 1
+            ev_item["evidence_disposition"] = "excluded"
+            ev_item["evidence_reason"] = "invalid_banknote_context"
+            ev_item["excluded_reason"] = "invalid_banknote_context"
+            ev_item["eligible"] = False
+            ev_item["badge"] = "Not banknote context"
+        elif not qualified_source:
+            # Not a fully-qualified source but still usable if it has banknote context and a canonical domain.
+            # A PARTIAL source (missing complete identity but with clear banknote context) may occupy
+            # one of the 5 voting-set slots. It contributes 0 to the 3/5 majority because the
+            # cluster_map loop skips items with missing country/currency/amount.
+            ev_item["evidence_disposition"] = "partial"
+            if not ev_item.get("complete_identity"):
+                ev_item["evidence_reason"] = "missing_complete_identity"
+            elif not has_verifiable_content:
+                ev_item["evidence_reason"] = "weak_source_or_skipped_page_text"
+            elif not canonical_domain_ok:
+                ev_item["evidence_reason"] = "missing_canonical_domain"
+            else:
+                ev_item["evidence_reason"] = "supporting_but_insufficient"
+            if canonical_domain_ok and has_banknote and s_trust not in {"NOISE", "SOCIAL", "UNREADABLE"} and ev_item.get("object_type") == "banknote" and not is_dup and not is_mir and _item_has_simple_usable_identity(ev_item):
+                # Usable-partial: may enter the 5-source slot, but does NOT vote in majority cluster
+                ev_item["eligible"] = True
+                usable_items.append(ev_item)
+            else:
+                ev_item["eligible"] = False
+                ev_item["badge"] = "Partial (unverified)"
+        else:
+            eligible_items.append(ev_item)
+            usable_items.append(ev_item)
+            ev_item["eligible"] = True
+            it_amounts = ev_item.get("detected_amounts") or []
+            it_curr = ev_item.get("detected_currency")
+            if identity_complete and accepted_identity and p_amount in it_amounts and (not it_curr or _normalize_currency_code(it_curr) == p_currency):
+                ev_item["evidence_disposition"] = "supporting"
+                ev_item["evidence_reason"] = "winning_complete_identity"
+                ev_item["badge"] = "Supporting"
+            elif identity_complete and accepted_identity and it_amounts and any(a != p_amount for a in it_amounts):
+                ev_item["evidence_disposition"] = "conflicting"
+                ev_item["evidence_reason"] = "conflicting_denomination"
+                ev_item["badge"] = "Conflicting denomination"
+            elif _is_complete_identity_item(ev_item):
+                ev_item["evidence_disposition"] = "partial"
+                ev_item["evidence_reason"] = "supporting_but_insufficient"
+                ev_item["badge"] = "Supporting but insufficient"
+            else:
+                ev_item["evidence_disposition"] = "partial"
+                ev_item["evidence_reason"] = "missing_complete_identity"
+                ev_item["badge"] = "Partial identity"
+
+        final_disposition = ev_item.get("evidence_disposition") or "partial"
+        if final_disposition not in {"supporting", "conflicting", "partial", "excluded", "duplicate"}:
+            final_disposition = "excluded"
+        ev_item["evidence_disposition"] = final_disposition
+        ev_item["final_disposition"] = final_disposition
+        ev_item["final_reason"] = ev_item.get("evidence_reason") or ev_item.get("excluded_reason") or "unspecified"
+
+    source_class_priority = {
+        "TRUSTED": 7,
+        "STRONG_NEUTRAL": 6,
+        "ESTABLISHED_CATALOG": 5,
+        "NEUTRAL": 4,
+        "WEAK_COMMERCIAL": 3,
+        "UNKNOWN": 2,
+        "UNREADABLE": 1,
+        "SOCIAL": 0,
+        "NOISE": 0,
+    }
+
+    def _quality_key(ev_item: Dict[str, Any]) -> tuple:
+        source_class = str(
+            ev_item.get("source_class") or ev_item.get("source_trust_level") or "UNKNOWN"
+        ).upper().strip()
+        fetch_ok = str(
+            ev_item.get("page_fetch_status") or ev_item.get("fetch_status") or ""
+        ).strip().lower() in {"success", "fetched", "checked"}
+        try:
+            lens_score = float(ev_item.get("raw_lens_score") or ev_item.get("score") or 0.0)
+        except (TypeError, ValueError):
+            lens_score = 0.0
+        try:
+            rank_value = int(ev_item.get("raw_rank") or ev_item.get("rank") or 9999)
+        except (TypeError, ValueError):
+            rank_value = 9999
+        content_quality = str(ev_item.get("content_identity_quality") or "").upper().strip()
+        direct_quality = bool(
+            ev_item.get("complete_identity") is True
+            and content_quality != "PARTIAL_IDENTITY"
+        )
+        return (
+            int(ev_item.get("complete_identity") is True),
+            int(ev_item.get("object_type") == "banknote"),
+            int(fetch_ok or bool(ev_item.get("page_text_excerpt") or ev_item.get("page_text_identity_terms"))),
+            int(direct_quality),
+            source_class_priority.get(source_class, 2),
+            lens_score,
+            -rank_value,
+        )
+
+    # qualified_items_before_dedupe tracks complete/qualified-source items for legacy diagnostics.
+    qualified_items_before_dedupe = [
+        item for item in normalized_evidence if item.get("qualified_source") is True
+    ]
+    # usable_items_before_dedupe is wider: includes PARTIAL sources (banknote context, not
+    # hard-excluded) that may occupy one of the 5 voting-set slots even without complete identity.
+    usable_items_before_dedupe = list(usable_items)  # already collected during the per-item loop
+
+    # Domain-dedup on the USABLE pool (pick best representative per canonical domain)
+    usable_representatives_by_domain: Dict[str, Dict[str, Any]] = {}
+    for ev_item in usable_items_before_dedupe:
+        canonical_domain = str(
+            ev_item.get("canonical_domain") or ev_item.get("domain") or ""
+        ).strip().lower()
+        if not canonical_domain or canonical_domain in {"unknown", "none", "null"}:
+            continue
+        current = usable_representatives_by_domain.get(canonical_domain)
+        if current is None or _quality_key(ev_item) > _quality_key(current):
+            usable_representatives_by_domain[canonical_domain] = ev_item
+
+    usable_representative_ids = {id(item) for item in usable_representatives_by_domain.values()}
+    for ev_item in usable_items_before_dedupe:
+        if id(ev_item) not in usable_representative_ids:
+            # Superseded by a better representative for the same domain — mark duplicate.
+            ev_item["eligible"] = False
+            ev_item["evidence_disposition"] = "duplicate"
+            ev_item["final_disposition"] = "duplicate"
+            ev_item["evidence_reason"] = "duplicate_canonical_domain"
+            ev_item["final_reason"] = "duplicate_canonical_domain"
+            ev_item["badge"] = "Duplicate domain"
+
+    usable_reps = list(usable_representatives_by_domain.values())
+
+    _country_counter: Dict[str, int] = {}
+    for _ei in usable_reps:
+        _c = _normalize_country_key(_ei.get("detected_country"), _ei.get("detected_currency"))
+        if not _is_unknown_identity(_c):
+            _country_counter[_c] = _country_counter.get(_c, 0) + 1
+
+    _dominant_country = None
+    if _country_counter:
+        _max_count = max(_country_counter.values())
+        _top_countries = [c for c, count in _country_counter.items() if count == _max_count]
+        if len(_top_countries) == 1:
+            _dominant_country = _top_countries[0]
+
+    _in_voting = []
+    _excluded_wrong = []
+    for _ei in usable_reps:
+        if not _dominant_country:
+            _in_voting.append(_ei)
+            continue
+
+        _c = _normalize_country_key(_ei.get("detected_country"), _ei.get("detected_currency"))
+
+        is_clear_contradiction = False
+        if not _is_unknown_identity(_c) and _c != _dominant_country:
+            is_clear_contradiction = True
+
+        if is_clear_contradiction:
+            _excluded_wrong.append(_ei)
+        else:
+            _in_voting.append(_ei)
+
+    def _phase2_sort_key(ev_item: Dict[str, Any]) -> tuple:
+        is_complete = ev_item.get("complete_identity") is True
+        try:
+            rank_value = int(ev_item.get("raw_rank") or ev_item.get("rank") or 9999)
+        except (TypeError, ValueError):
+            rank_value = 9999
+        return (
+            int(is_complete),
+            -rank_value,
+        )
+
+    eligible_items = sorted(_in_voting, key=_phase2_sort_key, reverse=True)
+
+    for _ei in _excluded_wrong:
+        _ei["evidence_disposition"] = "excluded"
+        _ei["final_disposition"] = "excluded"
+        _ei["evidence_reason"] = "wrong_country_for_voting_set"
+        _ei["final_reason"] = "wrong_country_for_voting_set"
+        _ei["excluded_reason"] = "wrong_country_for_voting_set"
+        _ei["eligible"] = False
+        _ei["badge"] = "Wrong country"
+
+    for ev_item in eligible_items:
+        ev_item["eligible"] = True
+        ev_item["selected_for_ag3_internal_vote"] = False
+        ev_item["selected_rank"] = None
+        ev_item["evidence_disposition"] = "partial"
+        ev_item["final_disposition"] = "partial"
+        ev_item["evidence_reason"] = "qualified_not_selected"
+        ev_item["final_reason"] = "qualified_not_selected"
+        ev_item["badge"] = "Qualified"
+
+    candidate_voting_items = eligible_items[:AG3_MAX_SELECTED_SOURCES]
+
+    actual_usable_count = len(eligible_items)
+    if actual_usable_count >= AG3_MIN_SELECTED_SOURCES:
+        selected_voting_items = eligible_items[:AG3_MAX_SELECTED_SOURCES]
+        selected_source_count = len(selected_voting_items)
+    else:
+        selected_voting_items = []
+        selected_source_count = actual_usable_count
+
+    selected_domains = [
+        str(item.get("canonical_domain") or item.get("domain") or "").strip().lower()
+        for item in selected_voting_items
+    ]
+    selected_domain_count = len({domain for domain in selected_domains if domain})
+
+
+
+    cluster_map: Dict[tuple, Dict[str, Any]] = {}
+    for ev_item in candidate_voting_items:
+        amounts = ev_item.get("detected_amounts") or []
+        amount_value = amounts[0] if isinstance(amounts, list) and len(amounts) == 1 else None
+        currency_value = _normalize_currency_code(ev_item.get("detected_currency"))
+        country_value = ev_item.get("detected_country")
+        if (
+            amount_value is None
+            or _is_unknown_identity(country_value)
+            or _is_unknown_identity(currency_value)
+            or ev_item.get("object_type") != "banknote"
+        ):
+            continue
+        cluster_key = (
+            _normalize_country_key(country_value, currency_value),
+            currency_value,
+            int(amount_value),
+        )
+        cluster = cluster_map.setdefault(
+            cluster_key,
+            {
+                "country": _normalize_country_key(country_value, currency_value),
+                "currency": currency_value,
+                "amount": int(amount_value),
+                "sources": [],
+                "domains": [],
+            },
+        )
+        cluster["sources"].append(ev_item)
+        domain = str(ev_item.get("canonical_domain") or ev_item.get("domain") or "").strip().lower()
+        if domain and domain not in cluster["domains"]:
+            cluster["domains"].append(domain)
+
+    candidate_clusters_ranked = sorted(
+        cluster_map.items(),
+        key=lambda entry: (len(entry[1]["sources"]), len(entry[1]["domains"])),
+        reverse=True,
+    )
+    selected_clusters = candidate_clusters_ranked if selected_voting_items else []
+    majority_achieved = len(selected_clusters[0][1]["sources"]) if selected_clusters else 0
+    tied_majority = bool(
+        len(selected_clusters) > 1
+        and len(selected_clusters[0][1]["sources"]) == len(selected_clusters[1][1]["sources"])
+    )
+    strict_vote_eligible = bool(
+        selected_source_count >= AG3_MIN_SELECTED_SOURCES
+        and selected_domain_count == selected_source_count
+        and majority_achieved is not None
+        and majority_achieved >= AG3_MIN_EXACT_SUPPORT
+        and not tied_majority
+    )
+    selection_reason = "qualified_three_of_five" if strict_vote_eligible else "no_three_of_five_majority"
+    if selected_source_count < AG3_MIN_SELECTED_SOURCES:
+        selection_reason = "insufficient_minimum_usable_independent_sources"
+    elif selected_domain_count < selected_source_count:
+        selection_reason = "duplicate_domain_in_selected_set"
+
+    winning_identity: Dict[str, Any] = {}
+    accepted_identity: Optional[Dict[str, Any]] = None
+    verified_identity: Optional[Dict[str, Any]] = None
+    candidate_identity: Dict[str, Any] = {}
+    if candidate_clusters_ranked:
+        top_c = candidate_clusters_ranked[0][1]
+        top_src = top_c["sources"][0] if top_c.get("sources") else {}
+        candidate_identity = {
+            "country": top_src.get("detected_country") or top_c.get("country"),
+            "currency": top_c.get("currency"),
+            "amount": top_c.get("amount"),
+            "independent_domain_count": len(top_c.get("domains") or []),
+            "support_count": len(top_c.get("sources") or []),
+        }
+    if strict_vote_eligible:
+        winning_key, winning_cluster = selected_clusters[0]
+        winning_identity = {
+            "country": winning_cluster["sources"][0].get("detected_country") or winning_key[0],
+            "currency": winning_key[1],
+            "amount": winning_key[2],
+        }
+        accepted_identity = {
+            **winning_identity,
+            "confidence": max(confidence if confidence_valid else 0.0, 0.80),
+            "support_count": majority_achieved,
+            "context_support_count": majority_achieved,
+            "exact_amount_support_count": majority_achieved,
+            "support_signal_count": majority_achieved,
+            "independent_source_count": majority_achieved,
+            "strong_independent_source_count": majority_achieved,
+            "trusted_source_count": 0,
+            "trusted_exact_count": 0,
+            "strong_exact_count": majority_achieved,
+            "direct_title_or_snippet_support_count": majority_achieved,
+            "page_text_support_count": sum(
+                1 for item in winning_cluster["sources"] if item.get("page_text_excerpt") or item.get("page_text_identity_terms")
+            ),
+            "page_text_used_for_identity": any(
+                item.get("page_text_excerpt") or item.get("page_text_identity_terms")
+                for item in winning_cluster["sources"]
+            ),
+            "ignored_amounts": [],
+            "ignored_amount_reasons": {},
+            "top_score": max(
+                float(item.get("raw_lens_score") or item.get("score") or 0.0)
+                for item in winning_cluster["sources"]
+            ),
+            "trusted_source": False,
+            "reason": "qualified_three_of_five",
+            "selected_evidence": winning_cluster["sources"][0],
+        }
+        verified_identity = accepted_identity
+        identity_complete = True
+        country = winning_identity["country"]
+        currency = winning_identity["currency"]
+        amount = winning_identity["amount"]
+        denomination = f"{amount} {currency}"
+        confidence = accepted_identity["confidence"]
+        confidence_valid = True
+        validation_errors = []
+        normalized["quoc_gia"] = str(country).strip()
+        normalized["menh_gia"] = denomination
+        normalized["ma_tien_te"] = currency
+        normalized["currency_code"] = currency
+        normalized["status"] = "Completed"
+        normalized["not_counted_in_consensus"] = False
+        normalized["validation_errors"] = []
+        normalized["reason"] = "qualified_three_of_five"
+        normalized["status_reason"] = "qualified_three_of_five"
+        normalized["not_eligible_reason"] = None
+        normalized["mo_ta"] = "Google Lens selected independent verified web sources."
+        normalized["quan_diem"] = (
+            f"AG3 created one vote from an internal source majority: {country} / {currency} / {amount}."
+        )
+        normalized.pop("error_type", None)
+        normalized.pop("technical_error", None)
+    else:
+        identity_complete = False
+        accepted_identity = None
+        normalized["status"] = "Failed" if technical_failure else "Partial"
+        normalized["quoc_gia"] = UNKNOWN_IDENTITY
+        normalized["menh_gia"] = UNKNOWN_IDENTITY
+        normalized["ma_tien_te"] = UNKNOWN_IDENTITY
+        normalized["currency_code"] = UNKNOWN_IDENTITY
+        normalized["not_counted_in_consensus"] = True
+        normalized["reason"] = selection_reason
+        normalized["status_reason"] = selection_reason
+        normalized["not_eligible_reason"] = selection_reason
+        validation_errors = list(dict.fromkeys([selection_reason, *validation_errors]))
+        normalized["validation_errors"] = validation_errors
+        if technical_failure:
+            normalized.setdefault("technical_error", True)
+            normalized["mo_ta"] = normalized.get("mo_ta") or "Google Lens provider returned a technical failure."
+            normalized["quan_diem"] = normalized.get("quan_diem") or "AG3 did not create a vote because provider verification failed."
+        else:
+            usable_count = len(eligible_items)
+            if usable_count < AG3_MIN_SELECTED_SOURCES:
+                normalized["mo_ta"] = (
+                    f"Google Lens found only {usable_count} usable independent sources; "
+                    f"{AG3_MIN_SELECTED_SOURCES} are required before voting."
+                )
+                normalized["quan_diem"] = (
+                    f"AG3 did not create a vote because only {usable_count} of the required "
+                    f"{AG3_MIN_SELECTED_SOURCES} independent usable sources were found."
+                )
+            elif selected_source_count >= AG3_MIN_SELECTED_SOURCES and majority_achieved < AG3_MIN_EXACT_SUPPORT:
+                normalized["mo_ta"] = (
+                    f"Google Lens formed a {selected_source_count}-source voting set, but only {majority_achieved}/{selected_source_count} sources "
+                    "agreed on the same country, currency, and denomination."
+                )
+                normalized["quan_diem"] = (
+                    f"AG3 did not create a vote: a {selected_source_count}-source voting set was formed but only "
+                    f"{majority_achieved}/{selected_source_count} sources confirmed the same identity (need {AG3_MIN_EXACT_SUPPORT})."
+                )
+            else:
+                normalized["mo_ta"] = "Google Lens did not form a valid 3/5 source majority."
+                normalized["quan_diem"] = (
+                    "AG3 did not create a vote because the 5-source voting set did not reach a 3/5 majority "
+                    "on the same country, currency, and denomination."
+                )
+
+    winning_key_tuple = (
+        _normalize_country_key(winning_identity.get("country"), winning_identity.get("currency")),
+        winning_identity.get("currency"),
+        winning_identity.get("amount"),
+    ) if strict_vote_eligible else None
+    for selected_rank, ev_item in enumerate(selected_voting_items, start=1):
+        ev_item["selected_for_ag3_internal_vote"] = True
+        ev_item["selected_for_ag3_vote"] = True
+        ev_item["selected_rank"] = selected_rank
+        amounts = ev_item.get("detected_amounts") or []
+        source_amount = amounts[0] if isinstance(amounts, list) and len(amounts) == 1 else None
+        source_key = (
+            _normalize_country_key(ev_item.get("detected_country"), ev_item.get("detected_currency")),
+            _normalize_currency_code(ev_item.get("detected_currency")),
+            int(source_amount) if source_amount is not None else None,
+        )
+        if strict_vote_eligible and source_key == winning_key_tuple:
+            ev_item["evidence_disposition"] = "supporting"
+            ev_item["final_disposition"] = "supporting"
+            ev_item["evidence_reason"] = "selected_supports_three_of_five_majority"
+            ev_item["final_reason"] = "selected_supports_three_of_five_majority"
+            ev_item["badge"] = "Supporting"
+        elif strict_vote_eligible:
+            ev_item["evidence_disposition"] = "conflicting"
+            ev_item["final_disposition"] = "conflicting"
+            ev_item["evidence_reason"] = "selected_minor_cluster"
+            ev_item["final_reason"] = "selected_minor_cluster"
+            ev_item["badge"] = "Conflicting denomination"
+        else:
+            ev_item["evidence_disposition"] = "partial"
+            ev_item["final_disposition"] = "partial"
+            ev_item["evidence_reason"] = selection_reason
+            ev_item["final_reason"] = selection_reason
+            ev_item["badge"] = "Selected but no vote"
+
+    eligible_evidence_count = len(eligible_items)
+    eligible_domains = list(dict.fromkeys(
+        str(item.get("canonical_domain") or item.get("domain") or "").strip().lower()
+        for item in eligible_items
+        if str(item.get("canonical_domain") or item.get("domain") or "").strip().lower() not in ("", "unknown")
+    ))
+    eligible_independent_domain_count = len(eligible_domains)
+
+    supporting_evidence_ids = []
+    supporting_domains = []
+    conflicting_evidence_ids = []
+    conflicting_domains = []
+
+    for item in normalized_evidence:
+        url_val = item.get("url") or item.get("canonical_url")
+        dom_val = item.get("canonical_domain") or item.get("domain")
+        disp = item.get("evidence_disposition")
+        if disp == "supporting":
+            if url_val and url_val not in supporting_evidence_ids:
+                supporting_evidence_ids.append(url_val)
+            if dom_val and dom_val not in supporting_domains:
+                supporting_domains.append(dom_val)
+        elif disp == "conflicting":
+            if url_val and url_val not in conflicting_evidence_ids:
+                conflicting_evidence_ids.append(url_val)
+            if dom_val and dom_val not in conflicting_domains:
+                conflicting_domains.append(dom_val)
+
+    winning_cluster_evidence_count = len(supporting_evidence_ids)
+    winning_cluster_independent_domain_count = len(supporting_domains)
+    conflicting_evidence_count = len(conflicting_evidence_ids)
+    conflicting_independent_domain_count = len(conflicting_domains)
+    disposition_counts = {
+        "supporting": 0,
+        "conflicting": 0,
+        "partial": 0,
+        "excluded": 0,
+        "duplicate": 0,
+    }
+    for item in normalized_evidence:
+        disp = item.get("evidence_disposition")
+        if disp not in disposition_counts:
+            disp = "excluded"
+            item["evidence_disposition"] = disp
+            item["final_disposition"] = disp
+        disposition_counts[disp] += 1
+
+    supporting_evidence_count = disposition_counts["supporting"]
+    conflicting_evidence_count = disposition_counts["conflicting"]
+    winning_cluster_evidence_count = supporting_evidence_count
+    partial_evidence_count = disposition_counts["partial"]
+    excluded_evidence_count = disposition_counts["excluded"]
+    duplicate_evidence_count = disposition_counts["duplicate"]
+    total_disposed_evidence_count = sum(disposition_counts.values())
+    count_invariant_ok = raw_lens_result_count == total_disposed_evidence_count
+    promotion_reason = selection_reason
+    vote_eligible = bool(strict_vote_eligible)
+    selected_voting_set = [
+        {
+            "selected_rank": index,
+            "domain": item.get("domain"),
+            "canonical_domain": item.get("canonical_domain"),
+            "identity": {
+                "country": item.get("detected_country"),
+                "currency": item.get("detected_currency"),
+                "denomination": item.get("detected_amounts"),
+            },
+            "source_class": item.get("source_class"),
+            "disposition": item.get("evidence_disposition"),
+        }
+        for index, item in enumerate(selected_voting_items, start=1)
+    ]
+    selected_voting_set_size = len(selected_voting_set)
+    majority_required = AG3_MIN_EXACT_SUPPORT
+    selected_supporting_count = majority_achieved if selected_voting_set_size else 0
+    agreement_achieved = (
+        f"{majority_achieved}/{selected_voting_set_size}"
+        if selected_voting_set_size
+        else None
+    )
+    targeted_search_result_count = sum(
+        1 for item in normalized_evidence if item.get("is_candidate_assisted")
+    )
+    initial_lens_result_count = max(0, raw_lens_result_count - targeted_search_result_count)
+    total_raw_evidence_count = initial_lens_result_count + targeted_search_result_count
+    trusted_conflict = any(
+        item.get("evidence_disposition") == "conflicting"
+        and str(item.get("source_class") or item.get("source_trust_level") or "").upper().strip()
+        in {"TRUSTED", "STRONG_NEUTRAL"}
+        for item in normalized_evidence
+    )
+    strict_candidate_clusters = [
+        {
+            "cluster_key": f"{key[0]}/{key[1]}/{key[2]}",
+            "country": key[0],
+            "currency": key[1],
+            "amount": key[2],
+            "support_count": len(cluster["sources"]),
+            "source_count": len(cluster["sources"]),
+            "independent_domain_count": len(cluster["domains"]),
+            "domains": list(cluster["domains"]),
+            "result": "winner" if strict_vote_eligible and key == winning_key_tuple else "minority",
+        }
+        for key, cluster in candidate_clusters_ranked
+    ]
+    strict_winning_cluster = next(
+        (cluster for cluster in strict_candidate_clusters if cluster.get("result") == "winner"),
+        {},
+    )
+    selected_sources = [
+        {
+            "selected_rank": item.get("selected_rank"),
+            "domain": item.get("domain"),
+            "canonical_domain": item.get("canonical_domain"),
+            "title": item.get("title"),
+            "url": item.get("url"),
+            "identity": {
+                "country": item.get("detected_country"),
+                "currency": item.get("detected_currency"),
+                "denomination": item.get("detected_amounts"),
+            },
+            "verification_basis": "page_or_structured_complete_identity",
+            "source_class": item.get("source_class"),
+            "disposition": item.get("evidence_disposition"),
+        }
+        for item in selected_voting_items
+    ]
+    raw_articles = [dict(item) for item in normalized_evidence]
+    candidate_sources = [dict(item) for item in eligible_items]
+    selected_voting_sources = [dict(item) for item in selected_voting_items]
+
+    def _evidence_invariant_key(ev_item: Dict[str, Any]) -> str:
+        for key in ("evidence_id", "canonical_url", "url", "link", "raw_url"):
+            value = str(ev_item.get(key) or "").strip().lower()
+            if value:
+                return f"{key}:{value}"
+        domain = str(ev_item.get("canonical_domain") or ev_item.get("domain") or "").strip().lower()
+        title = str(ev_item.get("title") or ev_item.get("raw_title") or "").strip().lower()
+        return f"title_domain:{domain}|{title}"
+
+    evidence_invariant_violations: List[str] = []
+    raw_article_count = len(raw_articles)
+    candidate_source_count = len(candidate_sources)
+    raw_keys = {_evidence_invariant_key(item) for item in raw_articles}
+    candidate_keys = {_evidence_invariant_key(item) for item in candidate_sources}
+    selected_keys = {_evidence_invariant_key(item) for item in selected_voting_sources}
+    selected_canonical_domains = [
+        str(item.get("canonical_domain") or item.get("domain") or "").strip().lower()
+        for item in selected_voting_sources
+        if str(item.get("canonical_domain") or item.get("domain") or "").strip()
+    ]
+    if raw_article_count != len(raw_articles):
+        evidence_invariant_violations.append("raw_article_count_mismatch")
+    if candidate_source_count != len(candidate_sources):
+        evidence_invariant_violations.append("candidate_source_count_mismatch")
+    if selected_voting_sources and len(selected_voting_sources) != selected_source_count:
+        evidence_invariant_violations.append("selected_source_count_mismatch")
+
+    if len(selected_canonical_domains) != len(set(selected_canonical_domains)):
+        evidence_invariant_violations.append("selected_domains_not_unique")
+    if selected_keys and not selected_keys.issubset(candidate_keys):
+        evidence_invariant_violations.append("selected_not_subset_of_candidate_sources")
+    if candidate_keys and not candidate_keys.issubset(raw_keys):
+        evidence_invariant_violations.append("candidate_not_subset_of_raw_articles")
+    if raw_article_count < candidate_source_count:
+        evidence_invariant_violations.append("raw_less_than_candidate")
+    if candidate_source_count < selected_source_count:
+        evidence_invariant_violations.append("candidate_less_than_selected")
+    if any(
+        str(item.get("evidence_disposition") or item.get("final_disposition") or "").strip().lower()
+        in {"excluded", "duplicate"}
+        or item.get("eligible") is False
+        for item in selected_voting_sources
+    ):
+        evidence_invariant_violations.append("selected_contains_excluded_or_duplicate_source")
+
+    evidence_invariant_ok = not evidence_invariant_violations
+    if not evidence_invariant_ok:
+        selected_voting_items = []
+        selected_voting_sources = []
+        selected_voting_set = []
+        selected_voting_set_size = 0
+        selected_source_count = 0
+        selected_sources = []
+        selected_domains = []
+        selected_supporting_count = 0
+        agreement_achieved = None
+        majority_achieved = 0
+        strict_vote_eligible = False
+        vote_eligible = False
+        winning_identity = {}
+        selection_reason = "evidence_invariant_failed"
+        promotion_reason = selection_reason
+        validation_errors = list(dict.fromkeys([selection_reason, *validation_errors]))
+        normalized["status"] = "Failed" if technical_failure else "Partial"
+        normalized["not_counted_in_consensus"] = True
+        normalized["validation_errors"] = validation_errors
+        normalized["quoc_gia"] = UNKNOWN_IDENTITY
+        normalized["menh_gia"] = UNKNOWN_IDENTITY
+        normalized["ma_tien_te"] = UNKNOWN_IDENTITY
+        normalized["currency_code"] = UNKNOWN_IDENTITY
+    count_invariant_ok = bool(count_invariant_ok and evidence_invariant_ok)
+
+    selected_formatter = str(normalized.get("phuong_phap") or normalized.get("formatter") or "Deterministic")
+    if groq_extractions:
+        groq_invoked = True
+        evidence_count_sent = len(groq_extractions)
+    else:
+        groq_invoked = bool(
+            normalized.get("groq_invoked")
+            or normalized.get("groq_called")
+            or normalized.get("ag3_groq_formatter_used")
+            or "groq" in selected_formatter.casefold()
+        )
+        evidence_count_sent = len(selected_voting_items) if groq_invoked else 0
+    formatter_completed = bool(normalized.get("formatter_completed") if "formatter_completed" in normalized else (identity_complete or accepted_identity))
+
+    normalized["groq_invoked"] = groq_invoked
+    normalized["groq_called"] = groq_invoked
+    normalized["evidence_count_sent"] = evidence_count_sent
+
+    formatter_decision_trace = {
+        "selected_formatter": selected_formatter,
+        "formatter_selected": selected_formatter,
+        "formatter_invoked": bool(identity_complete or accepted_identity),
+        "formatter_completed": formatter_completed,
+        "formatter_skipped_reason": None if (identity_complete or accepted_identity) else "no_eligible_winning_cluster",
+        "groq_invoked": groq_invoked,
+        "groq_called": groq_invoked,
+        "groq_completed": bool(groq_invoked and formatter_completed),
+        "groq_skipped_reason": None if groq_invoked else "deterministic_formatter_selected",
+        "groq_model": normalized.get("groq_model") if groq_invoked else None,
+        "evidence_ids_or_urls": [
+            item.get("url") or item.get("raw_url")
+            for item in selected_voting_items
+            if item.get("url") or item.get("raw_url")
+        ],
+        "evidence_count_sent": evidence_count_sent,
+        "raw_candidate_count": raw_lens_result_count,
+        "eligible_candidate_count": eligible_evidence_count,
+        "eligible_independent_domain_count": eligible_independent_domain_count,
+        "candidate_clusters": strict_candidate_clusters,
+        "winning_cluster": strict_winning_cluster,
+        "winning_identity": winning_identity if vote_eligible else {},
+        "promotion_path": promotion_reason,
+        "confidence_basis": str(promotion_trace.get("confidence_basis") or promotion_reason),
+        "locked_identity_before_formatter": winning_identity if vote_eligible else {},
+        "formatter_output_identity": {
+            "country": normalized.get("quoc_gia") or normalized.get("country"),
+            "currency": normalized.get("ma_tien_te") or normalized.get("currency_code"),
+            "denomination": normalized.get("menh_gia") or normalized.get("denomination"),
+        },
+        "formatter_changed_locked_identity": False,
+        "final_ag3_status": normalized.get("status"),
+        "vote_eligible": vote_eligible,
+        "not_eligible_reason": None if vote_eligible else promotion_reason,
+    }
+
+    ag3_verification_summary = {
+        "trace_schema_version": "ag3-evidence-v2",
+        "raw_lens_result_count": raw_lens_result_count,
+        "initial_lens_result_count": initial_lens_result_count,
+        "targeted_search_result_count": targeted_search_result_count,
+        "total_raw_evidence_count": total_raw_evidence_count,
+        "qualified_item_count_before_dedupe": len(qualified_items_before_dedupe),
+        "raw_articles": raw_articles,
+        "raw_article_count": raw_article_count,
+        "candidate_sources": candidate_sources,
+        "candidate_source_count": candidate_source_count,
+        # usable_source_count = total banknote-context eligible sources from old verify path
+        "usable_source_count": promotion_trace.get("usable_source_count", eligible_independent_domain_count),
+        "selected_voting_sources": selected_voting_sources,
+        "required_selected_source_count": AG3_MIN_SELECTED_SOURCES,
+        "maximum_selected_source_count": AG3_MAX_SELECTED_SOURCES,
+        "eligible_evidence_count": eligible_evidence_count,
+        "qualified_evidence_count": eligible_evidence_count,
+        "qualified_source_count": eligible_evidence_count,
+        "qualified_independent_domain_count": eligible_independent_domain_count,
+        "eligible_independent_domain_count": eligible_independent_domain_count,
+        "supporting_evidence_count": supporting_evidence_count,
+        "winning_cluster_evidence_count": winning_cluster_evidence_count,
+        "winning_cluster_independent_domain_count": winning_cluster_independent_domain_count,
+        "conflicting_evidence_count": conflicting_evidence_count,
+        "conflicting_independent_domain_count": conflicting_independent_domain_count,
+        "partial_evidence_count": partial_evidence_count,
+        "duplicate_evidence_count": duplicate_evidence_count,
+        "disposition_counts": disposition_counts,
+        "count_invariant_ok": count_invariant_ok,
+        "evidence_invariant_ok": evidence_invariant_ok,
+        "evidence_invariant_violations": evidence_invariant_violations,
+        "supporting_evidence_ids": supporting_evidence_ids,
+        "supporting_domains": supporting_domains,
+        "conflicting_evidence_ids": conflicting_evidence_ids,
+        "conflicting_domains": conflicting_domains,
+        "excluded_evidence_count": excluded_evidence_count,
+        "exclusion_reason_counts": exclusion_reason_counts,
+        "selected_voting_set": selected_voting_set,
+        "selected_voting_set_size": selected_voting_set_size,
+        "selected_source_count": selected_source_count,
+        "selected_sources": selected_sources,
+        "selected_domains": selected_domains,
+        "selection_reason": selection_reason,
+        "majority_required": majority_required,
+        "majority_achieved": majority_achieved,
+        "agreement_achieved": agreement_achieved,
+        "agreement_pattern": agreement_achieved,
+        "selected_supporting_count": selected_supporting_count,
+        "trusted_conflict": trusted_conflict,
+        "candidate_clusters": strict_candidate_clusters,
+        "winning_cluster": strict_winning_cluster,
+        "winning_identity": winning_identity if vote_eligible else {},
+        "candidate_identity": candidate_identity or {},
+        "vote_identity": winning_identity if vote_eligible else {},
+        "promotion_reason": promotion_reason,
+        "reason": promotion_reason,
+        "confidence_basis": str(promotion_trace.get("confidence_basis") or promotion_reason),
+        "vote_eligible": vote_eligible,
+        "vote_created": bool(vote_eligible and winning_identity),
+        "ag3_formatter_decision_trace": formatter_decision_trace,
+    }
+
+    normalized.update(ag3_verification_summary)
+    normalized["ag3_verification_summary"] = ag3_verification_summary
+    promotion_trace.update(ag3_verification_summary)
+    promotion_trace["ag3_verification_summary"] = ag3_verification_summary
+
     if "no_source_evidence" in validation_errors:
         normalized.setdefault("error_type", "no_source")
     elif verification_reason in conflict_error_reasons or any(
@@ -2915,118 +6448,46 @@ def validate_agent3_identity(
 
 def _extract_amount_currency(text: str) -> tuple[Optional[int], Optional[str]]:
     original_text = str(text or "")
-    text_lower = text.lower()
-    text_lower = text_lower.replace("one hundred", "100")
-    text_lower = re.sub(r"(?<!\w)one\s+dollar(?!\w)", "1 dollar", text_lower)
-    
-    amount = None
-    currency = None
+    if not original_text.strip():
+        return None, None
 
-    explicit_code = _currency_from_denomination(original_text)
-    foreign_dollar_context = _has_open_foreign_dollar_context(original_text)
-    explicit_usd_terms = (
-        "usd", "us dollar", "u.s. dollar", "đôla mỹ", "đô la mỹ",
-    )
-    if _has_explicit_vietnam_dong_context(original_text):
-        currency = "VND"
-    elif explicit_code:
-        currency = explicit_code
-    elif any(_contains_term(text_lower, term) for term in explicit_usd_terms):
-        currency = "USD"
-    elif not foreign_dollar_context and any(
-        _contains_term(text_lower, term)
-        for term in ("dollar", "dollars", "đôla", "đô la", "$")
-    ):
-        currency = "USD"
-    else:
-        for code, aliases in CURRENCY_ALIASES.items():
-            if any(_contains_term(text_lower, alias) for alias in aliases):
-                currency = code
-                break
+    currency = _normalize_currency_code(original_text)
 
-    dollar_match = re.search(r'\$(\d+(?:[.,]\d+)*)', text_lower)
-    if dollar_match:
-        context = text_lower[
-            max(0, dollar_match.start() - 48):dollar_match.end() + 48
-        ]
-        if any(keyword in context for keyword in NEGATIVE_EXCHANGE_KEYWORDS):
-            dollar_match = None
+    spans = classify_numeric_span(original_text)
+    denomination_spans = [s for s in spans if s["is_denomination"] and s["amount"] is not None]
 
-    if dollar_match:
-        parsed_amount = _parse_amount_token(dollar_match.group(1))
-        if not foreign_dollar_context and is_valid_agent3_denomination(parsed_amount, "USD"):
-            amount = parsed_amount
-            currency = "USD"
-            return amount, currency
-        
-    amount_matches = list(
-        re.finditer(
-            r'(?<!\d)(\d{1,3}\s*[kK](?!\w)|\d{1,3}(?:[.,\s]\d{3})+|\d+(?:[.,]\d+)*)(?!\d)',
-            text_lower,
+    if denomination_spans:
+        if len(_multi_denomination_context_amounts(original_text, currency)) >= 2:
+            return None, currency
+        best_span = next(
+            (s for s in denomination_spans if _has_explicit_denomination_prefix(_fold_text_for_markers(original_text[max(0, s['start']-40):s['start']]))),
+            denomination_spans[0],
         )
-    )
-    if amount_matches:
-        for match_index, amount_match in enumerate(amount_matches):
-            a_str = amount_match.group(1)
-            val = _parse_amount_token(a_str)
-            if val is not None:
-                if _ignored_amount_reason_for_match(text_lower, amount_match, val, amount_matches, match_index):
-                    continue
-                context = text_lower[
-                    max(0, amount_match.start() - 48):amount_match.end() + 48
-                ]
-                looks_like_year = (
-                    1900 <= val <= 2099
-                    and any(
-                        marker in context
-                        for marker in ("year", "issued", "issue date", "năm", "phát hành")
-                    )
-                )
-                looks_like_price = any(
-                    keyword in context for keyword in NEGATIVE_EXCHANGE_KEYWORDS
-                )
-                has_money_context = (
-                    currency is not None
-                    or any(keyword in context for keyword in POSITIVE_BANKNOTE_KEYWORDS)
-                )
-                if looks_like_year or looks_like_price or not has_money_context:
-                    continue
-                allowed_for_detected_currency = (
-                    is_valid_agent3_denomination(val, currency)
-                    if currency
-                    else any(val in allowed for allowed in ALLOWED_DENOMINATIONS.values())
-                )
-                if allowed_for_detected_currency:
-                    amount = val
-                    break
-                    
-    return amount, currency
+        return best_span["amount"], currency
+
+    return None, currency
 
 
 def parse_lens_evidence_without_llm(
     evidence_items: List[Dict[str, Any]],
     raw_lens_text: str = "",
+    groq_extractions: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Deterministic fallback parser for Google Lens evidence.
     It avoids calling any LLM when the formatter is unavailable.
     """
     evidence_items = [item for item in evidence_items or [] if isinstance(item, dict)]
-    
-    visible_text = []
-    for item in evidence_items[:5]:
-        title = str(item.get("title") or item.get("text") or "").strip()
-        if title and title not in visible_text:
-            visible_text.append(title[:160])
-            
+    banknote_visible_text: List[str] = []
+
     combined_identity_text = " ".join(
         _evidence_text(item) for item in evidence_items
     )
     combined_text = combined_identity_text.lower()
-    
+
     has_positive = any(kw in combined_text for kw in POSITIVE_BANKNOTE_KEYWORDS)
     has_negative = any(kw in combined_text for kw in NEGATIVE_EXCHANGE_KEYWORDS)
-    
+
     strong_positive = False
     for item in evidence_items:
         txt = _evidence_identity_text(item).lower()
@@ -3035,7 +6496,7 @@ def parse_lens_evidence_without_llm(
            re.search(r'tờ tiền\s+\d+\.?\d*\s+đồng', txt):
             strong_positive = True
             break
-            
+
     amount = None
     currency = None
     for item in evidence_items:
@@ -3047,7 +6508,7 @@ def parse_lens_evidence_without_llm(
             currency = c
         if amount and currency:
             break
-            
+
     if not amount or not currency:
         a, c = _extract_amount_currency(combined_identity_text)
         amount = amount or a
@@ -3058,7 +6519,7 @@ def parse_lens_evidence_without_llm(
         currency=currency,
         amount=amount,
     )
-            
+
     score = 0.0
     if has_positive or strong_positive:
         score += 0.3
@@ -3068,15 +6529,15 @@ def parse_lens_evidence_without_llm(
         score += 0.1
     if country:
         score += 0.1
-    
+
     if has_negative and not strong_positive:
         score -= 0.4
-        
+
     if not amount or not currency:
         score -= 0.3
-        
+
     confidence = max(0.0, min(1.0, score + 0.1))
-    
+
     is_completed = (
         amount
         and currency
@@ -3085,13 +6546,13 @@ def parse_lens_evidence_without_llm(
         and (not has_negative or strong_positive)
     )
     status = "Completed" if is_completed else "Partial"
-    
+
     features = []
     if country: features.append(f"country:{country}")
     if currency: features.append(f"currency:{currency}")
     if amount: features.append(f"amount:{amount}")
     features.append(f"evidence_count:{len(evidence_items)}")
-    
+
     if is_completed:
         denomination = f"{amount} {currency}"
         description = (
@@ -3116,155 +6577,180 @@ def parse_lens_evidence_without_llm(
         "quan_diem": description,
         "phuong_phap": "Google Lens SerpApi parser fallback",
         "do_tin_cay": confidence,
-        "van_ban_nhin_thay": visible_text,
+        "van_ban_nhin_thay": banknote_visible_text,
+        "banknote_visible_text": banknote_visible_text,
         "dac_diem_chinh": features,
         "status": status,
         "provider": "serpapi",
         "raw_text": raw_lens_text,
-        "evidence": evidence_items[:5],
+        "evidence": evidence_items[:10],
         "formatter_fallback": True,
     }
-    return validate_agent3_identity(result, evidence=evidence_items[:5])
+    return validate_agent3_identity(result, evidence=evidence_items[:10], groq_extractions=groq_extractions)
 
 
 def build_agreed_vision_candidate(
-    agent1_result: Dict[str, Any],
-    agent2_result: Dict[str, Any],
+    agent1_result: Any = None,
+    agent2_result: Any = None,
     *,
     allow_single_valid: bool = False,
+    agent3_result: Optional[Dict[str, Any]] = None,
+    evidence: Optional[List[Dict[str, Any]]] = None,
 ) -> tuple[Optional[Dict[str, Any]], str]:
-    """Build a candidate from two matching votes or one valid rescue vote."""
-    results = [agent1_result or {}, agent2_result or {}]
-    normalized_votes = [normalize_agent_vote(item) for item in results]
-    valid_indexes = [
-        index
-        for index, (item, vote) in enumerate(zip(results, normalized_votes))
-        if (
-            str(item.get("status") or "").strip().casefold() == "completed"
-            and not bool(item.get("not_counted_in_consensus"))
-            and vote.get("vote_key") is not None
-        )
-    ]
-    if len(valid_indexes) == 2 and (
-        normalized_votes[0].get("vote_key") != normalized_votes[1].get("vote_key")
-    ):
-        return None, "vision_agents_not_agreed"
-    if not valid_indexes:
-        return None, "vision_agents_not_agreed"
-    if len(valid_indexes) == 1 and not allow_single_valid:
-        return None, "only_one_vision_agent_valid"
+    """AG3 INDEPENDENCE PHASE 5.
 
-    selected_index = valid_indexes[0]
-    vote = normalized_votes[selected_index]
-    vote_key = vote.get("vote_key")
+    agent1_result and agent2_result content is NEVER READ or USED. Only `is not None`
+    is checked to record received status.
 
-    material = ""
-    if len(valid_indexes) == 2:
-        material_values = [
-            str(item.get("chat_lieu") or item.get("material") or "").strip()
-            for item in results
-        ]
-        if (
-            material_values[0]
-            and material_values[0].casefold() == material_values[1].casefold()
-            and not _is_unknown_identity(material_values[0])
-        ):
-            material = material_values[0]
+    If AG3 evidence is available, builds internal candidate from AG3 evidence clusters.
+    Returns (candidate, "ag3_internal_evidence_cluster") or (None, "no_ag3_internal_candidate").
+    """
+    _ag1_received = agent1_result is not None
+    _ag2_received = agent2_result is not None
 
-    agreed_visible_text: List[str] = []
-    if len(valid_indexes) == 2:
-        visible_lists = []
-        for item in results:
-            values = item.get("van_ban_nhin_thay") or item.get("visible_text") or []
-            if not isinstance(values, (list, tuple)):
-                values = [values]
-            visible_lists.append([
-                _compact_text(value, 80)
-                for value in values
-                if _compact_text(value, 80)
-            ])
-        second_visible = {value.casefold() for value in visible_lists[1]}
-        agreed_visible_text = [
-            value for value in visible_lists[0]
-            if value.casefold() in second_visible
-        ][:3]
+    evidence_list = evidence
+    if evidence_list is None and isinstance(agent3_result, dict):
+        evidence_list = list(agent3_result.get("evidence") or [])
 
-    return {
-        "country": vote.get("country"),
-        "currency": vote.get("currency_code"),
-        "amount": int(vote.get("amount")),
-        "denomination": f"{int(vote.get('amount'))} {vote.get('currency_code')}",
-        "material": material,
-        "visible_text": agreed_visible_text,
-        "vote_key": list(vote_key),
-    }, (
-        "vision_agents_agreed"
-        if len(valid_indexes) == 2
-        else "single_vision_candidate_for_rescue"
-    )
+    if evidence_list:
+        candidate, reason, _ids = build_ag3_internal_candidate(evidence_list)
+        if candidate:
+            return candidate, "ag3_internal_evidence_cluster"
+
+    return None, "no_ag3_internal_candidate"
 
 
 def resolve_candidate_verification_mode(
-    agent1_result: Dict[str, Any],
-    agent2_result: Dict[str, Any],
+    agent1_result: Any = None,
+    agent2_result: Any = None,
+    *,
+    agent3_result: Optional[Dict[str, Any]] = None,
+    evidence: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
-    """Select latency policy without running retrieval."""
-    matched_candidate, matched_reason = build_agreed_vision_candidate(
-        agent1_result,
-        agent2_result,
-    )
-    if matched_candidate:
-        return "fast_race_to_3"
-    if matched_reason == "vision_agents_not_agreed":
-        completed_count = sum(
-            str(item.get("status") or "").strip().casefold() == "completed"
-            and not bool(item.get("not_counted_in_consensus"))
-            for item in (agent1_result or {}, agent2_result or {})
-        )
-        if completed_count == 2:
-            return "skip"
-    rescue_candidate, _reason = build_agreed_vision_candidate(
-        agent1_result,
-        agent2_result,
-        allow_single_valid=True,
-    )
-    return "rescue_consensus" if rescue_candidate else "skip"
+    """AG3 INDEPENDENCE PHASE 5 mode resolver.
+
+    Derived strictly from AG3 state:
+    - Provider failure -> "skip_provider_failure"
+    - AG3 Completed -> "skip_already_completed"
+    - Competing AG3 internal candidates -> "run_internal_disambiguation"
+    - 1 AG3 internal candidate -> "run_internal_candidate_verification"
+    - 0 AG3 candidate -> "skip_no_internal_candidate"
+    """
+    _ag1_received = agent1_result is not None
+    _ag2_received = agent2_result is not None
+
+    if isinstance(agent3_result, dict):
+        status = str(agent3_result.get("status") or "").strip().casefold()
+        error_type = str(
+            agent3_result.get("error_type")
+            or dict(agent3_result.get("provider_trace") or {}).get("primary_error_type")
+            or ""
+        ).strip().casefold()
+        if (
+            status == "failed"
+            or bool(agent3_result.get("technical_error"))
+            or error_type in (
+                "rate_limit",
+                "provider_quota_exhausted",
+                "provider_rate_limited",
+                "provider_timeout",
+                "provider_connection_error",
+                "provider_server_error",
+                "provider_auth_error",
+                "provider_bad_request",
+                "provider_malformed_response",
+                "missing_api_key",
+                "provider_error",
+                "timeout",
+            )
+        ):
+            return "skip_provider_failure"
+
+        if status == "completed" and not bool(agent3_result.get("not_counted_in_consensus")):
+            return "skip_already_completed"
+
+    evidence_list = evidence
+    if evidence_list is None and isinstance(agent3_result, dict):
+        evidence_list = list(agent3_result.get("evidence") or [])
+
+    candidates = _get_all_ag3_internal_candidates(evidence_list or [])
+    if len(candidates) >= 2:
+        return "run_internal_disambiguation"
+    elif len(candidates) == 1:
+        return "run_internal_candidate_verification"
+    else:
+        return "skip_no_internal_candidate"
 
 
-def build_candidate_verification_queries(candidate: Dict[str, Any]) -> List[str]:
-    """Generate bounded, general banknote queries from an agreed candidate."""
-    try:
-        amount = int(candidate.get("amount"))
-    except (TypeError, ValueError):
+def build_candidate_verification_queries(
+    candidate: Dict[str, Any],
+    competing_candidates: Optional[List[Dict[str, Any]]] = None,
+) -> List[str]:
+    """Generate bounded, general banknote queries from candidate(s)."""
+    if not candidate:
         return []
-    currency = str(candidate.get("currency") or "").strip().upper()
-    country = _compact_text(candidate.get("country"), 80)
-    if amount <= 0 or not re.fullmatch(r"[A-Z]{3}", currency):
-        return []
 
-    material = _compact_text(candidate.get("material"), 40)
-    currency_name = CURRENCY_QUERY_NAMES.get(currency, currency)
-    formatted_amount = f"{amount:,}".replace(",", ".")
     queries: List[str] = []
 
-    if currency == "VND":
-        queries.extend([
-            " ".join(part for part in ("tờ", formatted_amount, "đồng", material) if part),
-            " ".join(part for part in (formatted_amount, "đồng", material, "Việt Nam") if part),
-            " ".join(part for part in ("Ngân hàng Nhà nước Việt Nam", formatted_amount, "đồng", material) if part),
+    def _single_candidate_queries(c: Dict[str, Any]) -> List[str]:
+        q_list = []
+        amt = c.get("amount")
+        curr = c.get("currency")
+        cntry = c.get("country")
+        is_complete = c.get("identity_complete", True)
+
+        if not is_complete:
+            if amt and curr and not cntry:
+                q_list.append(f"banknote {amt} {curr} issuing country catalog")
+            elif amt and cntry and not curr:
+                q_list.append(f"banknote {amt} {cntry} currency code")
+            elif amt:
+                q_list.append(f"banknote {amt} currency specification")
+            return q_list
+
+        try:
+            amount_int = int(amt)
+        except (TypeError, ValueError):
+            return []
+        if amount_int <= 0:
+            return []
+
+        curr_str = str(curr or "").strip().upper()
+        country_str = _compact_text(cntry, 80)
+        material = _compact_text(c.get("material"), 40)
+        currency_name = CURRENCY_QUERY_NAMES.get(curr_str, curr_str)
+        formatted_amount = f"{amount_int:,}".replace(",", ".")
+
+        if curr_str == "VND":
+            q_list.extend([
+                " ".join(part for part in ("tờ", formatted_amount, "đồng", material) if part),
+                " ".join(part for part in (formatted_amount, "đồng", material, "Việt Nam") if part),
+                " ".join(part for part in ("Ngân hàng Nhà nước Việt Nam", formatted_amount, "đồng", material) if part),
+            ])
+
+        q_list.extend([
+            f"{amount_int} {curr_str} banknote",
+            " ".join(part for part in (country_str, str(amount_int), curr_str, "banknote") if part),
+            f"{amount_int} {currency_name} note",
         ])
 
-    queries.extend([
-        f"{amount} {currency} banknote",
-        " ".join(part for part in (country, str(amount), currency, "banknote") if part),
-        f"{amount} {currency_name} note",
-    ])
+        visible_text = " ".join(c.get("visible_text") or [])
+        if visible_text:
+            q_list.append(
+                " ".join(part for part in (country_str, str(amount_int), curr_str, visible_text, "banknote") if part)
+            )
+        return q_list
 
-    visible_text = " ".join(candidate.get("visible_text") or [])
-    if visible_text:
-        queries.append(
-            " ".join(part for part in (country, str(amount), currency, visible_text, "banknote") if part)
-        )
+    if competing_candidates:
+        queries.extend(_single_candidate_queries(candidate)[:2])
+        for comp in competing_candidates:
+            queries.extend(_single_candidate_queries(comp)[:2])
+            c1_denom = candidate.get("denomination") or f"{candidate.get('amount')} {candidate.get('currency')}"
+            c2_denom = comp.get("denomination") or f"{comp.get('amount')} {comp.get('currency')}"
+            if c1_denom and c2_denom and c1_denom != c2_denom:
+                queries.append(f"banknote {c1_denom} vs {c2_denom} difference")
+    else:
+        queries.extend(_single_candidate_queries(candidate))
 
     unique_queries = []
     seen = set()
@@ -3274,7 +6760,7 @@ def build_candidate_verification_queries(candidate: Dict[str, Any]) -> List[str]
         if compact and key not in seen:
             seen.add(key)
             unique_queries.append(compact)
-    return unique_queries[:5]
+    return unique_queries[:10]
 
 
 async def _default_candidate_web_search(
@@ -3304,6 +6790,8 @@ async def _default_candidate_web_search(
         payload = response.json()
     except Exception as exc:
         raise RuntimeError("Candidate verification search returned invalid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("Candidate verification search returned a non-object JSON response.")
     if response.status_code != 200 or payload.get("error"):
         provider_message = str(payload.get("error") or "provider request failed")
         error_type = _classify_serpapi_error(
@@ -3329,6 +6817,46 @@ async def _default_candidate_web_search(
     return output
 
 
+async def _run_targeted_text_search(query: str, timeout_seconds: float) -> list[dict]:
+    """Pure SerpAPI text search helper for targeted evidence enrichment."""
+    if not settings.SERPAPI_KEY:
+        return []
+    def _search():
+        import requests
+        from app.core.config import settings as app_settings
+        return requests.get(
+            "https://serpapi.com/search.json",
+            params={
+                "engine": "google",
+                "q": query,
+                "api_key": app_settings.SERPAPI_KEY,
+                "hl": "vi",
+                "num": 8,
+                "no_cache": str(_serpapi_no_cache_enabled()).lower(),
+            },
+            timeout=max(0.1, float(timeout_seconds)),
+        )
+    try:
+        response = await asyncio.to_thread(_search)
+        payload = response.json()
+        output = []
+        for item in list(payload.get("organic_results") or [])[:8]:
+            if not isinstance(item, dict):
+                continue
+            output.append({
+                "title": item.get("title", ""),
+                "snippet": item.get("snippet", ""),
+                "source": item.get("source") or item.get("displayed_link") or "",
+                "url": item.get("link", ""),
+                "evidence_origin": "targeted_text_search",
+                "is_candidate_assisted": True,
+            })
+        return output
+    except Exception as e:
+        print(f"Targeted text search error: {e}")
+        return []
+
+
 async def retrieve_candidate_verification_evidence(
     candidate: Dict[str, Any],
     *,
@@ -3347,22 +6875,27 @@ async def retrieve_candidate_verification_evidence(
     collected: List[Dict[str, Any]] = []
     seen = set()
     fast_mode = mode == "fast_race_to_3"
-    query_limit = 1 if fast_mode else CANDIDATE_SEARCH_QUERY_LIMIT
-    search_timeout_cap = 1.25 if fast_mode else 3.0
-    search_reserve_seconds = 0.9 if fast_mode else 1.0
-    page_min_budget = 0.35 if fast_mode else PAGE_TEXT_MIN_BUDGET_SECONDS
-    page_timeout = 0.75 if fast_mode else PAGE_TEXT_TIMEOUT_SECONDS
-    page_max_urls = 1 if fast_mode else PAGE_TEXT_MAX_URLS
+    query_limit = CANDIDATE_SEARCH_QUERY_LIMIT
+    search_timeout_cap = 3.0
+    search_reserve_seconds = 1.0
+    page_min_budget = 1.0 if fast_mode else PAGE_TEXT_MIN_BUDGET_SECONDS
+    page_timeout = 1.5 if fast_mode else PAGE_TEXT_TIMEOUT_SECONDS
+    page_max_urls = 2 if fast_mode else PAGE_TEXT_MAX_URLS
 
     for query in queries[:query_limit]:
-        timeout_seconds = _stage_timeout(
-            deadline,
-            search_timeout_cap,
-            reserve_seconds=search_reserve_seconds,
-        )
-        response = searcher(query, timeout_seconds)
-        if inspect.isawaitable(response):
-            response = await asyncio.wait_for(response, timeout=timeout_seconds)
+        try:
+            timeout_seconds = _stage_timeout(
+                deadline,
+                search_timeout_cap,
+                reserve_seconds=search_reserve_seconds,
+            )
+            response = searcher(query, timeout_seconds)
+            if inspect.isawaitable(response):
+                response = await asyncio.wait_for(response, timeout=timeout_seconds)
+        except (asyncio.TimeoutError, TimeoutError):
+            if not collected:
+                raise
+            break
         if isinstance(response, dict):
             response = response.get("organic_results") or response.get("results") or []
         for raw_item in response or []:
@@ -3385,10 +6918,10 @@ async def retrieve_candidate_verification_evidence(
                 collected.append(item)
             if len(collected) >= CANDIDATE_SEARCH_RESULTS_PER_QUERY:
                 break
-        if len(collected) >= 2:
+        if len(collected) >= CANDIDATE_SEARCH_RESULTS_PER_QUERY:
             break
 
-    ranked = rank_lens_evidence(collected, context="")[:5]
+    ranked = rank_lens_evidence(collected, context="")
     if not ranked or _remaining_budget(deadline) < page_min_budget:
         return ranked
 
@@ -3406,17 +6939,20 @@ async def retrieve_candidate_verification_evidence(
         else:
             page_eligible.append(item)
     if not page_eligible:
-        return rank_lens_evidence(page_skipped, context="")[:5]
+        return rank_lens_evidence(page_skipped, context="")[:10]
 
-    enriched = await enrich_lens_evidence_with_page_text(
-        page_eligible,
-        deadline=deadline,
-        max_urls=page_max_urls,
-        timeout_seconds=page_timeout,
-        min_budget_seconds=page_min_budget,
-        fetcher=page_fetcher,
-    )
-    return rank_lens_evidence(enriched + page_skipped, context="")[:5]
+    try:
+        enriched = await enrich_lens_evidence_with_page_text(
+            page_eligible,
+            deadline=deadline,
+            max_urls=page_max_urls,
+            timeout_seconds=page_timeout,
+            min_budget_seconds=page_min_budget,
+            fetcher=page_fetcher,
+        )
+    except (asyncio.TimeoutError, TimeoutError):
+        return rank_lens_evidence(ranked + page_skipped, context="")[:10]
+    return rank_lens_evidence(enriched + page_skipped, context="")[:10]
 
 
 def _candidate_lens_weak(agent3_result: Dict[str, Any]) -> tuple[bool, str]:
@@ -3437,12 +6973,23 @@ def _candidate_lens_weak(agent3_result: Dict[str, Any]) -> tuple[bool, str]:
         "initial_identity_conflict",
         "candidate_lens_identity_conflict",
     }
-    if reason in strong_conflicts or trace.get("checks", {}).get("conflict_check_passed") is False:
+    checks = trace.get("checks")
+    checks_dict = checks if isinstance(checks, dict) else {}
+    if reason in strong_conflicts or checks_dict.get("conflict_check_passed") is False:
         return False, "strong_lens_conflict"
     if status == "completed" and not bool(agent3_result.get("not_counted_in_consensus")):
         return False, "lens_support_not_weak"
-    if error_type in {"rate_limit", "provider_quota_exhausted"}:
+    if error_type in {"rate_limit", "provider_quota_exhausted", "provider_rate_limited"}:
         return False, "provider_quota_exhausted"
+    if error_type in {
+        "provider_timeout",
+        "provider_connection_error",
+        "provider_server_error",
+        "provider_auth_error",
+        "provider_bad_request",
+        "provider_malformed_response",
+    }:
+        return False, "lens_technical_error"
     if bool(agent3_result.get("technical_error")):
         return False, "lens_technical_error"
     if status == "partial":
@@ -3573,47 +7120,25 @@ def _demote_lens_for_candidate_conflict(
     agent3_result: Dict[str, Any],
     candidate: Dict[str, Any],
 ) -> Dict[str, Any]:
+    """PHASE 5 NO-OP — AG3 INDEPENDENCE.
+
+    AG3 must NOT be demoted because its identity conflicts with an external
+    agent candidate.  This function is preserved for backward compatibility
+    only and now returns the original AG3 result unchanged.
+
+    Any previous logic that compared AG1/AG2 candidate identity against AG3
+    and downgraded AG3 status has been removed by Phase 5.
+
+    independence_trace records: demotion_basis = 'internal_ag3_evidence_only'.
+    """
+    # PHASE 5: Return the original AG3 result without modification.
+    # No external agent candidate can demote AG3's deterministic verifier output.
     output = dict(agent3_result or {})
     trace = dict(output.get("promotion_trace") or {})
-    diagnostics = _candidate_lens_identity_diagnostics(candidate, output)
-    lens_vote, _lens_key = _lens_vote_details(output)
-    lens_identity = trace.get("selected_identity") or {
-        "country": lens_vote.get("country"),
-        "currency": lens_vote.get("currency_code"),
-        "amount": lens_vote.get("amount"),
-    }
-    trace.update(
-        {
-            "promoted": False,
-            "reason": "candidate_lens_identity_conflict",
-            "candidate_lens_conflict": True,
-            "candidate_identity": candidate,
-            "lens_selected_identity": lens_identity,
-            "candidate_conflict_extremely_strong": False,
-            **diagnostics,
-        }
-    )
-    checks = dict(trace.get("checks") or {})
-    checks["candidate_lens_conflict_check_passed"] = False
-    trace["checks"] = checks
+    trace["external_demotion_attempted"] = True
+    trace["external_demotion_applied"] = False
+    trace["external_demotion_suppressed_by"] = "ag3_independence_phase5"
     output["promotion_trace"] = trace
-    output["status"] = "Partial"
-    output["not_counted_in_consensus"] = True
-    output["error_type"] = "conflicting_evidence"
-    output["reason"] = "candidate_lens_identity_conflict"
-    output["quoc_gia"] = UNKNOWN_IDENTITY
-    output["menh_gia"] = UNKNOWN_IDENTITY
-    output["ma_tien_te"] = UNKNOWN_IDENTITY
-    output["currency_code"] = UNKNOWN_IDENTITY
-    try:
-        output["do_tin_cay"] = min(float(output.get("do_tin_cay") or 0.0), 0.70)
-    except (TypeError, ValueError):
-        output["do_tin_cay"] = 0.0
-    output["mo_ta"] = "Có bằng chứng Lens nhưng mâu thuẫn với candidate từ AG1/AG2."
-    output["quan_diem"] = (
-        "AG3 không được tính phiếu vì Lens chọn danh tính khác candidate "
-        "đã được tác tử nhìn ảnh trả về."
-    )
     return output
 
 
@@ -3661,89 +7186,646 @@ def _attach_candidate_verification_trace(
     return output
 
 
+def _safe_score(item: Dict[str, Any]) -> float:
+    try:
+        return float(item.get("score") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _safe_rank(item: Dict[str, Any]) -> int:
+    r = item.get("rank")
+    if r is not None and str(r).isdigit():
+        return int(r)
+    return 999
+
+
+def _canonical_url_or_url(item: Dict[str, Any]) -> str:
+    return str(item.get("canonical_url") or item.get("url") or "").strip().lower()
+
+
+def _evidence_id_for_item(item: Dict[str, Any], idx: int) -> str:
+    """Priority: evidence_id -> id -> canonical_url -> url -> source|title|rank deterministic."""
+    for field in ("evidence_id", "id", "canonical_url"):
+        val = item.get(field)
+        if val and str(val).strip():
+            return str(val).strip()
+    raw_url = str(item.get("url") or "").strip()
+    if raw_url:
+        return raw_url
+    return "|".join([
+        str(item.get("source") or ""),
+        str(item.get("title") or "")[:60],
+        str(item.get("rank") or idx),
+    ])
+
+
+def _is_non_banknote_numismatic_object(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    reasons = item.get("rank_reasons") or []
+    if any(
+        str(r).lower().startswith("negative:coin")
+        or str(r).lower().startswith("negative:medal")
+        or str(r).lower().startswith("negative:token")
+        or str(r).lower().startswith("negative:souvenir")
+        for r in reasons
+    ):
+        return True
+    text = " ".join([
+        str(item.get("title") or ""),
+        str(item.get("snippet") or ""),
+        str(item.get("page_text_excerpt") or ""),
+        str(item.get("page_text") or ""),
+    ]).lower()
+    if any(k in text for k in ("coin", "coins", "medal", "medals", "token", "tokens", "souvenir", "tiền xu", "đồng - vietnam - numista", "dong - vietnam - numista", "đồng - vietnam – numista")):
+        if not any(b in text for b in ("banknote", "banknotes", "paper money", "tiền giấy", "cotton", "polymer note", "currency note", "note -")):
+            return True
+    return False
+
+
+def _has_explicit_banknote_phrase(text: str) -> bool:
+    if not text:
+        return False
+    lower = str(text).lower()
+
+    # 1. Unconditional explicit banknote terms (excluding bare "mệnh giá")
+    explicit_terms = (
+        "banknote", "banknotes", "bank note", "currency note", "paper money",
+        "tiền giấy", "tờ tiền", "federal reserve note", "polymer note",
+    )
+    if any(term in lower for term in explicit_terms):
+        return True
+
+    # 2. English bill / note with currency or amount context
+    if re.search(r"(?:\$?\s*\d+|\d+\s*dollars?|\b\d+)\s*(?:-| )?bill\b", lower):
+        return True
+    if re.search(r"(?:\$?\s*\d+|\d+\s*dollars?)\s+note\b", lower):
+        return True
+
+    # 3. Vietnamese 'tờ' monetary construction (tờ + denomination/currency)
+    pattern = (
+        r"\btờ\s+(?:tiền\s+)?(?:mệnh\s+giá\s+|menh\s+gia\s+)?"
+        r"(?:\d{1,3}(?:[.,\s]\d{3})*|\d+)\s*"
+        r"(?:usd\b|đô\s*la\b|đô\b|dollars?\b|vnd\b|vnđ\b|đồng\b|dong\b|eur\b|euros?\b|jpy\b|yen\b|yên\b|cny\b|tệ\b|k\b|nghìn\b|ngàn\b|triệu\b|[$€£¥₫])"
+    )
+    if re.search(pattern, lower, flags=re.IGNORECASE):
+        return True
+
+    return False
+
+
+def _has_explicit_banknote_url_path(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+
+    for key in ("url", "link", "canonical_url", "raw_url"):
+        raw_url = str(item.get(key) or "").strip()
+        if not raw_url:
+            continue
+        try:
+            path = urlparse(raw_url).path or raw_url
+        except Exception:
+            path = raw_url
+        if re.search(r"(^|/)banknotes?(/|$)", path.lower()):
+            return True
+    return False
+
+
+def _item_has_banknote_context(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+
+    if _is_non_banknote_numismatic_object(item):
+        return False
+
+    text = " ".join(
+        [
+            str(item.get("title") or ""),
+            str(item.get("snippet") or ""),
+            str(item.get("page_text_excerpt") or ""),
+            str(item.get("page_text") or ""),
+        ]
+    ).lower()
+
+    if any("banknote_context" in str(term).lower() for term in (item.get("page_text_identity_terms") or [])):
+        return True
+
+    if _has_explicit_banknote_phrase(text):
+        return True
+
+    if _has_explicit_banknote_url_path(item):
+        return True
+
+    if (
+        "has_banknote_context" in item
+        and item["has_banknote_context"] is not None
+    ):
+        return item["has_banknote_context"] is True or _has_metadata_banknote_context(item)
+
+    from app.services.evidence_ranker_service import _has_banknote_context
+    return bool(_has_banknote_context(text, item=item))
+
+
+def _candidate_sort_key(candidate: Dict[str, Any]) -> tuple:
+    return (
+        -len(candidate.get("candidate_evidence_ids") or []),
+        str(candidate.get("canonical_country_key") or ""),
+        str(candidate.get("currency") or ""),
+        int(candidate.get("amount") or 0),
+        ",".join(candidate.get("missing_fields") or []),
+    )
+
+
+def _is_complete_identity_item(item: Dict[str, Any]) -> bool:
+    quality = str(item.get("content_identity_quality") or "").upper()
+    if quality in {
+        "COMPLETE_EXACT",
+        "PAGE_TEXT_COMPLETE",
+        "STRUCTURED_COMPLETE",
+        "COMPLETE_IDENTITY",
+    } or bool(item.get("complete_identity_support")):
+        return True
+    if quality == "NOISE" and not _content_identity_quality_is_noise(item):
+        quality = ""
+    if quality in ("PARTIAL_IDENTITY", "UNREADABLE", "NOISE", "CONTEXT_ONLY", "NONE"):
+        return False
+    # Fallback for unannotated/synthetic test evidence
+    country = item.get("detected_country")
+    currency = item.get("detected_currency")
+    amounts = item.get("detected_amounts")
+    if not _is_unknown_identity(country) and not _is_unknown_identity(currency):
+        if isinstance(amounts, list) and len(amounts) == 1:
+            try:
+                if int(amounts[0]) > 0:
+                    return True
+            except (TypeError, ValueError):
+                pass
+    return False
+
+
+def _is_partial_identity_item(item: Dict[str, Any]) -> bool:
+    quality = str(item.get("content_identity_quality") or "").upper()
+    if quality == "PARTIAL_IDENTITY" or bool(item.get("partial_identity_support")):
+        return True
+    if quality == "NOISE" and not _content_identity_quality_is_noise(item):
+        quality = ""
+    if quality in ("COMPLETE_EXACT", "UNREADABLE", "NOISE", "CONTEXT_ONLY", "NONE"):
+        return False
+    # Fallback for unannotated/synthetic test evidence
+    country = item.get("detected_country")
+    currency = item.get("detected_currency")
+    amounts = item.get("detected_amounts")
+    country_missing = _is_unknown_identity(country)
+    currency_missing = _is_unknown_identity(currency)
+    if country_missing != currency_missing:
+        if isinstance(amounts, list) and len(amounts) == 1:
+            try:
+                if int(amounts[0]) > 0:
+                    return True
+            except (TypeError, ValueError):
+                pass
+    return False
+
+
+def _collect_ag3_candidate_records(
+    evidence: List[Dict[str, Any]],
+    identity_mode: str = "complete",
+) -> List[Dict[str, Any]]:
+    from app.services.evidence_ranker_service import get_canonical_domain
+
+    if not evidence:
+        return []
+
+    raw_records = []
+    for idx, item in enumerate(evidence):
+        if not isinstance(item, dict):
+            continue
+        s_trust = str(item.get("source_trust_level") or "").upper().strip()
+        if s_trust in ("NOISE", "SOCIAL", "UNREADABLE"):
+            continue
+        if item.get("is_duplicate_url") is True or item.get("is_mirror") is True:
+            continue
+
+        url_val = item.get("url") or item.get("link") or ""
+        canon_domain = item.get("canonical_domain") or item.get("domain") or get_canonical_domain(str(url_val))
+        if not canon_domain or canon_domain.lower() in ("unknown", "") or "." not in canon_domain:
+            continue
+
+        if _evidence_noise_reason(item):
+            continue
+
+        if not _item_has_banknote_context(item):
+            continue
+
+        if _is_non_banknote_numismatic_object(item):
+            continue
+
+        if identity_mode == "complete":
+            if not _is_complete_identity_item(item):
+                continue
+        elif identity_mode == "partial":
+            if not _is_partial_identity_item(item):
+                continue
+
+        raw_records.append({
+            "item": item,
+            "canonical_domain": canon_domain,
+            "country": item.get("detected_country"),
+            "currency": item.get("detected_currency"),
+            "amounts": item.get("detected_amounts"),
+            "evidence_idx": idx,
+            "source_trust_level": s_trust,
+        })
+
+    if not raw_records:
+        return []
+
+    # Per-domain grouping & Domain-First / Representative selection
+    domain_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for rec in raw_records:
+        domain_groups.setdefault(rec["canonical_domain"], []).append(rec)
+
+    selected_records = []
+    for domain, group_recs in domain_groups.items():
+        has_annotation = any("domain_first" in r["item"] for r in group_recs)
+        if has_annotation:
+            domain_first_recs = [r for r in group_recs if r["item"].get("domain_first") is True]
+            candidates_to_pick = domain_first_recs if domain_first_recs else group_recs
+            best_rec = min(
+                candidates_to_pick,
+                key=lambda r: (
+                    -_safe_score(r["item"]),
+                    _safe_rank(r["item"]),
+                    _canonical_url_or_url(r["item"]),
+                ),
+            )
+            selected_records.append(best_rec)
+        else:
+            best_rec = min(
+                group_recs,
+                key=lambda r: (
+                    -_safe_score(r["item"]),
+                    _safe_rank(r["item"]),
+                    _canonical_url_or_url(r["item"]),
+                ),
+            )
+            selected_records.append(best_rec)
+
+    return selected_records
+
+
+def _get_all_ag3_internal_candidates(
+    evidence: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Extract all valid AG3 candidate clusters having >= 2 independent domains."""
+    records = _collect_ag3_candidate_records(evidence, identity_mode="complete")
+    if not records:
+        return []
+
+    cluster_domains: Dict[tuple, set] = {}
+    cluster_evidence_ids: Dict[tuple, List[str]] = {}
+    cluster_info: Dict[tuple, Dict[str, Any]] = {}
+
+    for rec in records:
+        country = rec["country"]
+        currency = rec["currency"]
+        amounts = rec["amounts"]
+
+        if _is_unknown_identity(country) or _is_unknown_identity(currency):
+            continue
+        if not isinstance(amounts, list) or len(amounts) != 1:
+            continue
+        amount = amounts[0]
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            continue
+        if amount <= 0:
+            continue
+
+        canonical_currency = normalize_currency_no_infer(currency)
+        if not canonical_currency:
+            continue  # Cannot normalize currency ISO code -> skip complete candidate
+
+        canon_country_key = _normalize_country_key(country, canonical_currency)
+        display_country = normalize_country(country) or str(country).strip()
+
+        key = (canon_country_key, canonical_currency, amount)
+        ev_id = _evidence_id_for_item(rec["item"], rec.get("evidence_idx", 0))
+
+        cluster_domains.setdefault(key, set()).add(rec["canonical_domain"])
+        cluster_evidence_ids.setdefault(key, []).append(ev_id)
+        if key not in cluster_info:
+            cluster_info[key] = {
+                "display_country": display_country,
+                "canon_country_key": canon_country_key,
+                "currency": canonical_currency,
+                "amount": amount,
+                "page_text_excerpts": [],
+            }
+        page_text = _compact_text(rec["item"].get("page_text_excerpt") or "", 80)
+        if page_text:
+            cluster_info[key]["page_text_excerpts"].append(page_text)
+
+    candidates: List[Dict[str, Any]] = []
+    for key, domains in cluster_domains.items():
+        if len(domains) >= 2:
+            info = cluster_info[key]
+            ev_ids = cluster_evidence_ids[key]
+            candidates.append({
+                "country": info["display_country"],
+                "canonical_country_key": info["canon_country_key"],
+                "currency": info["currency"],
+                "amount": info["amount"],
+                "denomination": f"{info['amount']} {info['currency']}",
+                "material": "",
+                "visible_text": info["page_text_excerpts"][:2],
+                "vote_key": [info["display_country"], info["currency"], info["amount"]],
+                "candidate_basis": "ag3_lens_evidence_cluster",
+                "candidate_evidence_ids": ev_ids,
+                "candidate_domains": sorted(list(domains)),
+                "independent_domain_count": len(domains),
+                "identity_complete": True,
+                "missing_fields": [],
+                "external_agent_basis": False,
+            })
+
+    candidates.sort(key=_candidate_sort_key)
+    return candidates
+
+
+def _get_all_ag3_partial_candidates(
+    evidence: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Extract valid partial AG3 candidate clusters having >= 2 independent domains."""
+    records = _collect_ag3_candidate_records(evidence, identity_mode="partial")
+    if not records:
+        return []
+
+    cluster_domains: Dict[tuple, set] = {}
+    cluster_evidence_ids: Dict[tuple, List[str]] = {}
+    cluster_info: Dict[tuple, Dict[str, Any]] = {}
+
+    for rec in records:
+        country = rec["country"]
+        currency = rec["currency"]
+        amounts = rec["amounts"]
+
+        if not isinstance(amounts, list) or len(amounts) != 1:
+            continue
+        amount = amounts[0]
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            continue
+        if amount <= 0:
+            continue
+
+        country_missing = _is_unknown_identity(country)
+        currency_missing = _is_unknown_identity(currency)
+
+        if country_missing and currency_missing:
+            continue
+
+        missing_fields = []
+        if country_missing:
+            missing_fields.append("country")
+        if currency_missing:
+            missing_fields.append("currency")
+
+        # Lock partial candidate cluster key (no auto-infer)
+        if country_missing:
+            canon_currency = normalize_currency_no_infer(currency) or str(currency).strip().upper()
+            key = ("missing_country", canon_currency, amount)
+            display_country = None
+            canon_country_key = None
+        else:
+            display_country = normalize_country(country) or str(country).strip()
+            canon_country_key = _normalize_country_key(country, None)
+            canon_currency = None
+            key = (canon_country_key, "missing_currency", amount)
+
+        ev_id = _evidence_id_for_item(rec["item"], rec.get("evidence_idx", 0))
+        cluster_domains.setdefault(key, set()).add(rec["canonical_domain"])
+        cluster_evidence_ids.setdefault(key, []).append(ev_id)
+        if key not in cluster_info:
+            cluster_info[key] = {
+                "display_country": display_country,
+                "canon_country_key": canon_country_key,
+                "currency": canon_currency,
+                "amount": amount,
+                "missing_fields": missing_fields,
+                "page_text_excerpts": [],
+            }
+        page_text = _compact_text(rec["item"].get("page_text_excerpt") or "", 80)
+        if page_text:
+            cluster_info[key]["page_text_excerpts"].append(page_text)
+
+    candidates: List[Dict[str, Any]] = []
+    for key, domains in cluster_domains.items():
+        if len(domains) >= 2:
+            info = cluster_info[key]
+            ev_ids = cluster_evidence_ids[key]
+            denom_curr = info["currency"] or "UNKNOWN"
+            candidates.append({
+                "country": info["display_country"],
+                "canonical_country_key": info["canon_country_key"],
+                "currency": info["currency"],
+                "amount": info["amount"],
+                "denomination": f"{info['amount']} {denom_curr}",
+                "material": "",
+                "visible_text": info["page_text_excerpts"][:2],
+                "vote_key": [info["display_country"], info["currency"], info["amount"]],
+                "candidate_basis": "ag3_lens_partial_cluster",
+                "candidate_evidence_ids": ev_ids,
+                "candidate_domains": sorted(list(domains)),
+                "independent_domain_count": len(domains),
+                "identity_complete": False,
+                "missing_fields": info["missing_fields"],
+                "external_agent_basis": False,
+            })
+
+    candidates.sort(key=_candidate_sort_key)
+    return candidates
+
+
+def select_ag3_internal_candidate(
+    evidence: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Select primary internal candidate, competing candidates, mode, and evidence_ids."""
+    completes = _get_all_ag3_internal_candidates(evidence or [])
+    partials = _get_all_ag3_partial_candidates(evidence or [])
+
+    if len(completes) >= 2:
+        selected = completes[0]
+        competing = completes[1:]
+        mode = "run_internal_disambiguation"
+        ev_ids = list(selected.get("candidate_evidence_ids") or [])
+        return {
+            "selected_candidate": selected,
+            "competing_candidates": competing,
+            "mode": mode,
+            "evidence_ids": ev_ids,
+        }
+    elif len(completes) == 1:
+        selected = completes[0]
+        mode = "run_internal_candidate_verification"
+        ev_ids = list(selected.get("candidate_evidence_ids") or [])
+        return {
+            "selected_candidate": selected,
+            "competing_candidates": [],
+            "mode": mode,
+            "evidence_ids": ev_ids,
+        }
+    elif len(partials) >= 1:
+        selected = partials[0]
+        competing = partials[1:]
+        mode = "run_internal_disambiguation"
+        ev_ids = list(selected.get("candidate_evidence_ids") or [])
+        return {
+            "selected_candidate": selected,
+            "competing_candidates": competing,
+            "mode": mode,
+            "evidence_ids": ev_ids,
+        }
+    else:
+        return {
+            "selected_candidate": None,
+            "competing_candidates": [],
+            "mode": "skip_no_internal_candidate",
+            "evidence_ids": [],
+        }
+
+
+def build_ag3_internal_candidate(
+    evidence: List[Dict[str, Any]],
+) -> tuple[Optional[Dict[str, Any]], str, List[str]]:
+    """Build a candidate identity strictly from AG3 Lens evidence clusters."""
+    sel = select_ag3_internal_candidate(evidence or [])
+    cand = sel["selected_candidate"]
+    if cand:
+        basis = cand.get("candidate_basis", "ag3_lens_evidence_cluster")
+        return cand, basis, sel["evidence_ids"]
+    if not evidence:
+        return None, "no_ag3_evidence", []
+    return None, "insufficient_independent_domains", []
+
+
 async def run_candidate_assisted_verification(
     agent1_result: Dict[str, Any],
     agent2_result: Dict[str, Any],
     agent3_result: Dict[str, Any],
     *,
+    consensus_result: Optional[Any] = None,
     searcher: Optional[Callable[[str, float], Awaitable[Any]]] = None,
     page_fetcher: Optional[Callable[[str, float], Awaitable[Any]]] = None,
     deadline: Optional[float] = None,
     mode: Optional[str] = None,
     timeout_seconds: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Verify an agreed AG1/AG2 candidate with independent web evidence."""
+    """PHASE 5 INDEPENDENT: Run additional evidence verification seeded by
+    AG3-internal evidence clusters only.
+    """
     from app.services.evidence_ranker_service import rank_lens_evidence
 
-    original = dict(agent3_result or {})
-    mode = mode or resolve_candidate_verification_mode(
-        agent1_result,
-        agent2_result,
-    )
-    if timeout_seconds is None:
-        timeout_seconds = (
-            FAST_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS
-            if mode == "fast_race_to_3"
-            else RESCUE_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS
-            if mode == "rescue_consensus"
-            else 0.0
-        )
-    candidate, agreement_reason = build_agreed_vision_candidate(
-        agent1_result,
-        agent2_result,
-        allow_single_valid=mode == "rescue_consensus",
-    )
-    if not candidate:
-        return _attach_candidate_verification_trace(
-            original,
-            attempted=False,
-            reason=agreement_reason,
-            candidate=None,
-            queries=[],
-            provider="none",
-            skipped_reason=agreement_reason,
-            mode="skip",
-            timeout_seconds=0.0,
-        )
+    _ag1_received = agent1_result is not None
+    _ag2_received = agent2_result is not None
 
-    queries = build_candidate_verification_queries(candidate)
-    if _candidate_conflicts_with_lens(candidate, original):
-        if not _lens_identity_extremely_strong(original):
-            demoted = _demote_lens_for_candidate_conflict(original, candidate)
-            return _attach_candidate_verification_trace(
-                demoted,
-                attempted=False,
-                reason="candidate_lens_identity_conflict",
-                candidate=candidate,
-                queries=queries,
-                provider="none",
-                skipped_reason="candidate_lens_identity_conflict",
-                mode=mode,
-                timeout_seconds=timeout_seconds,
-            )
-        original_trace = dict(original.get("promotion_trace") or {})
-        original_trace["candidate_identity"] = candidate
-        original_trace["candidate_lens_conflict"] = True
-        original_trace["candidate_conflict_extremely_strong"] = True
-        original["promotion_trace"] = original_trace
+    # Poison consensus check at boundary
+    consensus_received = consensus_result is not None
+
+    original = dict(agent3_result or {})
+
+    def _make_independence_trace(
+        candidate_basis: str = "none",
+        candidate_evidence_ids: Optional[List[str]] = None,
+        query_basis: str = "none",
+        query_evidence_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "external_agent_inputs_received": _ag1_received or _ag2_received,
+            "external_agent_inputs_used": False,
+            "ag1_result_received": _ag1_received,
+            "ag1_result_used": False,
+            "ag2_result_received": _ag2_received,
+            "ag2_result_used": False,
+            "consensus_result_received": consensus_received,
+            "consensus_result_used": False,
+            "candidate_basis": candidate_basis,
+            "candidate_evidence_ids": candidate_evidence_ids or [],
+            "query_basis": query_basis,
+            "query_evidence_ids": query_evidence_ids or [],
+            "promotion_basis": "deterministic_verifier_prompt3",
+            "demotion_basis": "internal_ag3_evidence_only",
+            "formatter_used": bool(original.get("ag3_groq_formatter_used")),
+            "formatter_advisory_only": True,
+            "deterministic_verifier_final": True,
+            "independence_verified": True,
+        }
+
+    def _attach_independence(result: Dict[str, Any], itrace: Dict[str, Any]) -> Dict[str, Any]:
+        result = dict(result)
+        result["independence_trace"] = itrace
+        return result
+
+    try:
+        ts = float(timeout_seconds if timeout_seconds is not None else 15.0)
+        if ts <= 0:
+            ts = 15.0
+        timeout_seconds = ts
+    except (ValueError, TypeError):
+        timeout_seconds = 15.0
+    ag3_evidence = list(original.get("evidence") or [])
+    selection = select_ag3_internal_candidate(ag3_evidence)
+    candidate = selection["selected_candidate"]
+    competing_candidates = selection["competing_candidates"]
+    resolved_mode = selection["mode"]
+    evidence_ids = selection["evidence_ids"]
+
+    ag3_candidate_reason = candidate.get("candidate_basis", "ag3_lens_evidence_cluster") if candidate else "no_ag3_internal_candidate"
+
+    itrace = _make_independence_trace(
+        candidate_basis=ag3_candidate_reason,
+        candidate_evidence_ids=evidence_ids,
+        query_basis="ag3_lens_evidence" if candidate else "none",
+        query_evidence_ids=evidence_ids if candidate else [],
+    )
 
     lens_weak, lens_reason = _candidate_lens_weak(original)
     if not lens_weak:
-        return _attach_candidate_verification_trace(
+        result = _attach_candidate_verification_trace(
             original,
             attempted=False,
             reason=lens_reason,
             candidate=candidate,
-            queries=queries,
+            queries=[],
             provider="none",
             skipped_reason=lens_reason,
-            mode=mode,
+            mode=mode or resolved_mode,
             timeout_seconds=timeout_seconds,
         )
+        return _attach_independence(result, itrace)
+
+    if not candidate:
+        result = _attach_candidate_verification_trace(
+            original,
+            attempted=False,
+            reason=ag3_candidate_reason,
+            candidate=None,
+            queries=[],
+            provider="none",
+            skipped_reason=ag3_candidate_reason,
+            mode=mode or resolved_mode,
+            timeout_seconds=timeout_seconds,
+        )
+        return _attach_independence(result, itrace)
+
+    queries = build_candidate_verification_queries(candidate, competing_candidates=competing_candidates)
 
     provider = "candidate_verification" if searcher is not None else "serpapi_web"
     if searcher is None and not settings.SERPAPI_KEY:
-        return _attach_candidate_verification_trace(
+        result = _attach_candidate_verification_trace(
             original,
             attempted=False,
             reason="candidate_provider_unavailable",
@@ -3752,9 +7834,10 @@ async def run_candidate_assisted_verification(
             lens_support_weak=True,
             provider=provider,
             skipped_reason="missing_api_key",
-            mode=mode,
+            mode=mode or resolved_mode,
             timeout_seconds=timeout_seconds,
         )
+        return _attach_independence(result, itrace)
 
     deadline = deadline or (time.monotonic() + max(0.1, float(timeout_seconds)))
     try:
@@ -3764,18 +7847,25 @@ async def run_candidate_assisted_verification(
             searcher=searcher,
             page_fetcher=page_fetcher,
             deadline=deadline,
-            mode=mode,
+            mode=mode or resolved_mode,
         )
     except (asyncio.TimeoutError, TimeoutError):
-        return build_candidate_verification_timeout_result(
-            agent1_result,
-            agent2_result,
-            original,
-            mode=mode,
+        result = _attach_candidate_verification_trace(
+            dict(original),
+            attempted=True,
+            reason="candidate_timeout",
+            candidate=candidate,
+            queries=queries,
+            used_for_vote=False,
+            lens_support_weak=True,
+            provider="serpapi_web",
+            skipped_reason="timeout",
+            mode="targeted_candidate_verification",
             timeout_seconds=timeout_seconds,
         )
+        return _attach_independence(result, itrace)
     except Exception as exc:
-        return _attach_candidate_verification_trace(
+        result = _attach_candidate_verification_trace(
             original,
             attempted=True,
             reason="candidate_provider_error",
@@ -3784,9 +7874,10 @@ async def run_candidate_assisted_verification(
             lens_support_weak=True,
             provider=provider,
             skipped_reason=exc.__class__.__name__,
-            mode=mode,
+            mode=mode or resolved_mode,
             timeout_seconds=timeout_seconds,
         )
+        return _attach_independence(result, itrace)
 
     _candidate_identity, candidate_trace, _candidate_errors = verify_lens_evidence_identity(
         candidate_evidence,
@@ -3795,7 +7886,7 @@ async def run_candidate_assisted_verification(
     combined_evidence = rank_lens_evidence(
         list(original.get("evidence") or []) + candidate_evidence,
         context="",
-    )[:5]
+    )[:10]
     candidate_payload = dict(original)
     candidate_payload["status"] = "Partial"
     candidate_payload["not_counted_in_consensus"] = True
@@ -3803,25 +7894,32 @@ async def run_candidate_assisted_verification(
     validated = validate_agent3_identity(candidate_payload, evidence=combined_evidence)
 
     validated_vote = normalize_agent_vote(validated)
-    candidate_vote_key = tuple(candidate.get("vote_key") or [])
+    val_country_key = _normalize_country_key(
+        validated_vote.get("country"),
+        validated_vote.get("currency_code"),
+    )
+    candidate_country_key = _normalize_country_key(
+        candidate.get("country"),
+        candidate.get("currency"),
+    )
+    country_matches = bool(
+        _is_unknown_identity(val_country_key)
+        or _is_unknown_identity(candidate_country_key)
+        or val_country_key == candidate_country_key
+    )
+    keys_match = bool(
+        country_matches
+        and str(validated_vote.get("currency_code") or "").upper() == str(candidate.get("currency") or "").upper()
+        and int(validated_vote.get("amount") or -1) == int(candidate.get("amount") or -2)
+    )
     used_for_vote = bool(
         str(validated.get("status") or "").casefold() == "completed"
         and not bool(validated.get("not_counted_in_consensus"))
-        and validated_vote.get("vote_key") == candidate_vote_key
+        and keys_match
     )
-    if str(validated.get("status") or "").casefold() == "completed" and not used_for_vote:
-        validated = dict(original)
-        validated["evidence"] = combined_evidence
 
-    if used_for_vote:
-        reason = (
-            "promoted_to_3_of_3"
-            if mode == "fast_race_to_3"
-            else "rescued_consensus"
-        )
-    else:
-        reason = "insufficient_external_support"
-    return _attach_candidate_verification_trace(
+    reason = "ag3_internal_evidence_corroborated" if used_for_vote else "insufficient_external_support"
+    result = _attach_candidate_verification_trace(
         validated,
         attempted=True,
         reason=reason,
@@ -3833,9 +7931,10 @@ async def run_candidate_assisted_verification(
         lens_support_weak=True,
         provider=provider,
         skipped_reason=None,
-        mode=mode,
+        mode=mode or resolved_mode,
         timeout_seconds=timeout_seconds,
     )
+    return _attach_independence(result, itrace)
 
 
 def build_candidate_verification_timeout_result(
@@ -3846,15 +7945,29 @@ def build_candidate_verification_timeout_result(
     mode: str,
     timeout_seconds: float,
 ) -> Dict[str, Any]:
-    """Preserve AG3 and attach deterministic trace when the outer race expires."""
-    candidate, _reason = build_agreed_vision_candidate(
-        agent1_result,
-        agent2_result,
-        allow_single_valid=mode == "rescue_consensus",
-    )
+    """PHASE 5 INDEPENDENCE: Preserve AG3 result unchanged on timeout.
+
+    agent1_result and agent2_result are accepted for backward compatibility
+    but their content is NOT read, NOT used to build any candidate, and NOT
+    used to modify the AG3 result in any way.
+    """
+    # PHASE 5: Ignore external agent results.
+    _ = agent1_result  # deprecated/ignored
+    _ = agent2_result  # deprecated/ignored
+    # Derive candidate from AG3 evidence only
+    ag3_evidence = list((agent3_result or {}).get("evidence") or [])
+    candidate, _reason, _ids = build_ag3_internal_candidate(ag3_evidence)
     queries = build_candidate_verification_queries(candidate or {})
-    reason = "fast_timeout" if mode == "fast_race_to_3" else "rescue_timeout"
-    return _attach_candidate_verification_trace(
+    reason = "candidate_timeout"
+
+    try:
+        ts = float(timeout_seconds)
+        if ts <= 0:
+            ts = 15.0
+    except (ValueError, TypeError):
+        ts = 15.0
+
+    result = _attach_candidate_verification_trace(
         dict(agent3_result or {}),
         attempted=True,
         reason=reason,
@@ -3864,9 +7977,24 @@ def build_candidate_verification_timeout_result(
         lens_support_weak=True,
         provider="serpapi_web",
         skipped_reason=reason,
-        mode=mode,
-        timeout_seconds=timeout_seconds,
+        mode="targeted_candidate_verification",
+        timeout_seconds=ts,
     )
+    result["independence_trace"] = {
+        "external_agent_inputs_received": True,
+        "external_agent_inputs_used": False,
+        "ag1_result_received": agent1_result is not None,
+        "ag1_result_used": False,
+        "ag2_result_received": agent2_result is not None,
+        "ag2_result_used": False,
+        "consensus_result_received": False,
+        "consensus_result_used": False,
+        "candidate_basis": _reason,
+        "candidate_evidence_ids": _ids,
+        "deterministic_verifier_final": True,
+        "independence_verified": True,
+    }
+    return result
 
 
 class Agent3Lens(BaseAgent):
@@ -3878,6 +8006,7 @@ class Agent3Lens(BaseAgent):
         image_bytes: bytes,
         timeout_seconds: float = 10.0,
     ) -> Optional[str]:
+        return self._upload_to_imgbb_once(image_bytes, timeout_seconds)
         try:
             if not settings.IMGBB_API_KEY:
                 print(f"[{self.agent_name}] Thiếu IMGBB_API_KEY")
@@ -3900,13 +8029,153 @@ class Agent3Lens(BaseAgent):
             print(f"[{self.agent_name}] Lỗi ImgBB Network: {e}")
             return None
 
+    def _upload_to_imgbb_once(
+        self,
+        image_bytes: bytes,
+        timeout_seconds: float,
+    ) -> str:
+        if not settings.IMGBB_API_KEY:
+            raise ImgBBUploadError(
+                "ImgBB API key is not configured.",
+                root_error_type="provider_config_missing",
+                retryable=False,
+            )
+
+        try:
+            response = requests.post(
+                "https://api.imgbb.com/1/upload",
+                data={"key": settings.IMGBB_API_KEY},
+                files={"image": image_bytes},
+                timeout=max(0.1, float(timeout_seconds)),
+            )
+        except Exception as exc:
+            if _is_timeout_exception(exc):
+                raise ImgBBUploadError(
+                    "ImgBB upload timed out.",
+                    root_error_type="upload_timeout",
+                    retryable=True,
+                ) from exc
+            if _is_transient_network_exception(exc):
+                raise ImgBBUploadError(
+                    "ImgBB upload failed with a transient network error.",
+                    root_error_type="network_error",
+                    retryable=True,
+                ) from exc
+            raise ImgBBUploadError(
+                "ImgBB upload failed before a usable response.",
+                root_error_type="upload_failed",
+                retryable=False,
+            ) from exc
+
+        status_code = getattr(response, "status_code", None)
+        if isinstance(status_code, int) and status_code >= 400:
+            if status_code in {400, 401, 403}:
+                root_error_type = "provider_auth_or_request_error"
+                retryable = False
+            elif status_code in {408, 429} or status_code >= 500:
+                root_error_type = "network_error"
+                retryable = True
+            else:
+                root_error_type = "upload_failed"
+                retryable = False
+            raise ImgBBUploadError(
+                f"ImgBB upload failed with HTTP {status_code}.",
+                root_error_type=root_error_type,
+                retryable=retryable,
+                status_code=status_code,
+            )
+
+        try:
+            data = response.json()
+        except Exception as exc:
+            raise ImgBBUploadError(
+                "ImgBB upload returned invalid JSON.",
+                root_error_type="provider_bad_response",
+                retryable=False,
+                status_code=status_code,
+            ) from exc
+
+        raw_data_field = data.get("data") if isinstance(data, dict) else None
+        image_url = raw_data_field.get("url") if isinstance(raw_data_field, dict) else None
+        if _is_valid_public_image_url(image_url):
+            return str(image_url).strip()
+
+        raise ImgBBUploadError(
+            "ImgBB upload did not return a public image URL.",
+            root_error_type="provider_bad_response",
+            retryable=False,
+            status_code=status_code,
+        )
+
+    async def _upload_to_imgbb_with_retry(
+        self,
+        image_bytes: bytes,
+        deadline: float,
+    ) -> Tuple[str, Dict[str, Any]]:
+        attempts = 0
+        retry_attempted = False
+        last_error: Optional[ImgBBUploadError] = None
+
+        for attempt_index in range(2):
+            attempts += 1
+            try:
+                upload_timeout = _upload_attempt_timeout(deadline)
+                image_url = await asyncio.to_thread(
+                    self.upload_to_imgbb,
+                    image_bytes,
+                    upload_timeout,
+                )
+                return image_url, {
+                    "attempts": attempts,
+                    "retry_attempted": retry_attempted,
+                    "timeout_seconds_last_attempt": round(upload_timeout, 3),
+                    "image_url_source": "imgbb_upload",
+                }
+            except ImgBBUploadError as exc:
+                last_error = exc
+                exc.retry_attempted = retry_attempted
+                if not exc.retryable or attempt_index >= 1:
+                    raise exc
+                remaining_after_reserve = _remaining_budget(deadline) - AG3_POST_UPLOAD_MIN_BUDGET_SECONDS
+                if remaining_after_reserve < AG3_UPLOAD_MIN_ATTEMPT_SECONDS:
+                    raise exc
+                retry_attempted = True
+                exc.retry_attempted = True
+                sleep_seconds = min(
+                    AG3_UPLOAD_RETRY_SLEEP_SECONDS,
+                    max(0.0, remaining_after_reserve - AG3_UPLOAD_MIN_ATTEMPT_SECONDS),
+                )
+                if sleep_seconds > 0:
+                    await asyncio.sleep(sleep_seconds)
+            except TimeoutError as exc:
+                last_error = ImgBBUploadError(
+                    "Agent 3 upload deadline exhausted before retrieval budget.",
+                    root_error_type="upload_deadline_exhausted",
+                    retryable=False,
+                    retry_attempted=retry_attempted,
+                )
+                raise last_error from exc
+
+        if last_error is not None:
+            last_error.retry_attempted = retry_attempted
+            raise last_error
+        raise ImgBBUploadError(
+            "ImgBB upload failed.",
+            root_error_type="upload_failed",
+            retryable=False,
+            retry_attempted=retry_attempted,
+        )
+
     def _call_serpapi_google_lens(
         self,
         image_url: str,
         timeout_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         if not settings.SERPAPI_KEY:
-            raise RuntimeError("Thiếu SERPAPI_KEY trong settings.")
+            raise SerpApiProviderError(
+                "SerpAPI key is not configured.",
+                error_type="provider_auth_error",
+            )
 
         params = {
             "engine": "google_lens",
@@ -3933,8 +8202,19 @@ class Agent3Lens(BaseAgent):
 
         try:
             data = response.json()
-        except Exception:
-            raise RuntimeError(f"SerpApi không trả JSON hợp lệ: {response.text[:500]}")
+        except Exception as exc:
+            raise SerpApiProviderError(
+                "SerpAPI returned a malformed JSON response.",
+                error_type="provider_malformed_response",
+                status_code=getattr(response, "status_code", None),
+            ) from exc
+
+        if not isinstance(data, dict):
+            raise SerpApiProviderError(
+                "SerpAPI returned a non-object JSON response.",
+                error_type="provider_malformed_response",
+                status_code=getattr(response, "status_code", None),
+            )
 
         if response.status_code != 200:
             provider_message = str(data.get("error") or data)
@@ -3958,6 +8238,11 @@ class Agent3Lens(BaseAgent):
         return data
 
     def _compact_serpapi_result(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(data, dict):
+            raise SerpApiProviderError(
+                "SerpAPI returned an empty or non-dict response during normalization.",
+                error_type="provider_malformed_response",
+            )
         compact = {
             "knowledge_graph": None,
             "text_results": [],
@@ -4056,7 +8341,9 @@ class Agent3Lens(BaseAgent):
                 "dac_diem_chinh": [],
                 "status": "Partial",
                 "provider": "serpapi",
-                "error_type": "no_source",
+                "error_type": "provider_no_result",
+                "search_performed": True,
+                "raw_lens_result_count": 0,
                 "raw_text": raw_lens_text,
             }
             if evidence is not None:
@@ -4064,14 +8351,19 @@ class Agent3Lens(BaseAgent):
             validated = validate_agent3_identity(fallback_data, evidence=evidence or [])
             return json.dumps([validated], ensure_ascii=False)
 
+        import sys, traceback
+        sys.stderr.write(f"\n[BUILD_VIS_ERR] error={type(error)}: {error}\n")
+        if error:
+            traceback.print_exception(type(error), error, error.__traceback__)
         provider_error_type = _classify_serpapi_error(error)
         provider_message = (
             "SerpAPI quota or rate limit was exhausted; Agent 3 could not "
             "retrieve Lens evidence."
-            if provider_error_type == "rate_limit"
+            if provider_error_type in {"rate_limit", "provider_rate_limited"}
             else (
                 f"{self.agent_name} provider error: "
-                f"{error.__class__.__name__ if error else 'unknown_error'}."
+                f"{error.__class__.__name__ if error else 'unknown_error'}: "
+                f"{str(error).replace(str(getattr(settings, 'SERPAPI_KEY', 'XXX')), '***') if error else 'no_details'}."
             )
         )
         failed_data = {
@@ -4091,6 +8383,7 @@ class Agent3Lens(BaseAgent):
             "provider": "serpapi",
             "error_type": "technical_error",
             "technical_error": True,
+            "search_performed": False,
         }
         failed_data.update(
             {
@@ -4221,6 +8514,7 @@ Quy tắc:
         context: str = "",
         debug_log: Optional[Dict] = None,
         deadline: Optional[float] = None,
+        public_crop_url: Optional[str] = None,
     ) -> str:
         run_started_at = time.monotonic()
         deadline = _ensure_deadline(deadline)
@@ -4228,25 +8522,98 @@ Quy tắc:
         current_stage = "preflight"
         evidence_snapshot: List[Dict[str, Any]] = []
         raw_lens_data = ""
-        if not settings.IMGBB_API_KEY:
+        det_result: Optional[Dict[str, Any]] = None
+        if not _is_valid_public_image_url(public_crop_url) and not settings.IMGBB_API_KEY:
+            return _technical_failure_result_json(
+                timeout_stage="upload",
+                provider_stage="upload",
+                root_error_type="provider_config_missing",
+                message="ImgBB API key is not configured and no valid public crop URL was provided.",
+                deadline=deadline,
+                run_started_at=run_started_at,
+                stage_trace=stage_trace,
+                debug_log=debug_log,
+                evidence=[],
+                raw_lens_text="",
+                retry_attempted=False,
+                search_performed=False,
+            )
+        if not settings.IMGBB_API_KEY and not _is_valid_public_image_url(public_crop_url):
             return self.build_visual_search_result(error=Exception("Thiếu IMGBB_API_KEY"))
 
         if not settings.SERPAPI_KEY:
             return self.build_visual_search_result(error=Exception("Thiếu SERPAPI_KEY"))
 
         try:
-            print(f"[{self.agent_name}] Upload ảnh lên ImgBB...")
+            print(f"[{self.agent_name}] Uploading image to ImgBB...")
             current_stage = "upload"
             upload_started = time.monotonic()
-            upload_timeout = _stage_timeout(deadline, 10.0)
-            image_url = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self.upload_to_imgbb,
-                    image_bytes,
-                    upload_timeout,
-                ),
-                timeout=upload_timeout,
-            )
+            image_url = ""
+            upload_meta: Dict[str, Any] = {
+                "image_url_source": "imgbb_upload",
+                "retry_attempted": False,
+            }
+            if _is_valid_public_image_url(public_crop_url):
+                image_url = str(public_crop_url).strip()
+                upload_meta.update(
+                    {
+                        "image_url_source": "public_crop_url",
+                        "upload_skipped": True,
+                        "attempts": 0,
+                    }
+                )
+            else:
+                try:
+                    image_url, upload_meta = await self._upload_to_imgbb_with_retry(
+                        image_bytes,
+                        deadline,
+                    )
+                except ImgBBUploadError as exc:
+                    _record_stage_trace(
+                        stage_trace,
+                        debug_log,
+                        stage="upload",
+                        started_at=upload_started,
+                        deadline=deadline,
+                        status="timeout" if exc.root_error_type == "upload_timeout" else "failed",
+                    )
+                    return _technical_failure_result_json(
+                        timeout_stage="upload",
+                        provider_stage="upload",
+                        root_error_type=exc.root_error_type,
+                        message=str(exc),
+                        deadline=deadline,
+                        run_started_at=run_started_at,
+                        stage_trace=stage_trace,
+                        debug_log=debug_log,
+                        evidence=[],
+                        raw_lens_text="",
+                        retry_attempted=bool(exc.retry_attempted),
+                        search_performed=False,
+                    )
+                except TimeoutError as exc:
+                    _record_stage_trace(
+                        stage_trace,
+                        debug_log,
+                        stage="upload",
+                        started_at=upload_started,
+                        deadline=deadline,
+                        status="timeout",
+                    )
+                    return _technical_failure_result_json(
+                        timeout_stage="upload",
+                        provider_stage="upload",
+                        root_error_type="upload_deadline_exhausted",
+                        message=str(exc),
+                        deadline=deadline,
+                        run_started_at=run_started_at,
+                        stage_trace=stage_trace,
+                        debug_log=debug_log,
+                        evidence=[],
+                        raw_lens_text="",
+                        retry_attempted=bool(upload_meta.get("retry_attempted")),
+                        search_performed=False,
+                    )
             upload_ms = int((time.monotonic() - upload_started) * 1000)
             print(f"[Agent3Timing] upload_ms={upload_ms}")
             _record_stage_trace(
@@ -4255,12 +8622,23 @@ Quy tắc:
                 stage="upload",
                 started_at=upload_started,
                 deadline=deadline,
+                status=(
+                    "skipped_public_crop_url"
+                    if upload_meta.get("image_url_source") == "public_crop_url"
+                    else "completed"
+                ),
             )
+            if debug_log is not None:
+                debug_log["upload_trace"] = {
+                    **upload_meta,
+                    "elapsed_ms": upload_ms,
+                    "remaining_ms": int(_remaining_budget(deadline) * 1000),
+                }
 
             if not image_url:
                 return self.build_visual_search_result(error=Exception("Upload ImgBB thất bại, không có image_url."))
 
-            print(f"[{self.agent_name}] Gọi SerpApi Google Lens...")
+            print(f"[{self.agent_name}] Calling SerpApi Google Lens...")
             current_stage = "serpapi"
             serpapi_started = time.monotonic()
             serpapi_data = None
@@ -4285,7 +8663,14 @@ Quy tắc:
                     break
                 except Exception as exc:
                     serpapi_last_error = exc
-                    if _classify_serpapi_error(exc) == "rate_limit":
+                    provider_error_type = _classify_serpapi_error(exc)
+                    if provider_error_type in {
+                        "rate_limit",
+                        "provider_rate_limited",
+                        "provider_auth_error",
+                        "provider_bad_request",
+                        "provider_malformed_response",
+                    }:
                         raise
                     if serpapi_attempt + 1 >= serpapi_attempts:
                         raise
@@ -4302,6 +8687,11 @@ Quy tắc:
                 deadline=deadline,
             )
             compact_data = self._compact_serpapi_result(serpapi_data)
+            if not isinstance(compact_data, dict):
+                raise SerpApiProviderError(
+                    "Normalized compact_data is invalid.",
+                    error_type="provider_malformed_response",
+                )
 
             if not self._has_useful_lens_data(compact_data):
                 return self.build_visual_search_result(
@@ -4355,7 +8745,8 @@ Quy tắc:
                     "url": item.get("link", ""),
                     "source": item.get("source", ""),
                 })
-            evidence_snapshot = raw_evidence[:5]
+            RAW_LENS_RESULT_LIMIT = INITIAL_LENS_RESULT_LIMIT
+            evidence_snapshot = raw_evidence[:RAW_LENS_RESULT_LIMIT]
 
             # Validate links asynchronously
             from app.utils.link_validator import filter_alive_links
@@ -4414,7 +8805,7 @@ Quy tắc:
             current_stage = "rank_evidence"
             rank_started = time.monotonic()
             pre_ranked_evidence = rank_lens_evidence(alive_evidence, context=context)
-            evidence_snapshot = pre_ranked_evidence[:5]
+            evidence_snapshot = pre_ranked_evidence[:RAW_LENS_RESULT_LIMIT]
             _record_stage_trace(
                 stage_trace,
                 debug_log,
@@ -4428,7 +8819,7 @@ Quy tắc:
                     timeout_stage="before_page_text",
                     deadline=deadline,
                     run_started_at=run_started_at,
-                    evidence=pre_ranked_evidence[:5],
+                    evidence=pre_ranked_evidence[:RAW_LENS_RESULT_LIMIT],
                     stage_trace=stage_trace,
                     debug_log=debug_log,
                 )
@@ -4439,9 +8830,9 @@ Quy tắc:
             try:
                 if page_text_budget_low:
                     enriched_top = await enrich_lens_evidence_with_page_text(
-                        pre_ranked_evidence[:5],
+                        pre_ranked_evidence[:RAW_LENS_RESULT_LIMIT],
                         deadline=deadline,
-                        max_urls=PAGE_TEXT_MAX_URLS,
+                        max_urls=None,
                         timeout_seconds=PAGE_TEXT_TIMEOUT_SECONDS,
                     )
                 else:
@@ -4452,15 +8843,15 @@ Quy tắc:
                     )
                     enriched_top = await asyncio.wait_for(
                         enrich_lens_evidence_with_page_text(
-                            pre_ranked_evidence[:5],
+                            pre_ranked_evidence[:RAW_LENS_RESULT_LIMIT],
                             deadline=deadline,
-                            max_urls=PAGE_TEXT_MAX_URLS,
+                            max_urls=None,
                             timeout_seconds=PAGE_TEXT_TIMEOUT_SECONDS,
                         ),
                         timeout=page_text_timeout,
                     )
                 ranked_evidence = rank_lens_evidence(
-                    enriched_top + pre_ranked_evidence[5:],
+                    enriched_top + pre_ranked_evidence[RAW_LENS_RESULT_LIMIT:],
                     context=context,
                 )
             except (asyncio.TimeoutError, TimeoutError):
@@ -4476,7 +8867,7 @@ Quy tắc:
                     timeout_stage="page_text",
                     deadline=deadline,
                     run_started_at=run_started_at,
-                    evidence=pre_ranked_evidence[:5],
+                    evidence=pre_ranked_evidence[:RAW_LENS_RESULT_LIMIT],
                     stage_trace=stage_trace,
                     debug_log=debug_log,
                 )
@@ -4495,7 +8886,7 @@ Quy tắc:
                     else "completed"
                 ),
             )
-            top_evidence = ranked_evidence[:5]
+            top_evidence = ranked_evidence[:RAW_LENS_RESULT_LIMIT]
             evidence_snapshot = top_evidence
 
             # ----------------------------------------------------------------
@@ -4506,148 +8897,180 @@ Quy tắc:
             # ----------------------------------------------------------------
             groq_reader_enabled = bool(
                 getattr(settings, "AGENT3_GROQ_EVIDENCE_READER_ENABLED", False)
-            )
+            ) or getattr(self, "groq_reader_enabled", False)
             groq_reader_mode = str(
                 getattr(settings, "AGENT3_GROQ_EVIDENCE_READER_MODE", "when_weak") or "when_weak"
             ).strip().lower()
 
-            # Run deterministic parser first to know if we need Groq
-            det_result = parse_lens_evidence_without_llm(
-                top_evidence,
-                raw_lens_text="",
+            # Targeted Evidence Enrichment Logic
+            # First pass purely on Lens evidence
+            det_result = parse_lens_evidence_without_llm(top_evidence, raw_lens_text="")
+            det_promotion_trace = det_result.get("promotion_trace") or {}
+            selected_identity = (
+                det_promotion_trace.get("selected_identity")
+                or det_promotion_trace.get("candidate_identity")
+                or {}
             )
+            if not selected_identity.get("country") or not selected_identity.get("amount"):
+                clusters = det_promotion_trace.get("candidate_clusters") or []
+                for c in clusters:
+                    if c.get("independent_domain_count", 0) >= 2:
+                        selected_identity = c
+                        break
+
+            exact_independent_count = int(
+                selected_identity.get("independent_domain_count")
+                or det_promotion_trace.get("independent_source_count")
+                or 0
+            )
+
+            targeted_result_count = 0
+            targeted_search_performed = False
+            targeted_search_skip_reason = ""
+
+            if exact_independent_count < 2:
+                targeted_search_skip_reason = "insufficient_exact_domains"
+            elif exact_independent_count >= 5:
+                targeted_search_skip_reason = "sufficient_exact_domains"
+            else:
+                det_country = str(selected_identity.get("country") or det_result.get("quoc_gia") or "")
+                det_currency = str(selected_identity.get("currency") or det_result.get("ma_tien_te") or "")
+                raw_amt = selected_identity.get("amount")
+                det_amount = int(raw_amt) if isinstance(raw_amt, (int, float)) and raw_amt > 0 else _parse_amount_token(str(raw_amt or det_result.get("menh_gia") or ""))
+
+                if not (det_country and det_currency and det_amount):
+                    targeted_search_skip_reason = "missing_identity_fields"
+                else:
+                    targeted_search_performed = True
+                    query = f"{det_country} {det_amount} {det_currency} banknote"
+                    print(f"[{self.agent_name}] Running targeted enrichment query")
+                    search_timeout = _stage_timeout(deadline, 5.0, reserve_seconds=1.0)
+                    targeted_sources = await _run_targeted_text_search(query, search_timeout)
+                    targeted_result_count = len(targeted_sources)
+                    if targeted_sources:
+                        # Append and re-rank
+                        merged_evidence = top_evidence + targeted_sources
+                        # Dedupe by canonical url and domain happens natively in parse_lens_evidence_without_llm
+                        # But we should re-rank them so good targeted sources bubble up
+                        from app.services.evidence_ranker_service import rank_lens_evidence
+                        merged_ranked = rank_lens_evidence(merged_evidence, context=context)
+                        # We allow up to 15 items in the combined list before second pass
+                        top_evidence = merged_ranked[:15]
+                        evidence_snapshot = top_evidence
+
+                        # Second idempotent pass
+                        det_result = parse_lens_evidence_without_llm(top_evidence, raw_lens_text="")
+                        det_promotion_trace = det_result.get("promotion_trace") or {}
+
+            # Record counts for diagnostics
+            det_result["lens_result_count"] = len([e for e in top_evidence if e.get("evidence_origin", "lens_visual_match") == "lens_visual_match"])
+            det_result["targeted_search_performed"] = targeted_search_performed
+            det_result["targeted_search_result_count"] = targeted_result_count
+            det_result["targeted_search_skip_reason"] = targeted_search_skip_reason
+
+            from urllib.parse import urlparse
+            unique_domains = set()
+            for e in top_evidence:
+                domain = e.get("canonical_domain")
+                if not domain or str(domain).lower() in ("unknown", "none", ""):
+                    url = str(e.get("url") or e.get("link") or "")
+                    if url:
+                        try:
+                            domain = urlparse(url).hostname
+                        except Exception:
+                            pass
+                if domain:
+                    unique_domains.add(str(domain).lower())
+
+            det_result["merged_raw_unique_domain_count"] = len(unique_domains)
+            det_result["exact_eligible_source_count"] = det_promotion_trace.get("support_count", 0)
+
             det_promoted = str(det_result.get("status") or "").lower() == "completed" and not bool(
                 det_result.get("not_counted_in_consensus")
             )
             det_promotion_trace = det_result.get("promotion_trace") or {}
             det_exact_count = int(det_promotion_trace.get("exact_amount_support_count") or 0)
             det_support_count = int(det_promotion_trace.get("support_count") or 0)
-            det_has_conflict = bool(
-                det_promotion_trace.get("conflicting_denominations")
-                or not det_promotion_trace.get("checks", {}).get("conflict_check_passed", True)
-            )
-
             groq_reader_result = None
-            reconciliation = None
+            groq_extractions = {}
+            partial_sources = []
 
             if groq_reader_enabled and GROQ_EVIDENCE_READER_AVAILABLE:
-                reader_call, reader_skip_reason = should_call_groq_evidence_reader(
-                    mode=groq_reader_mode,
-                    deterministic_promoted=det_promoted,
-                    deterministic_support_count=det_support_count,
-                    deterministic_exact_count=det_exact_count,
-                    has_conflict=det_has_conflict,
-                    evidence_count=len(top_evidence),
-                )
+                partial_sources = [
+                    e for e in det_result.get("evidence", [])
+                    if e.get("selected_for_ag3_internal_vote") is True
+                    and str(e.get("evidence_disposition") or "").lower() == "partial"
+                ]
+
+                reader_call = (not det_promoted) and len(partial_sources) > 0
+
                 if reader_call and _remaining_budget(deadline) >= 3.0:
                     reader_timeout = min(
                         float(getattr(settings, "AGENT3_GROQ_EVIDENCE_READER_TIMEOUT_SECONDS", 5.0) or 5.0),
                         max(1.0, _remaining_budget(deadline) - 2.0),
                     )
-                    # Build candidate_identity from deterministic result for Groq context
+
                     det_candidate = None
-                    if det_promoted:
-                        selected = det_promotion_trace.get("selected_identity")
-                        if selected:
-                            det_candidate = {
-                                "country": str(selected.get("country") or ""),
-                                "currency_code": str(selected.get("currency") or ""),
-                                "denomination": str(selected.get("amount") or ""),
-                            }
+                    selected = det_promotion_trace.get("winning_identity") or det_promotion_trace.get("locked_identity_before_formatter")
+                    if not selected:
+                        clusters = det_promotion_trace.get("candidate_clusters") or []
+                        if clusters:
+                            selected = clusters[0]
+                    if selected:
+                        det_candidate = {
+                            "country": str(selected.get("country") or ""),
+                            "currency_code": str(selected.get("currency") or ""),
+                            "denomination": str(selected.get("amount") or ""),
+                        }
+
                     try:
                         groq_reader_result = await asyncio.wait_for(
                             read_evidence_with_groq(
-                                top_evidence,
+                                partial_sources,
                                 candidate_identity=det_candidate,
                                 timeout_seconds=reader_timeout,
-                                top_n=int(getattr(settings, "AGENT3_GROQ_EVIDENCE_READER_TOP_N", 5) or 5),
+                                top_n=len(partial_sources),
                             ),
                             timeout=reader_timeout + 0.5,
                         )
                     except (asyncio.TimeoutError, Exception) as reader_exc:
-                        groq_reader_result = {
-                            "groq_evidence_reader_used": False,
-                            "groq_called": True,
-                            "groq_skipped_reason": f"reader_exception:{type(reader_exc).__name__}",
-                            "groq_error_type": "timeout" if isinstance(reader_exc, asyncio.TimeoutError) else "exception",
-                            "status": "skipped",
-                            "proposed_identity": None,
-                            "evidence_classification": [],
-                            "support_count": 0,
-                            "conflict_count": 0,
-                            "context_only_count": 0,
-                            "noise_count": 0,
-                            "independent_supporting_domains": [],
-                            "final_reason": f"groq_reader_exception:{type(reader_exc).__name__}",
-                        }
+                        groq_reader_result = None
+                        if debug_log is not None:
+                            debug_log["groq_error"] = f"{type(reader_exc).__name__}"
 
-                    # Reconcile deterministic vs Groq
-                    reconciliation = reconcile_ag3_evidence(
-                        det_result.get("promotion_trace", {}).get("selected_identity"),
-                        groq_reader_result,
-                        top_evidence,
-                    )
-                    # Attach reconciliation to debug_log
-                    if debug_log is not None:
-                        debug_log["groq_evidence_reader"] = {
-                            "enabled": groq_reader_enabled,
-                            "mode": groq_reader_mode,
-                            "called": reader_call,
-                            "groq_evidence_reader_used": (groq_reader_result or {}).get("groq_evidence_reader_used"),
-                            "groq_called": (groq_reader_result or {}).get("groq_called"),
-                            "groq_skipped_reason": (groq_reader_result or {}).get("groq_skipped_reason"),
-                            "groq_error_type": (groq_reader_result or {}).get("groq_error_type"),
-                            "groq_status": (groq_reader_result or {}).get("status"),
-                            "support_count": (groq_reader_result or {}).get("support_count", 0),
-                            "conflict_count": (groq_reader_result or {}).get("conflict_count", 0),
-                            "context_only_count": (groq_reader_result or {}).get("context_only_count", 0),
-                            "noise_count": (groq_reader_result or {}).get("noise_count", 0),
-                            "independent_supporting_domains": (groq_reader_result or {}).get("independent_supporting_domains", []),
-                            "proposed_identity": (groq_reader_result or {}).get("proposed_identity"),
-                            "final_reason": (groq_reader_result or {}).get("final_reason"),
-                            "reconciliation_agreement_level": (reconciliation or {}).get("agreement_level"),
-                            "reconciliation_reason": (reconciliation or {}).get("reason"),
-                            "reconciliation_eligible": (reconciliation or {}).get("eligible_for_validation"),
-                        }
-                else:
-                    if debug_log is not None:
-                        debug_log["groq_evidence_reader"] = {
-                            "enabled": groq_reader_enabled,
-                            "mode": groq_reader_mode,
-                            "called": False,
-                            "groq_evidence_reader_used": False,
-                            "groq_called": False,
-                            "groq_skipped_reason": reader_skip_reason,
-                        }
-            else:
-                if debug_log is not None:
-                    debug_log["groq_evidence_reader"] = {
-                        "enabled": groq_reader_enabled,
-                        "mode": groq_reader_mode,
-                        "called": False,
-                        "groq_evidence_reader_used": False,
-                        "groq_called": False,
-                        "groq_skipped_reason": "evidence_reader_disabled" if not groq_reader_enabled else "groq_package_missing",
-                    }
+                    if groq_reader_result and groq_reader_result.get("evidence_classification"):
+                        candidate_for_groq = det_candidate if isinstance(det_candidate, dict) else {}
+                        for clf in groq_reader_result["evidence_classification"]:
+                            r = clf.get("rank")
+                            matched_item = next((e for e in partial_sources if e.get("rank") == r or e.get("raw_rank") == r), None)
+                            if matched_item:
+                                d = str(matched_item.get("canonical_domain") or matched_item.get("domain") or "").strip().lower()
+                                if d:
+                                    status_clf = clf.get("classification")
+                                    groq_extractions[d] = {
+                                        "banknote_relevant": status_clf in ("support", "conflict"),
+                                        "country": candidate_for_groq.get("country") if clf.get("supports_country") else None,
+                                        "currency": candidate_for_groq.get("currency_code") if clf.get("supports_currency") else None,
+                                        "denomination": candidate_for_groq.get("denomination") if clf.get("supports_denomination") else clf.get("conflicting_denomination")
+                                    }
 
-            # If reconciliation says conflict → return deterministic Partial immediately
-            if reconciliation and not reconciliation.get("eligible_for_validation"):
-                det_result_with_reconcile = dict(det_result)
-                det_result_with_reconcile["not_counted_in_consensus"] = True
-                det_result_with_reconcile["status"] = "Partial"
-                recon_reason = reconciliation.get("reason") or "reconciliation_conflict"
-                det_result_with_reconcile["reconciliation_reason"] = recon_reason
-                det_result_with_reconcile["reconciliation_agreement_level"] = reconciliation.get("agreement_level")
-                det_result_with_reconcile["groq_evidence_reader_used"] = bool(
-                    groq_reader_result and groq_reader_result.get("groq_evidence_reader_used")
-                )
-                det_result_with_reconcile["groq_called"] = bool(
-                    groq_reader_result and groq_reader_result.get("groq_called")
-                )
-                det_result_with_reconcile["groq_skipped_reason"] = (
-                    groq_reader_result or {}
-                ).get("groq_skipped_reason")
-                return json.dumps([det_result_with_reconcile], ensure_ascii=False)
+                        if groq_extractions:
+                            det_result = parse_lens_evidence_without_llm(
+                                top_evidence,
+                                raw_lens_text="",
+                                groq_extractions=groq_extractions
+                            )
+                            det_promoted = str(det_result.get("status") or "").lower() == "completed" and not bool(det_result.get("not_counted_in_consensus"))
+                            det_promotion_trace = det_result.get("promotion_trace") or {}
+
+            if debug_log is not None:
+                debug_log["groq_evidence_reader"] = {
+                    "enabled": groq_reader_enabled,
+                    "called": len(groq_extractions) > 0,
+                    "evidence_count_sent": len(partial_sources) if groq_extractions else 0,
+                    "groq_extractions": groq_extractions,
+                }
+
 
             formatter_evidence = [
                 {
@@ -4662,12 +9085,19 @@ Quy tắc:
                     "page_text_excerpt_chars": item.get("page_text_excerpt_chars", 0),
                     "page_text_identity_terms": item.get("page_text_identity_terms", []),
                 }
-                for item in top_evidence[:5]
+                for item in top_evidence[:10]
             ]
             raw_lens_data = json.dumps(formatter_evidence, ensure_ascii=False)
-            print(f"[{self.agent_name}] Đã có dữ liệu Lens, đang format bằng LLM...")
+            print(f"[{self.agent_name}] Got Lens data, formatting with LLM...")
 
             if _remaining_budget(deadline) < FORMATTER_MIN_BUDGET_SECONDS:
+                if _has_authoritative_det_vote(det_result):
+                    return _det_result_as_final_json(
+                        det_result,
+                        timeout_stage="before_formatter",
+                        stage_trace=stage_trace,
+                        debug_log=debug_log,
+                    )
                 return _deadline_result_json(
                     timeout_stage="before_formatter",
                     deadline=deadline,
@@ -4693,6 +9123,7 @@ Quy tắc:
                     deterministic_parser=parse_lens_evidence_without_llm,
                     validator=validate_agent3_identity,
                     parse_formatted_result=self.parse_formatted_result,
+                    groq_extractions=groq_extractions,
                 )
                 _record_stage_trace(
                     stage_trace,
@@ -4785,6 +9216,13 @@ Quy tắc:
                 last_error and "timeout" in str(last_error).casefold()
             )
             if formatter_timed_out or _remaining_budget(deadline) <= 0:
+                if _has_authoritative_det_vote(det_result):
+                    return _det_result_as_final_json(
+                        det_result,
+                        timeout_stage="formatter",
+                        stage_trace=stage_trace,
+                        debug_log=debug_log,
+                    )
                 return _deadline_result_json(
                     timeout_stage="formatter",
                     deadline=deadline,
@@ -4815,6 +9253,13 @@ Quy tắc:
                 deadline=deadline,
                 status="timeout",
             )
+            if _has_authoritative_det_vote(det_result):
+                return _det_result_as_final_json(
+                    det_result,
+                    timeout_stage=current_stage,
+                    stage_trace=stage_trace,
+                    debug_log=debug_log,
+                )
             return _deadline_result_json(
                 timeout_stage=current_stage,
                 deadline=deadline,
@@ -4825,7 +9270,10 @@ Quy tắc:
                 debug_log=debug_log,
             )
         except Exception as e:
-            print(f"[{self.agent_name}] Lỗi tổng: {e}")
+            import sys, traceback
+            sys.stderr.write(f"\n[RUN_EXC] {type(e).__name__}: {e}\n")
+            traceback.print_exc()
+            print(f"[{self.agent_name}] Error: {e}")
             return self.build_visual_search_result(error=e)
 
 
@@ -4834,6 +9282,7 @@ async def run_agent3_lens(
     context: str = "",
     debug_log: Optional[Dict] = None,
     deadline: Optional[float] = None,
+    public_crop_url: Optional[str] = None,
 ) -> str:
     agent = Agent3Lens()
     return await agent.run(
@@ -4841,4 +9290,5 @@ async def run_agent3_lens(
         context,
         debug_log=debug_log,
         deadline=deadline,
+        public_crop_url=public_crop_url,
     )

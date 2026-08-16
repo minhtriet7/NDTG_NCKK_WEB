@@ -107,7 +107,7 @@ def compact_top_evidence(evidence: List[Dict[str, Any]]) -> List[Dict[str, str]]
     return compact
 
 
-def build_messages(compact_evidence: List[Dict[str, str]]) -> List[Dict[str, str]]:
+def build_messages(compact_evidence: List[Dict[str, str]], locked_identity: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
     schema = {
         "quoc_gia": "Tên quốc gia hoặc Không xác định",
         "ma_tien_te": "Mã tiền tệ hoặc Không xác định",
@@ -136,6 +136,23 @@ def build_messages(compact_evidence: List[Dict[str, str]]) -> List[Dict[str, str
         "mới quyết định kết quả có được tính phiếu hay không. Schema bắt buộc: "
         + json.dumps(schema, ensure_ascii=False)
     )
+
+    if locked_identity:
+        locked_c = locked_identity.get("quoc_gia") or locked_identity.get("country")
+        locked_curr = locked_identity.get("ma_tien_te") or locked_identity.get("currency")
+        locked_denom = locked_identity.get("menh_gia") or locked_identity.get("denomination")
+
+        lock_instructions = []
+        if locked_c and str(locked_c).casefold() not in {"không xác định", "unknown", "error", "null", "none"}:
+            lock_instructions.append(f"quoc_gia BẮT BUỘC LÀ '{locked_c}'")
+        if locked_curr and str(locked_curr).casefold() not in {"không xác định", "unknown", "error", "null", "none"}:
+            lock_instructions.append(f"ma_tien_te BẮT BUỘC LÀ '{locked_curr}'")
+        if locked_denom and str(locked_denom).casefold() not in {"không xác định", "unknown", "error", "null", "none"}:
+            lock_instructions.append(f"menh_gia BẮT BUỘC LÀ '{locked_denom}'")
+
+        if lock_instructions:
+            system_prompt += " CẢNH BÁO QUAN TRỌNG: " + ", ".join(lock_instructions) + ". KHÔNG ĐƯỢC PHÉP TRẢ VỀ 'Không xác định' CHO CÁC TRƯỜNG NÀY."
+
     user_prompt = (
         "Hãy format tối đa các evidence compact sau thành đúng một JSON object: "
         + json.dumps(compact_evidence, ensure_ascii=False, separators=(",", ":"))
@@ -233,7 +250,7 @@ def resolve_groq_models() -> List[str]:
 
 
 async def format_lens_evidence(
-    evidence: str, deadline: float
+    evidence: str, deadline: float, locked_identity: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     if not GROQ_AVAILABLE:
         return {
@@ -264,7 +281,7 @@ async def format_lens_evidence(
             response = await asyncio.wait_for(
                 client.chat.completions.create(
                     model=model_name,
-                    messages=build_messages(compact),
+                    messages=build_messages(compact, locked_identity),
                     response_format={"type": "json_object"},
                     temperature=getattr(settings, "AGENT3_GROQ_TEMPERATURE", 0.0),
                     max_completion_tokens=getattr(settings, "AGENT3_GROQ_MAX_OUTPUT_TOKENS", 500),

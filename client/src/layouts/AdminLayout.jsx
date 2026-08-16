@@ -1,9 +1,8 @@
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { useTranslation } from "react-i18next";
-import { useAuthStore } from "../store/authStore";
+import { useAuthStore, getAvatarImageSrc, getAdminInitials } from "../store/authStore";
 import { useAppStore } from "../store/appStore";
-import { useLanguageStore } from "../store/languageStore";
+import { useTranslation } from "react-i18next";
 import { 
   LayoutDashboard, Users, Coins, Settings, LogOut, FileImage, 
   ArrowRightLeft, MessageSquare, Terminal, Landmark, Cpu, 
@@ -17,102 +16,119 @@ const EXPERIMENTS_ENABLED =
   String(import.meta.env.VITE_ENABLE_EXPERIMENT_PAGE ?? "true").toLowerCase() !==
   "false";
 
+function isSafeAvatarUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  const trimmed = url.trim();
+  if (!trimmed || trimmed === "null" || trimmed === "undefined" || trimmed === "none") return false;
+  return (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("data:image/") ||
+    trimmed.startsWith("blob:")
+  );
+}
+
+function AdminUserSidebarAvatar({ user }) {
+  const avatarSrc = getAvatarImageSrc(user);
+  const [imgFailed, setImgFailed] = useState(false);
+  const initials = getAdminInitials(user);
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [avatarSrc]);
+
+  if (avatarSrc && isSafeAvatarUrl(avatarSrc) && !imgFailed) {
+    return (
+      <img
+        src={avatarSrc}
+        alt={user?.full_name || user?.name || "Admin avatar"}
+        className="w-full h-full object-cover"
+        onError={() => setImgFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex h-full w-full items-center justify-center font-black text-xs text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60"
+      aria-label={`Avatar for ${user?.full_name || user?.email || "Admin"}`}
+    >
+      {initials}
+    </span>
+  );
+}
+
 export default function AdminLayout() {
   const { logout, user } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
-  const { i18n } = useTranslation();
-  
+  const { t } = useTranslation();
+
   const lang = useAppStore((state) => state.lang || "EN");
   const theme = useAppStore((state) => state.theme || "light");
   const resolvedTheme = useAppStore((state) => state.resolvedTheme);
-  const setLang = useAppStore((state) => state.setLang);
+  const toggleLang = useAppStore((state) => state.toggleLang);
   const toggleTheme = useAppStore((state) => state.toggleTheme);
   const isDark = (resolvedTheme || theme) === "dark";
-
-  useEffect(() => {
-    if (i18n && typeof i18n.changeLanguage === "function") {
-      i18n.changeLanguage(lang.toLowerCase());
-    }
-    if (typeof useLanguageStore.getState().setLanguage === "function") {
-      useLanguageStore.getState().setLanguage(lang);
-    }
-  }, [lang, i18n]);
 
   const handleLogout = () => {
     logout();
     navigate("/auth/admin-login", { replace: true });
   };
 
-  const toggleLanguage = () => {
-    const nextLang = lang === "EN" ? "VI" : "EN";
-    if (typeof setLang === "function") {
-      setLang(nextLang);
-    } else {
-      useAppStore.setState({ lang: nextLang });
-    }
-
-    if (typeof useLanguageStore.getState().setLanguage === "function") {
-      useLanguageStore.getState().setLanguage(nextLang);
-    }
-
-    if (i18n && typeof i18n.changeLanguage === "function") {
-      i18n.changeLanguage(nextLang.toLowerCase());
-    }
-  };
-
   const navGroups = useMemo(() => [
     {
-      title: lang === "VI" ? "Tổng Quan" : "Overview",
+      title: t("admin.nav.overviewGroup"),
       items: [
-        { name: lang === "VI" ? "Bảng Điều Khiển" : "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" },
+        { name: t("admin.nav.dashboard"), icon: LayoutDashboard, path: "/admin/dashboard" },
       ]
     },
     {
-      title: lang === "VI" ? "Người dùng & Thanh toán" : "User & Payments",
+      title: t("admin.nav.usersGroup"),
       items: [
-        { name: lang === "VI" ? "Người dùng" : "Users", icon: Users, path: "/admin/users" },
-        { name: lang === "VI" ? "Gói Token" : "Token Packages", icon: Coins, path: "/admin/token-packages" },
-        { name: lang === "VI" ? "Giao dịch" : "Transactions", icon: ArrowRightLeft, path: "/admin/transactions" },
-        { name: lang === "VI" ? "Phản hồi" : "Feedbacks", icon: MessageSquare, path: "/admin/feedbacks" },
+        { name: t("admin.nav.users"), icon: Users, path: "/admin/users" },
+        { name: t("admin.nav.tokenPackages"), icon: Coins, path: "/admin/token-packages" },
+        { name: t("admin.nav.transactions"), icon: ArrowRightLeft, path: "/admin/transactions" },
+        { name: t("admin.nav.feedbacks"), icon: MessageSquare, path: "/admin/feedbacks" },
       ]
     },
     {
-      title: lang === "VI" ? "Dữ liệu Nhận diện" : "Recognition Data",
+      title: t("admin.nav.recognitionGroup"),
       items: [
-        { name: lang === "VI" ? "Kết quả" : "Results", icon: Terminal, path: "/admin/results" },
+        { name: t("admin.nav.results"), icon: Terminal, path: "/admin/results" },
         ...(EXPERIMENTS_ENABLED
-          ? [{ name: lang === "VI" ? "Thực nghiệm" : "Experiments", icon: FlaskConical, path: "/admin/experiments" },
+          ? [{ name: t("admin.nav.experiments"), icon: FlaskConical, path: "/admin/experiments" },
              { name: "Benchmark Metrics", icon: FlaskConical, path: "/admin/benchmark-metrics" }]
           : []),
-        { name: lang === "VI" ? "Tiền giấy" : "Banknotes", icon: FileImage, path: "/admin/banknotes" },
-        { name: lang === "VI" ? "Tỷ giá" : "Currency Rates", icon: Landmark, path: "/admin/currency-rates" },
+        { name: t("admin.nav.banknotes"), icon: FileImage, path: "/admin/banknotes" },
+        { name: t("admin.nav.currencyRates"), icon: Landmark, path: "/admin/currency-rates" },
       ]
     },
     {
-      title: lang === "VI" ? "Cấu hình AI Agents" : "AI Agents",
+      title: t("admin.nav.agentsGroup"),
       items: [
-        { name: lang === "VI" ? "Quản lý Agents" : "Agents Manager", icon: Cpu, path: "/admin/agents" },
-        { name: lang === "VI" ? "Cấu hình Agents" : "Agents Config", icon: Settings, path: "/admin/agents/config" },
+        { name: t("admin.nav.agentsManager"), icon: Cpu, path: "/admin/agents" },
+        { name: t("admin.nav.agentsConfig"), icon: Settings, path: "/admin/agents/config" },
         { name: "AG1 OpenAI/GPT Vision", icon: Box, path: "/admin/agents/ai-model" },
         { name: "AG2 Gemini/LLM", icon: BotMessageSquare, path: "/admin/agents/llm" },
         { name: "AG3 Google Lens/Visual Search", icon: SearchCheck, path: "/admin/agents/google-lens" },
         { name: "AG3 Isolated Test", icon: SearchCheck, path: "/admin/ag3-test" },
-        { name: lang === "VI" ? "Tổng hợp" : "Aggregator", icon: GitMerge, path: "/admin/agents/aggregator" },
+        { name: t("admin.nav.aggregator"), icon: GitMerge, path: "/admin/agents/aggregator" },
       ]
     },
     {
-      title: lang === "VI" ? "Hệ thống" : "System",
+      title: t("admin.nav.systemGroup"),
       items: [
-        { name: lang === "VI" ? "Nhật ký Hệ thống" : "System Logs", icon: FileText, path: "/admin/logs" },
-        { name: lang === "VI" ? "Cài đặt" : "Settings", icon: Settings, path: "/admin/settings" },
-        { name: lang === "VI" ? "Quản lý Nội dung" : "Content Manager", icon: FileText, path: "/admin/pages" },
+        { name: t("admin.nav.systemLogs"), icon: FileText, path: "/admin/logs" },
+        { name: t("admin.nav.settings"), icon: Settings, path: "/admin/settings" },
+        { name: t("admin.nav.contentManager"), icon: FileText, path: "/admin/pages" },
       ]
     }
-  ], [lang]);
+  ], [t]);
 
-  // Tìm tên trang hiện tại cho Breadcrumb
+  // Find current page name for Breadcrumb
   const currentPage = useMemo(() => {
     for (const group of navGroups) {
       for (const item of group.items) {
@@ -121,8 +137,8 @@ export default function AdminLayout() {
         }
       }
     }
-    return lang === "VI" ? "Trang quản trị" : "Admin Panel";
-  }, [lang, location.pathname, navGroups]);
+    return t("admin.panel");
+  }, [t, location.pathname, navGroups]);
 
   return (
     <div className={`flex h-screen overflow-hidden font-sans transition-colors duration-300 ${isDark ? "bg-slate-950 text-slate-200" : "bg-slate-50 text-slate-900"}`}>
@@ -146,21 +162,21 @@ export default function AdminLayout() {
               Banknote<span className="text-teal-400">Admin</span>
             </span>
           </div>
-          <button className="lg:hidden p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white" onClick={() => setIsSidebarOpen(false)}>
+          <button
+            className="lg:hidden p-2 text-slate-400 hover:text-slate-900 dark:hover:text-white"
+            onClick={() => setIsSidebarOpen(false)}
+            aria-label={t("admin.panel")}
+          >
             <X size={20} />
           </button>
         </div>
         
         <div className={`px-6 py-5 border-b flex items-center gap-3 ${isDark ? "border-slate-800/60" : "border-slate-200"}`}>
-          <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden">
-            {user?.avatar_url ? (
-               <img src={user.avatar_url} alt="Admin" className="w-full h-full object-cover" />
-            ) : (
-               <UserIcon size={20} className="text-teal-400" />
-            )}
+          <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden shrink-0">
+            <AdminUserSidebarAvatar user={user} />
           </div>
           <div className="overflow-hidden">
-            <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{user?.full_name || user?.name || (lang === "VI" ? "Quản trị viên" : "Admin User")}</p>
+            <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{user?.full_name || user?.name || t("admin.adminUser")}</p>
             <p className="text-xs text-teal-400 font-mono truncate">{user?.email || "admin@system.local"}</p>
           </div>
         </div>
@@ -175,18 +191,19 @@ export default function AdminLayout() {
                 {group.items.map((item) => {
                   const isActive = location.pathname === item.path || (location.pathname.startsWith(item.path + '/') && item.path !== '/admin');
                   return (
-                    <Link 
-                      key={item.name} 
-                      to={item.path} 
+                    <Link
+                      key={item.path}
+                      to={item.path}
                       onClick={() => setIsSidebarOpen(false)}
                       className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all relative ${
-                        isActive 
-                          ? "bg-gradient-to-r from-teal-500/20 to-cyan-500/5 text-teal-400" 
+                        isActive
+                          ? "bg-gradient-to-r from-teal-500/20 to-cyan-500/5 text-teal-400"
                           : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800/50 dark:hover:text-slate-200"
                       }`}
                     >
                       {isActive && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-teal-500 rounded-r-full shadow-[0_0_10px_rgba(20,184,166,0.5)]" />}
-                      <item.icon className="w-4 h-4" /> {item.name}
+                      <item.icon className="w-4 h-4 shrink-0" />
+                      <span className="truncate">{item.name}</span>
                     </Link>
                   );
                 })}
@@ -202,46 +219,64 @@ export default function AdminLayout() {
         {/* TOPBAR */}
         <header className={`h-[72px] flex-shrink-0 flex items-center justify-between px-4 lg:px-6 border-b transition-colors z-20 ${isDark ? "bg-slate-900/50 border-slate-800 backdrop-blur-md" : "bg-white/80 border-slate-200 backdrop-blur-md"}`}>
           <div className="flex items-center gap-3">
-            <button className="lg:hidden p-2 -ml-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition" onClick={() => setIsSidebarOpen(true)}>
+            <button
+              className="lg:hidden p-2 -ml-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              onClick={() => setIsSidebarOpen(true)}
+              aria-label={t("admin.panel")}
+            >
               <Menu size={20} />
             </button>
             <div className="flex items-center gap-2 text-sm font-bold text-slate-500 dark:text-slate-400">
-              <span className="hidden sm:inline">{lang === "VI" ? "Trang quản trị" : "Admin Panel"}</span>
+              <span className="hidden sm:inline">{t("admin.panel")}</span>
               <ChevronRight size={14} className="hidden sm:block" />
-              <span className={`text-teal-600 dark:text-teal-400`}>{currentPage}</span>
+              <span className="text-teal-600 dark:text-teal-400">{currentPage}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2 lg:gap-3">
-            <button onClick={() => navigate("/")} className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border transition ${isDark ? "border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300" : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700"}`}>
-              <Home size={16} /> <span className="hidden sm:inline">{lang === "VI" ? "Về trang User" : "User App"}</span>
+            <button
+              onClick={() => navigate("/")}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold border transition ${isDark ? "border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300" : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700"}`}
+              title={t("admin.userApp")}
+            >
+              <Home size={16} /> <span className="hidden sm:inline">{t("admin.userApp")}</span>
             </button>
             
             <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1"></div>
 
-            <button 
-              onClick={toggleLanguage} 
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition font-bold text-sm ${isDark ? "border-slate-700 bg-slate-800 text-slate-300 hover:text-white" : "border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900"}`} 
-              title={lang === "VI" ? "Đổi ngôn ngữ" : "Change language"}
+            <button
+              onClick={toggleLang}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition font-bold text-sm ${isDark ? "border-slate-700 bg-slate-800 text-slate-300 hover:text-white" : "border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900"}`}
+              title={t("admin.changeLanguage")}
             >
               <Globe size={16} /> {lang}
             </button>
 
-            <button onClick={toggleTheme} className={`p-2 rounded-lg border transition ${isDark ? "border-slate-700 bg-slate-800 text-amber-400 hover:text-amber-300" : "border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900"}`} title={lang === "VI" ? "Đổi giao diện" : "Change theme"}>
+            <button
+              onClick={toggleTheme}
+              className={`p-2 rounded-lg border transition ${isDark ? "border-slate-700 bg-slate-800 text-amber-400 hover:text-amber-300" : "border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900"}`}
+              title={t("admin.changeTheme")}
+              aria-label={t("admin.changeTheme")}
+            >
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             
             <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block"></div>
 
-            <button onClick={handleLogout} className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition ml-1" title={lang === "VI" ? "Đăng xuất" : "Logout"}>
+            <button
+              onClick={handleLogout}
+              className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition ml-1"
+              title={t("admin.logout")}
+              aria-label={t("admin.logout")}
+            >
               <LogOut size={18} />
             </button>
           </div>
         </header>
 
-        {/* PAGE CONTENT CONTAINER (Animated Background) */}
+        {/* PAGE CONTENT CONTAINER */}
         <main className="flex-1 overflow-y-auto relative">
-          {/* Subtle noise/dot background pattern */}
+          {/* Subtle dot background pattern — dark only */}
           <div className={`absolute inset-0 pointer-events-none opacity-[0.03] ${isDark ? 'bg-[url("https://www.transparenttextures.com/patterns/cubes.png")]' : ''}`}></div>
           <div className="relative z-10 p-4 md:p-6 xl:p-8 animate-[fadeInUp_0.3s_ease-out]">
             <Outlet />

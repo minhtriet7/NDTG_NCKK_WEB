@@ -54,6 +54,7 @@ import Dashboard from "../pages/admin/Dashboard.jsx";
 import UsersManager from "../pages/admin/UsersManager.jsx";
 import BanknotesManager from "../pages/admin/BanknotesManager.jsx";
 import ResultsManager from "../pages/admin/ResultsManager.jsx";
+import ResultDiagnostics from "../pages/admin/ResultDiagnostics.jsx";
 import AgentsConfig from "../pages/admin/AgentsConfig.jsx";
 import AgentsManager from "../pages/admin/AgentsManager.jsx";
 import AggregatorConfig from "../pages/admin/AggregatorConfig.jsx";
@@ -210,6 +211,7 @@ export default function AppRoutes() {
 
             {/* Recognition Data */}
             <Route path="/admin/results" element={<ResultsManager />} />
+            <Route path="/admin/results/:id" element={<ResultDiagnostics />} />
             <Route path="/admin/banknotes" element={<BanknotesManager />} />
             <Route
               path="/admin/currency-rates"

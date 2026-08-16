@@ -1,47 +1,21 @@
-import { useTranslation } from "react-i18next";
 import { Sun, Moon, Globe } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
-import { useLanguageStore } from "../../store/languageStore";
 
 export default function ThemeLangToggle() {
-  const appStore = useAppStore();
-  const { i18n } = useTranslation();
+  const theme = useAppStore((state) => state.theme) || "light";
+  const lang = useAppStore((state) => state.lang) || "EN";
+  const resolvedTheme = useAppStore((state) => state.resolvedTheme);
+  const toggleTheme = useAppStore((state) => state.toggleTheme);
+  const toggleLang = useAppStore((state) => state.toggleLang);
 
-  const theme = appStore.theme || "light";
-  const lang = appStore.lang || "EN";
-  const isDark = (appStore.resolvedTheme || theme) === "dark";
+  const isDark = (resolvedTheme || theme) === "dark";
 
   const handleToggleTheme = () => {
-    if (typeof appStore.toggleTheme === "function") {
-      appStore.toggleTheme();
-      return;
-    }
-
-    const nextTheme = isDark ? "light" : "dark";
-    appStore.setTheme?.(nextTheme);
+    toggleTheme();
   };
 
   const handleToggleLang = () => {
-    const nextLang = lang === "EN" ? "VI" : "EN";
-
-    if (typeof appStore.toggleLang === "function") {
-      appStore.toggleLang();
-    } else if (typeof appStore.setLang === "function") {
-      appStore.setLang(nextLang);
-    } else if (typeof appStore.setLanguage === "function") {
-      appStore.setLanguage(nextLang);
-    } else {
-      useAppStore.setState({ lang: nextLang });
-    }
-
-    // Synchronize with the secondary language store used by Result/History pages
-    if (typeof useLanguageStore.getState().setLanguage === "function") {
-      useLanguageStore.getState().setLanguage(nextLang);
-    }
-
-    if (i18n && typeof i18n.changeLanguage === "function") {
-      i18n.changeLanguage(nextLang.toLowerCase());
-    }
+    toggleLang();
   };
 
   return (

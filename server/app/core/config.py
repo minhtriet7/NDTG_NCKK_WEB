@@ -50,6 +50,20 @@ class Settings(BaseSettings):
     VISION_RESIZE_SAVE_DEBUG: bool = True
     VISION_RESIZE_JPEG_QUALITY: int = 85
 
+    # --- AG3 Page Fetch & Async Task Management Settings ---
+    AGENT3_PAGE_FETCH_PER_URL_TIMEOUT_SECONDS: float = 2.5
+    AGENT3_PAGE_FETCH_TOTAL_TIMEOUT_SECONDS: float = 5.0
+    AGENT3_PAGE_FETCH_MAX_CONCURRENCY: int = 3
+
+    # Canonical config for page text limit
+    AGENT3_PAGE_TEXT_MAX_URLS: Optional[int] = None
+    # Legacy alias
+    AGENT3_PAGE_FETCH_MAX_URLS: int = 10
+
+    AGENT3_PAGE_FETCH_MAX_URLS_PER_DOMAIN: int = 2
+    AGENT3_PAGE_FETCH_CACHE_TTL_SECONDS: float = 300.0
+    AGENT3_PAGE_FETCH_FAILURE_CACHE_TTL_SECONDS: float = 60.0
+
     # ============================================================
     # APP
     # ============================================================
@@ -210,6 +224,8 @@ class Settings(BaseSettings):
     AGENT3_SELENIUM_MAX_RETRIES: int = 0
     AGENT3_FORMATTER_TIMEOUT_SECONDS: int = 10
     AGENT3_FORMATTER_MAX_RETRIES: int = 1
+    AGENT3_FAST_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS: float = 10.0
+    AGENT3_RESCUE_CANDIDATE_VERIFICATION_TIMEOUT_SECONDS: float = 10.0
     AGENT3_V2_ENABLED: bool = False
     # Test-only: extended deadline for Selenium in /admin/ag3-test
     AG3_TEST_SELENIUM_TOTAL_DEADLINE_SECONDS: int = 90

@@ -1,18 +1,20 @@
 import { Link, useLocation } from 'react-router-dom';
 import { Book, Shield, Scale, Database } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export default function LegalLayout({ children, title, lastUpdated }) {
   const location = useLocation();
+  const { t } = useTranslation();
 
   const links = [
-    { path: '/legal/privacy', label: 'Privacy Policy', icon: Shield },
-    { path: '/legal/terms', label: 'Terms of Service', icon: Book },
-    { path: '/legal/data-deletion', label: 'Data Deletion', icon: Database },
-    { path: '/legal/ai-disclaimer', label: 'AI Disclaimer', icon: Scale },
+    { path: '/legal/privacy', label: t('footer.links.privacy', 'Privacy Policy'), icon: Shield },
+    { path: '/legal/terms', label: t('footer.links.terms', 'Terms of Service'), icon: Book },
+    { path: '/legal/data-deletion', label: t('footer.links.dataDeletion', 'Data Deletion'), icon: Database },
+    { path: '/legal/ai-disclaimer', label: t('footer.links.aiDisclaimer', 'AI Disclaimer'), icon: Scale },
   ];
 
   return (
-    <div className="w-full bg-background dark:bg-[#0B1120] text-foreground dark:text-[#F8FAFC] font-sans transition-colors duration-300">
+    <div className="w-full bg-background dark:bg-slate-950 text-foreground font-sans transition-colors duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 lg:py-20 flex flex-col lg:flex-row gap-12 lg:gap-24 relative">
         {/* Background Gradients */}
         <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-indigo-500/5 blur-[150px] rounded-full pointer-events-none" />
@@ -22,7 +24,7 @@ export default function LegalLayout({ children, title, lastUpdated }) {
         <aside className="w-full lg:w-64 shrink-0 relative z-10 lg:border-r lg:border-slate-100 lg:dark:border-slate-800/60 lg:pr-8">
           <div className="lg:sticky lg:top-32">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-6 pl-3">
-              Legal & Policy
+              {t('legal.policyTitle', 'Legal & Policy')}
             </h3>
             <nav className="flex flex-row overflow-x-auto lg:flex-col gap-1.5 pb-4 lg:pb-0 scrollbar-none">
               {links.map((link) => {
@@ -33,8 +35,8 @@ export default function LegalLayout({ children, title, lastUpdated }) {
                     key={link.path}
                     to={link.path}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-300 whitespace-nowrap
-                      ${isActive 
-                        ? 'bg-indigo-50 dark:bg-[#1E293B]/80 text-indigo-600 dark:text-indigo-400 shadow-sm border border-indigo-100 dark:border-indigo-500/20' 
+                      ${isActive
+                        ? 'bg-indigo-50 dark:bg-slate-800/80 text-indigo-600 dark:text-indigo-400 shadow-sm border border-indigo-100 dark:border-indigo-500/20'
                         : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200'
                       }`}
                   >
@@ -52,19 +54,19 @@ export default function LegalLayout({ children, title, lastUpdated }) {
           <div className="mb-10 lg:mb-14">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-bold uppercase tracking-wider mb-6">
               <Shield className="w-3.5 h-3.5" />
-              Legal Document
+              {t('legal.documentBadge', 'Legal Document')}
             </div>
             <h1 className="text-4xl lg:text-5xl font-black tracking-tight mb-4 text-transparent bg-clip-text bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400">
               {title}
             </h1>
             {lastUpdated && (
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-6">
-                Last updated: {lastUpdated}
+                {t('legal.lastUpdated', 'Last updated:')} {lastUpdated}
               </p>
             )}
           </div>
           
-          <div className="bg-white dark:bg-[#0F172A] shadow-2xl shadow-slate-200/50 dark:shadow-black/40 border border-slate-200/60 dark:border-slate-800/60 rounded-[2rem] p-8 sm:p-12 relative overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 shadow-2xl shadow-slate-200/50 dark:shadow-black/40 border border-slate-200/60 dark:border-slate-800/60 rounded-[2rem] p-8 sm:p-12 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-indigo-500/5 to-transparent rounded-full pointer-events-none" />
             
             <div className="prose prose-slate dark:prose-invert prose-indigo max-w-none 
@@ -83,4 +85,3 @@ export default function LegalLayout({ children, title, lastUpdated }) {
     </div>
   );
 }
-

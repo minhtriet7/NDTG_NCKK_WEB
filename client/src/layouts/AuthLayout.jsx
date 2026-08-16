@@ -1,6 +1,5 @@
-import React from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { ArrowLeft, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import ThemeLangToggle from '../components/common/ThemeLangToggle';
 import { useAppStore } from '../store/appStore';
 
@@ -18,7 +17,7 @@ export default function AuthLayout() {
   const adminBg = "https://res.cloudinary.com/dg0qiq4zd/image/upload/v1779542096/ChatGPT_Image_20_13_15_23_thg_5_2026_rosfzj.png";
   
   return (
-    <div className={`relative min-h-screen flex justify-center items-center p-0 md:p-4 font-sans overflow-hidden transition-colors duration-500 ${isDark ? 'bg-[#0B1120]' : 'bg-slate-50'}`}>
+    <div className={`relative min-h-screen flex justify-center items-center p-0 md:p-4 font-sans overflow-hidden transition-colors duration-500 ${isDark ? 'bg-slate-950' : 'bg-slate-50'}`}>
       
       {/* Dynamic Background Effects */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-500/20 dark:bg-indigo-600/20 blur-[120px] pointer-events-none"></div>
@@ -49,7 +48,7 @@ export default function AuthLayout() {
         <div 
           className={`absolute top-0 bottom-0 left-0 w-full md:w-1/2 h-full flex flex-col items-center justify-center p-6 sm:p-12 z-20 transition-transform duration-[800ms] cubic-bezier-auth ${
             isLogin ? 'translate-x-0' : 'md:translate-x-full'
-          } ${isDark ? 'bg-[#0F172A]/80 backdrop-blur-2xl' : 'bg-white/80 backdrop-blur-2xl'}`}
+          } ${isDark ? 'bg-slate-900/80 backdrop-blur-2xl' : 'bg-white/80 backdrop-blur-2xl'}`}
         >
           <div className="w-full max-w-[380px]">
             <Outlet />
